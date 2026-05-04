@@ -5,7 +5,7 @@ This file is the working checklist for continuing the `ai-sdlc-platform` impleme
 ## Current branch
 
 ```text
-ai/001-shared-domain-models
+ai/002-risk-rules-engine
 ```
 
 ## Current status
@@ -17,59 +17,44 @@ ai/001-shared-domain-models
 - [x] Duplicate shared model definitions removed from PR branch
 - [x] Invalid placeholder test namespaces fixed
 - [x] Missing `using Xunit;` imports added to test files
-- [ ] Confirm `dotnet build` passes locally
-- [ ] Confirm `dotnet test` passes locally
-- [ ] Merge PR #1 once build/test passes
+- [x] Confirm `dotnet build` passes locally
+- [x] Confirm `dotnet test` passes locally
+- [x] Merge PR #1 once build/test passes
 
 ---
 
 ## Immediate next steps
 
-Run locally from the repository root:
+Current branch status:
 
 ```powershell
 cd C:\SnapDev\ai-sdlc-platform
-git checkout ai/001-shared-domain-models
-git pull
-dotnet clean
-dotnet restore
 dotnet build
 dotnet test
 ```
 
-If the build or tests fail, paste the error into Codex CLI or ChatGPT and fix before merging.
+Then:
+
+1. Open a PR for `ai/002-risk-rules-engine`.
+2. Review the branch as one combined foundation slice covering phases 2-8.
+3. Merge once CI passes.
 
 ---
 
-## Codex CLI prompt: fix current PR branch
+## Current session summary
 
-Use this prompt if the current branch still fails to build:
+- [x] Phase 2 complete: deterministic risk rules engine
+- [x] Phase 3 complete: in-memory audit service
+- [x] Phase 4 complete: GitHub service contracts
+- [x] Phase 5 complete: agent runtime foundation
+- [x] Phase 6 complete: model provider contracts
+- [x] Phase 7 complete: Durable Functions orchestrator skeleton
+- [x] Phase 8 complete: GitHub Actions CI workflow
 
-```text
-You are working in the ai-sdlc-platform repository on branch ai/001-shared-domain-models.
+Remaining intentional defer items:
 
-Goal:
-Make the current branch build and test cleanly.
-
-Context:
-This is the reusable AI SDLC orchestration platform, not an application repo.
-The target application stack for onboarded apps is React frontend and C# / ASP.NET Core backend. Do not introduce Next.js.
-
-Current task:
-1. Run dotnet restore.
-2. Run dotnet build.
-3. Run dotnet test.
-4. Fix any compile/test errors.
-5. Keep changes minimal and scoped to the current PR.
-6. Do not implement real GitHub, Azure, OpenAI, Azure OpenAI, or AI Foundry calls yet.
-7. Do not rename projects unless required to make the solution build.
-8. Preserve the existing project layout.
-9. Commit the fixes with a clear message.
-
-Expected outcome:
-- dotnet build passes
-- dotnet test passes
-```
+- [ ] Do not add Azure Storage/Cosmos/Blob audit implementations yet
+- [ ] Do not implement live GitHub API calls yet
 
 ---
 
@@ -94,10 +79,10 @@ Create the shared vocabulary used by the orchestrator, agents, GitHub integratio
 
 ### Validation
 
-- [ ] `dotnet build` passes
-- [ ] `dotnet test` passes
-- [ ] PR reviewed
-- [ ] PR merged to `main`
+- [x] `dotnet build` passes
+- [x] `dotnet test` passes
+- [x] PR reviewed
+- [x] PR merged to `main`
 
 ---
 
@@ -136,32 +121,32 @@ tests/AiSdlc.Risk.Tests/
 
 ## Suggested behaviour
 
-- [ ] Accept changed file paths
-- [ ] Accept affected areas
-- [ ] Accept quality gate results
-- [ ] Accept whether Terraform changed
-- [ ] Accept whether database migrations changed
-- [ ] Accept whether auth/payment/security/privacy areas changed
-- [ ] Return `RiskLevel`
-- [ ] Return `RiskDecision`
-- [ ] Return rationale
-- [ ] Return triggered rules/signals
+- [x] Accept changed file paths
+- [x] Accept affected areas
+- [x] Accept quality gate results
+- [x] Accept whether Terraform changed
+- [x] Accept whether database migrations changed
+- [x] Accept whether auth/payment/security/privacy areas changed
+- [x] Return `RiskLevel`
+- [x] Return `RiskDecision`
+- [x] Return rationale
+- [x] Return triggered rules/signals
 
 ## Initial deterministic rules
 
-- [ ] Docs-only changes default to low risk
-- [ ] Tests-only changes default to low risk
-- [ ] Simple frontend/content changes default to low risk
-- [ ] API changes default to medium risk
-- [ ] Database migration changes default to medium risk
-- [ ] Terraform changes default to medium risk
-- [ ] GitHub Actions workflow changes default to medium risk
-- [ ] Authentication/authorisation changes default to high risk
-- [ ] Payment/checkout changes default to high risk
-- [ ] Personal data handling changes default to high risk
-- [ ] Secrets/Key Vault changes default to high risk
-- [ ] Failed mandatory quality gates prevent autonomous continuation
-- [ ] Unknown/ambiguous signal prevents autonomous continuation
+- [x] Docs-only changes default to low risk
+- [x] Tests-only changes default to low risk
+- [x] Simple frontend/content changes default to low risk
+- [x] API changes default to medium risk
+- [x] Database migration changes default to medium risk
+- [x] Terraform changes default to medium risk
+- [x] GitHub Actions workflow changes default to medium risk
+- [x] Authentication/authorisation changes default to high risk
+- [x] Payment/checkout changes default to high risk
+- [x] Personal data handling changes default to high risk
+- [x] Secrets/Key Vault changes default to high risk
+- [x] Failed mandatory quality gates prevent autonomous continuation
+- [x] Unknown/ambiguous signal prevents autonomous continuation
 
 ## Codex CLI prompt: risk rules engine
 
@@ -205,11 +190,11 @@ tests/AiSdlc.Audit.Tests/
 
 ## Tasks
 
-- [ ] Confirm `IAuditService` exists and compiles
-- [ ] Create `InMemoryAuditService`
-- [ ] Add ability to write an `AuditEvent`
-- [ ] Add ability to retrieve events by `RunId`
-- [ ] Add tests
+- [x] Confirm `IAuditService` exists and compiles
+- [x] Create `InMemoryAuditService`
+- [x] Add ability to write an `AuditEvent`
+- [x] Add ability to retrieve events by `RunId`
+- [x] Add tests
 - [ ] Defer Azure Storage/Cosmos/Blob implementations
 
 ## Codex CLI prompt: audit service
@@ -252,13 +237,13 @@ src/AiSdlc.GitHub/
 
 ## Tasks
 
-- [ ] Define `IGitHubService`
-- [ ] Add methods for reading issues/comments
-- [ ] Add methods for writing issue/PR comments
-- [ ] Add methods for labels
-- [ ] Add methods for PR creation
-- [ ] Add methods for changed files/check results
-- [ ] Add simple tests or compile checks
+- [x] Define `IGitHubService`
+- [x] Add methods for reading issues/comments
+- [x] Add methods for writing issue/PR comments
+- [x] Add methods for labels
+- [x] Add methods for PR creation
+- [x] Add methods for changed files/check results
+- [x] Add simple tests or compile checks
 - [ ] Do not implement live GitHub API calls yet
 
 ## Codex CLI prompt: GitHub service contracts
@@ -302,13 +287,13 @@ src/AiSdlc.Agents/
 
 ## Tasks
 
-- [ ] Define `IAgent`
-- [ ] Define `IAgentRunner`
-- [ ] Add `AgentRunner`
-- [ ] Add stub persona classes
-- [ ] Each stub should return an `AgentResult`
-- [ ] No real model calls yet
-- [ ] Add unit tests
+- [x] Define `IAgent`
+- [x] Define `IAgentRunner`
+- [x] Add `AgentRunner`
+- [x] Add stub persona classes
+- [x] Each stub should return an `AgentResult`
+- [x] No real model calls yet
+- [x] Add unit tests
 
 ## Codex CLI prompt: agent runtime
 
@@ -347,10 +332,10 @@ src/AiSdlc.ModelProviders/
 
 ## Tasks
 
-- [ ] Add provider abstraction
-- [ ] Add request/response models
-- [ ] Add stub provider for tests
-- [ ] No live provider calls yet
+- [x] Add provider abstraction
+- [x] Add request/response models
+- [x] Add stub provider for tests
+- [x] No live provider calls yet
 
 ## Codex CLI prompt: model provider contracts
 
@@ -388,12 +373,12 @@ src/AiSdlc.Orchestrator/
 
 ## Tasks
 
-- [ ] Add orchestrator function skeleton
-- [ ] Add HTTP-triggered webhook placeholder
-- [ ] Add activity function placeholders
-- [ ] No real GitHub webhook validation yet
-- [ ] No real agent execution yet unless already available through interfaces
-- [ ] Build/test passes
+- [x] Add orchestrator function skeleton
+- [x] Add HTTP-triggered webhook placeholder
+- [x] Add activity function placeholders
+- [x] No real GitHub webhook validation yet
+- [x] No real agent execution yet unless already available through interfaces
+- [x] Build/test passes
 
 ## Codex CLI prompt: orchestrator skeleton
 
@@ -428,12 +413,12 @@ Add CI so build/test runs automatically on PRs.
 
 ## Tasks
 
-- [ ] Trigger on pull requests to `main`
-- [ ] Trigger on pushes to `main`
-- [ ] Setup .NET 8 SDK
-- [ ] Run `dotnet restore`
-- [ ] Run `dotnet build --no-restore`
-- [ ] Run `dotnet test --no-build`
+- [x] Trigger on pull requests to `main`
+- [x] Trigger on pushes to `main`
+- [x] Setup .NET 8 SDK
+- [x] Run `dotnet restore`
+- [x] Run `dotnet build --no-restore`
+- [x] Run `dotnet test --no-build`
 
 ## Codex CLI prompt: CI workflow
 
@@ -456,14 +441,14 @@ Requirements:
 
 # Working rules for Codex
 
-- [ ] Keep each slice small.
-- [ ] Create one branch per slice.
-- [ ] Make sure `dotnet build` passes before moving on.
-- [ ] Make sure `dotnet test` passes before moving on.
+- [x] Keep each slice small.
+- [x] Create one branch per slice.
+- [x] Make sure `dotnet build` passes before moving on.
+- [x] Make sure `dotnet test` passes before moving on.
 - [ ] Do not implement live external integrations until interfaces and tests are stable.
-- [ ] Prefer deterministic code before AI/model behaviour.
-- [ ] Avoid introducing Next.js; v1 application target stack is React + C#.
-- [ ] Keep the platform repo separate from application repos.
+- [x] Prefer deterministic code before AI/model behaviour.
+- [x] Avoid introducing Next.js; v1 application target stack is React + C#.
+- [x] Keep the platform repo separate from application repos.
 - [ ] Use PRs for every meaningful change.
 
 ---

@@ -12,7 +12,6 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\AiSdlc.Agents\AiSdlc.Agents.csproj" />
-    <ProjectReference Include="..\..\src\AiSdlc.Shared\AiSdlc.Shared.csproj" />
+    <ProjectReference Include="..\..\src\AiSdlc.ModelProviders\AiSdlc.ModelProviders.csproj" />
   </ItemGroup>
 </Project>

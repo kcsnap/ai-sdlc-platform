@@ -4,5 +4,6 @@ namespace AiSdlc.Audit;
 
 public interface IAuditService
 {
-    Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken);
+    Task<AuditWriteResult> WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken);
+    Task<IReadOnlyList<AuditEvent>> GetByRunIdAsync(string runId, CancellationToken cancellationToken);
 }
