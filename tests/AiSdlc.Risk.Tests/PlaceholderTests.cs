@@ -1,4 +1,6 @@
-namespace AiSdlc.Risk.Tests.Replace(".", "_");
+using Xunit;
+
+namespace AiSdlc.Risk.Tests;
 
 public sealed class PlaceholderTests
 {

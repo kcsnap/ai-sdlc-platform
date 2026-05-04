@@ -1,4 +1,6 @@
-namespace AiSdlc.Agents.Tests.Replace(".", "_");
+using Xunit;
+
+namespace AiSdlc.Agents.Tests;
 
 public sealed class PlaceholderTests
 {
