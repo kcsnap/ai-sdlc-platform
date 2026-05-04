@@ -7,27 +7,25 @@ public sealed class DomainModelsTests
     [Fact]
     public void AgentContext_ShouldStoreRequiredWorkflowInformation()
     {
-        var artefact = new ArtefactReference("brief", "markdown", "artefacts/refined-brief.md");
-
         var context = new AgentContext
         {
             RunId = "run-001",
             Repository = "kcsnap/ai-sdlc-platform",
             IssueNumber = 1,
-            CurrentState = WorkflowRunStatus.Analysing,
+            CurrentState = WorkflowRunStatus.Analysing.ToString(),
             RequestedAgent = "BusinessAnalyst",
-            Artefacts = new Dictionary<string, ArtefactReference>
+            ArtefactRefs = new Dictionary<string, string>
             {
-                ["refinedBrief"] = artefact
+                ["refinedBrief"] = "artefacts/refined-brief.md"
             }
         };
 
         Assert.Equal("run-001", context.RunId);
         Assert.Equal("kcsnap/ai-sdlc-platform", context.Repository);
         Assert.Equal(1, context.IssueNumber);
-        Assert.Equal(WorkflowRunStatus.Analysing, context.CurrentState);
+        Assert.Equal("Analysing", context.CurrentState);
         Assert.Equal("BusinessAnalyst", context.RequestedAgent);
-        Assert.Same(artefact, context.Artefacts["refinedBrief"]);
+        Assert.Equal("artefacts/refined-brief.md", context.ArtefactRefs["refinedBrief"]);
     }
 
     [Fact]
@@ -38,8 +36,8 @@ public sealed class DomainModelsTests
             AgentName = "ProductOwner",
             Status = "NeedsClarification",
             Summary = "More information is required.",
-            FollowUpQuestions = new[] { "Who is the target user?" },
-            BlockingIssues = new[] { "Acceptance criteria are missing." }
+            FollowUpQuestions = new List<string> { "Who is the target user?" },
+            BlockingIssues = new List<string> { "Acceptance criteria are missing." }
         };
 
         Assert.Equal("ProductOwner", result.AgentName);
@@ -62,7 +60,7 @@ public sealed class DomainModelsTests
         };
 
         Assert.Equal(RiskLevel.Unknown, run.RiskLevel);
-        Assert.Equal(RiskDecision.Unknown, run.RiskDecision);
+        Assert.Equal("Unknown", run.RiskDecision);
     }
 
     [Fact]
@@ -79,13 +77,13 @@ public sealed class DomainModelsTests
             Action = "RiskAssessmentCompleted",
             Summary = "Change is eligible for autonomous deployment.",
             Decision = RiskDecision.ContinueAutonomously.ToString(),
-            RiskLevel = AiSdlc.Shared.RiskLevel.Low,
+            RiskLevel = RiskLevel.Low.ToString(),
             RedactionApplied = true
         };
 
         Assert.Equal("RiskAssessor", auditEvent.ActorName);
         Assert.Equal("RiskAssessmentCompleted", auditEvent.Action);
-        Assert.Equal(AiSdlc.Shared.RiskLevel.Low, auditEvent.RiskLevel);
+        Assert.Equal("Low", auditEvent.RiskLevel);
         Assert.True(auditEvent.RedactionApplied);
     }
 }
