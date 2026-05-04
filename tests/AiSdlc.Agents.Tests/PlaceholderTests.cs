@@ -1,3 +1,5 @@
+using Xunit;
+
 namespace AiSdlc.Agents.Tests;
 
 public sealed class PlaceholderTests
