@@ -1,4 +1,4 @@
-namespace AiSdlc.Risk.Tests.Replace(".", "_");
+namespace AiSdlc.Risk.Tests;
 
 public sealed class PlaceholderTests
 {
