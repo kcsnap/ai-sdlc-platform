@@ -1,4 +1,4 @@
-namespace AiSdlc.GitHub.Tests.Replace(".", "_");
+namespace AiSdlc.GitHub.Tests;
 
 public sealed class PlaceholderTests
 {
