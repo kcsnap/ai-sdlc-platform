@@ -1,3 +1,5 @@
+using Xunit;
+
 namespace AiSdlc.Risk.Tests;
 
 public sealed class PlaceholderTests
