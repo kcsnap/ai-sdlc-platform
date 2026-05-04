@@ -1,4 +1,4 @@
-namespace AiSdlc.Orchestrator.Tests.Replace(".", "_");
+namespace AiSdlc.Orchestrator.Tests;
 
 public sealed class PlaceholderTests
 {
