@@ -1,3 +1,5 @@
+using Xunit;
+
 namespace AiSdlc.GitHub.Tests;
 
 public sealed class PlaceholderTests
