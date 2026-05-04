@@ -1,0 +1,73 @@
+version: 1
+
+application:
+  name: ai-sdlc-platform
+  type: platform-orchestration-service
+  backend:
+    primary: dotnet
+  database:
+    primary: recommended-per-solution
+
+repository:
+  default_branch: main
+  branch_prefix: ai/
+  ownership_model: one-repo-per-platform
+
+environments:
+  - dev
+  - test
+  - staging
+  - production
+
+automation:
+  require_product_owner_brief_approval: true
+  allow_low_risk_auto_merge: true
+  allow_low_risk_production_deploy: true
+  rollback_mode: hybrid
+
+risk:
+  model: hybrid
+  auto_deploy_threshold: low
+  coverage_drop_behaviour: warn
+  human_review_routing: risk-based
+
+compliance:
+  gdpr: required
+  owasp_top_10: required
+
+quality_gates:
+  unit_tests: required
+  integration_tests: required
+  e2e_tests: required_where_applicable
+  accessibility_tests: required_where_ui_changed
+  lighthouse: required_where_ui_changed
+  linting: required
+  formatting: required
+  sast: required_if_free
+  dependency_scanning: required_if_free
+  secret_scanning: required_if_free
+  terraform_validate: required
+  terraform_plan: required
+  iac_scanning: required_if_free
+  coverage: warn_on_drop
+
+agents:
+  product_strategist: enabled
+  product_owner: enabled
+  business_analyst: enabled
+  ux_accessibility_reviewer: conditional
+  content_seo_reviewer: conditional
+  data_analytics_reviewer: conditional
+  compliance_legal_reviewer: conditional
+  architect: enabled
+  coder: enabled
+  qa_test_engineer: enabled
+  senior_coder: enabled
+  security_privacy_reviewer: enabled
+  devops_platform_engineer: conditional
+  risk_assessor: enabled
+  release_manager: enabled
+
+documentation:
+  generate_missing_baseline_docs: true
+  maintain_adrs: true

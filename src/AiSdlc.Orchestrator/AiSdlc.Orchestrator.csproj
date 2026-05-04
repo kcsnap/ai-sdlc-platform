@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AzureFunctionsVersion>v4</AzureFunctionsVersion>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="1.22.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="1.17.4" OutputItemType="Analyzer" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http" Version="3.2.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.DurableTask" Version="1.1.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AiSdlc.Shared\AiSdlc.Shared.csproj" />
+    <ProjectReference Include="..\AiSdlc.Agents\AiSdlc.Agents.csproj" />
+    <ProjectReference Include="..\AiSdlc.GitHub\AiSdlc.GitHub.csproj" />
+    <ProjectReference Include="..\AiSdlc.Risk\AiSdlc.Risk.csproj" />
+    <ProjectReference Include="..\AiSdlc.Audit\AiSdlc.Audit.csproj" />
+    <ProjectReference Include="..\AiSdlc.ModelProviders\AiSdlc.ModelProviders.csproj" />
+  </ItemGroup>
+</Project>
