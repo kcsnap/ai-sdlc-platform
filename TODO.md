@@ -19,16 +19,16 @@ launchcart
 
 ## Working rules
 
-- [ ] Keep each implementation slice small.
-- [ ] Create one branch per slice.
+- [x] Keep each implementation slice small.
+- [x] Create one branch per slice.
 - [ ] Use PRs for every meaningful change.
-- [ ] Ensure `dotnet build` passes before moving on.
-- [ ] Ensure `dotnet test` passes before moving on.
+- [x] Ensure `dotnet build` passes before moving on.
+- [x] Ensure `dotnet test` passes before moving on.
 - [ ] Add/update tests with every code change.
 - [ ] Do not implement live external integrations until interfaces and tests are stable.
-- [ ] Prefer deterministic code before AI/model behaviour.
-- [ ] Avoid introducing Next.js; v1 application target stack is React + C#.
-- [ ] Keep the platform repo separate from application repos.
+- [x] Prefer deterministic code before AI/model behaviour.
+- [x] Avoid introducing Next.js; v1 application target stack is React + C#.
+- [x] Keep the platform repo separate from application repos.
 - [ ] Keep provider-specific code behind abstractions.
 - [ ] Keep secrets out of prompts, tests, source files and logs.
 
@@ -71,13 +71,13 @@ Purpose: create the shared vocabulary used by the orchestrator, agents, GitHub i
 
 ## 1.2 Solution hygiene
 
-- [ ] Confirm every project is included in `AiSdlc.sln`
-- [ ] Remove any redundant placeholder code once real tests exist
+- [x] Confirm every project is included in `AiSdlc.sln`
+- [x] Remove any redundant placeholder code once real tests exist
 - [ ] Add solution-level `Directory.Build.props`
 - [ ] Add nullable/reference/analyser settings consistently
 - [ ] Add common code style/analyser packages if required
 - [ ] Add architecture decision record for initial platform structure
-- [ ] Add contribution guide
+- [x] Add contribution guide
 - [ ] Add local developer setup guide
 
 ## Codex CLI prompt
@@ -113,39 +113,39 @@ tests/AiSdlc.Risk.Tests/
 
 ## Tasks
 
-- [ ] Accept changed file paths
-- [ ] Accept affected areas
-- [ ] Accept quality gate results
-- [ ] Accept whether Terraform changed
-- [ ] Accept whether database migrations changed
-- [ ] Accept whether GitHub Actions workflows changed
-- [ ] Accept whether auth/payment/security/privacy areas changed
-- [ ] Accept whether personal data handling changed
-- [ ] Accept whether secrets/Key Vault changed
-- [ ] Return `RiskLevel`
-- [ ] Return `RiskDecision`
-- [ ] Return rationale
-- [ ] Return triggered rules/signals
+- [x] Accept changed file paths
+- [x] Accept affected areas
+- [x] Accept quality gate results
+- [x] Accept whether Terraform changed
+- [x] Accept whether database migrations changed
+- [x] Accept whether GitHub Actions workflows changed
+- [x] Accept whether auth/payment/security/privacy areas changed
+- [x] Accept whether personal data handling changed
+- [x] Accept whether secrets/Key Vault changed
+- [x] Return `RiskLevel`
+- [x] Return `RiskDecision`
+- [x] Return rationale
+- [x] Return triggered rules/signals
 - [ ] Support configurable thresholds later
-- [ ] Add tests for low, medium and high risk scenarios
-- [ ] Add tests for failed mandatory quality gates
-- [ ] Add tests for unknown/ambiguous risk
+- [x] Add tests for low, medium and high risk scenarios
+- [x] Add tests for failed mandatory quality gates
+- [x] Add tests for unknown/ambiguous risk
 
 ## Initial deterministic rules
 
-- [ ] Docs-only changes default to low risk
-- [ ] Tests-only changes default to low risk
-- [ ] Simple frontend/content changes default to low risk
-- [ ] API changes default to medium risk
-- [ ] Database migration changes default to medium risk
-- [ ] Terraform changes default to medium risk
-- [ ] GitHub Actions workflow changes default to medium risk
-- [ ] Authentication/authorisation changes default to high risk
-- [ ] Payment/checkout changes default to high risk
-- [ ] Personal data handling changes default to high risk
-- [ ] Secrets/Key Vault changes default to high risk
-- [ ] Failed mandatory quality gates prevent autonomous continuation
-- [ ] Unknown/ambiguous signal prevents autonomous continuation
+- [x] Docs-only changes default to low risk
+- [x] Tests-only changes default to low risk
+- [x] Simple frontend/content changes default to low risk
+- [x] API changes default to medium risk
+- [x] Database migration changes default to medium risk
+- [x] Terraform changes default to medium risk
+- [x] GitHub Actions workflow changes default to medium risk
+- [x] Authentication/authorisation changes default to high risk
+- [x] Payment/checkout changes default to high risk
+- [x] Personal data handling changes default to high risk
+- [x] Secrets/Key Vault changes default to high risk
+- [x] Failed mandatory quality gates prevent autonomous continuation
+- [x] Unknown/ambiguous signal prevents autonomous continuation
 
 ## Codex CLI prompt
 
@@ -182,11 +182,11 @@ tests/AiSdlc.Audit.Tests/
 
 Tasks:
 
-- [ ] Confirm `IAuditService` exists and compiles
-- [ ] Create `InMemoryAuditService`
-- [ ] Add ability to write an `AuditEvent`
-- [ ] Add ability to retrieve events by `RunId`
-- [ ] Add tests
+- [x] Confirm `IAuditService` exists and compiles
+- [x] Create `InMemoryAuditService`
+- [x] Add ability to write an `AuditEvent`
+- [x] Add ability to retrieve events by `RunId`
+- [x] Add tests
 - [ ] Defer Azure Storage/Cosmos/Blob implementations
 
 ## 3.2 Secure audit storage later
@@ -247,13 +247,13 @@ src/AiSdlc.GitHub/
 
 Tasks:
 
-- [ ] Define `IGitHubService`
-- [ ] Add methods for reading issues/comments
-- [ ] Add methods for writing issue/PR comments
-- [ ] Add methods for labels
-- [ ] Add methods for branch/PR creation
-- [ ] Add methods for changed files/check results
-- [ ] Add compile/tests
+- [x] Define `IGitHubService`
+- [x] Add methods for reading issues/comments
+- [x] Add methods for writing issue/PR comments
+- [x] Add methods for labels
+- [x] Add methods for branch/PR creation
+- [x] Add methods for changed files/check results
+- [x] Add compile/tests
 - [ ] Do not implement live GitHub API calls yet
 
 ## 4.2 Real GitHub implementation later
@@ -316,14 +316,14 @@ src/AiSdlc.Agents/
 
 Tasks:
 
-- [ ] Define `IAgent`
-- [ ] Define `IAgentRunner`
-- [ ] Add `AgentRunner`
-- [ ] Add stub persona classes
-- [ ] Each stub should return an `AgentResult`
-- [ ] No real model calls yet
-- [ ] Add tests for successful execution
-- [ ] Add tests for unknown agent handling
+- [x] Define `IAgent`
+- [x] Define `IAgentRunner`
+- [x] Add `AgentRunner`
+- [x] Add stub persona classes
+- [x] Each stub should return an `AgentResult`
+- [x] No real model calls yet
+- [x] Add tests for successful execution
+- [x] Add tests for unknown agent handling
 
 ## 5.2 Full persona list
 
@@ -406,11 +406,11 @@ src/AiSdlc.ModelProviders/
 
 Tasks:
 
-- [ ] Add provider abstraction
-- [ ] Add request/response models
-- [ ] Add stub/fake provider for tests
-- [ ] No live provider calls yet
-- [ ] Add tests
+- [x] Add provider abstraction
+- [x] Add request/response models
+- [x] Add stub/fake provider for tests
+- [x] No live provider calls yet
+- [x] Add tests
 
 ## 6.2 Azure OpenAI provider later
 
@@ -467,12 +467,12 @@ src/AiSdlc.Orchestrator/
 
 Tasks:
 
-- [ ] Add orchestrator function skeleton
-- [ ] Add HTTP-triggered webhook placeholder
-- [ ] Add activity function placeholders
-- [ ] No real GitHub webhook validation yet
-- [ ] No real agent execution yet unless already available through interfaces
-- [ ] Build/test passes
+- [x] Add orchestrator function skeleton
+- [x] Add HTTP-triggered webhook placeholder
+- [x] Add activity function placeholders
+- [x] No real GitHub webhook validation yet
+- [x] No real agent execution yet unless already available through interfaces
+- [x] Build/test passes
 
 ## 7.2 Workflow states
 
@@ -617,12 +617,12 @@ Suggested file:
 
 Tasks:
 
-- [ ] Trigger on PRs to `main`
-- [ ] Trigger on pushes to `main`
-- [ ] Setup .NET 8 SDK
-- [ ] Run `dotnet restore`
-- [ ] Run `dotnet build --configuration Release --no-restore`
-- [ ] Run `dotnet test --configuration Release --no-build`
+- [x] Trigger on PRs to `main`
+- [x] Trigger on pushes to `main`
+- [x] Setup .NET 8 SDK
+- [x] Run `dotnet restore`
+- [x] Run `dotnet build --configuration Release --no-restore`
+- [x] Run `dotnet test --configuration Release --no-build`
 
 ## 10.2 Platform quality gates
 
