@@ -9,3 +9,4 @@ local.settings.json
 .terraform/
 *.tfstate
 *.tfstate.*
+_bootstrap/
