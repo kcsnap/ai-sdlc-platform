@@ -19,16 +19,16 @@ launchcart
 
 ## Working rules
 
-- [ ] Keep each implementation slice small.
-- [ ] Create one branch per slice.
+- [x] Keep each implementation slice small.
+- [x] Create one branch per slice.
 - [ ] Use PRs for every meaningful change.
-- [ ] Ensure `dotnet build` passes before moving on.
-- [ ] Ensure `dotnet test` passes before moving on.
+- [x] Ensure `dotnet build` passes before moving on.
+- [x] Ensure `dotnet test` passes before moving on.
 - [ ] Add/update tests with every code change.
 - [ ] Do not implement live external integrations until interfaces and tests are stable.
-- [ ] Prefer deterministic code before AI/model behaviour.
-- [ ] Avoid introducing Next.js; v1 application target stack is React + C#.
-- [ ] Keep the platform repo separate from application repos.
+- [x] Prefer deterministic code before AI/model behaviour.
+- [x] Avoid introducing Next.js; v1 application target stack is React + C#.
+- [x] Keep the platform repo separate from application repos.
 - [ ] Keep provider-specific code behind abstractions.
 - [ ] Keep secrets out of prompts, tests, source files and logs.
 
@@ -247,13 +247,13 @@ src/AiSdlc.GitHub/
 
 Tasks:
 
-- [ ] Define `IGitHubService`
-- [ ] Add methods for reading issues/comments
-- [ ] Add methods for writing issue/PR comments
-- [ ] Add methods for labels
-- [ ] Add methods for branch/PR creation
-- [ ] Add methods for changed files/check results
-- [ ] Add compile/tests
+- [x] Define `IGitHubService`
+- [x] Add methods for reading issues/comments
+- [x] Add methods for writing issue/PR comments
+- [x] Add methods for labels
+- [x] Add methods for branch/PR creation
+- [x] Add methods for changed files/check results
+- [x] Add compile/tests
 - [ ] Do not implement live GitHub API calls yet
 
 ## 4.2 Real GitHub implementation later
@@ -406,11 +406,11 @@ src/AiSdlc.ModelProviders/
 
 Tasks:
 
-- [ ] Add provider abstraction
-- [ ] Add request/response models
-- [ ] Add stub/fake provider for tests
-- [ ] No live provider calls yet
-- [ ] Add tests
+- [x] Add provider abstraction
+- [x] Add request/response models
+- [x] Add stub/fake provider for tests
+- [x] No live provider calls yet
+- [x] Add tests
 
 ## 6.2 Azure OpenAI provider later
 
@@ -617,12 +617,12 @@ Suggested file:
 
 Tasks:
 
-- [ ] Trigger on PRs to `main`
-- [ ] Trigger on pushes to `main`
-- [ ] Setup .NET 8 SDK
-- [ ] Run `dotnet restore`
-- [ ] Run `dotnet build --configuration Release --no-restore`
-- [ ] Run `dotnet test --configuration Release --no-build`
+- [x] Trigger on PRs to `main`
+- [x] Trigger on pushes to `main`
+- [x] Setup .NET 8 SDK
+- [x] Run `dotnet restore`
+- [x] Run `dotnet build --configuration Release --no-restore`
+- [x] Run `dotnet test --configuration Release --no-build`
 
 ## 10.2 Platform quality gates
 

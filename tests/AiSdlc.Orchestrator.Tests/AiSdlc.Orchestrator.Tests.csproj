@@ -1,2 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AiSdlc.Orchestrator\AiSdlc.Orchestrator.csproj" />
+    <ProjectReference Include="..\..\src\AiSdlc.Agents\AiSdlc.Agents.csproj" />
+    <ProjectReference Include="..\..\src\AiSdlc.Shared\AiSdlc.Shared.csproj" />
+  </ItemGroup>
 </Project>
