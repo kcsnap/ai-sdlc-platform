@@ -41,7 +41,7 @@ public sealed class OrchestratorSkeletonTests
     public void FunctionTypes_ShouldExposeExpectedSkeletonClasses()
     {
         Assert.NotNull(typeof(AiSdlcWorkflowOrchestrator));
-        Assert.NotNull(typeof(GitHubIssueWebhookFunction));
+        Assert.NotNull(typeof(GitHubWebhookFunction));
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.RunProductStrategistAsync)));
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.RunProductOwnerAsync)));
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.RunBusinessAnalystAsync)));

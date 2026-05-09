@@ -4,6 +4,7 @@ using Azure.Storage.Blobs;
 using AiSdlc.Agents;
 using AiSdlc.Agents.Personas;
 using AiSdlc.Audit;
+using AiSdlc.GitHub;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -34,6 +35,17 @@ var host = new HostBuilder()
 
         services.AddSingleton<IAuditService, AzureTableAuditService>();
         services.AddSingleton<IBlobPromptStore, BlobPromptStore>();
+
+        services.AddHttpClient<IGitHubService, GitHubApiClient>(client =>
+        {
+            var pat = Environment.GetEnvironmentVariable("GitHubPat")
+                ?? throw new InvalidOperationException("GitHubPat is not configured.");
+            client.BaseAddress = new Uri("https://api.github.com");
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {pat}");
+            client.DefaultRequestHeaders.Add("User-Agent", "ai-sdlc-platform/1.0");
+            client.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
+            client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+        });
     })
     .Build();
 
