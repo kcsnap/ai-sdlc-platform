@@ -71,14 +71,14 @@ Purpose: create the shared vocabulary used by the orchestrator, agents, GitHub i
 
 ## 1.2 Solution hygiene
 
-- [ ] Confirm every project is included in `AiSdlc.sln`
-- [ ] Remove any redundant placeholder code once real tests exist
-- [ ] Add solution-level `Directory.Build.props`
-- [ ] Add nullable/reference/analyser settings consistently
-- [ ] Add common code style/analyser packages if required
-- [ ] Add architecture decision record for initial platform structure
-- [ ] Add contribution guide
-- [ ] Add local developer setup guide
+- [x] Confirm every project is included in `AiSdlc.sln`
+- [x] Remove any redundant placeholder code once real tests exist
+- [x] Add solution-level `Directory.Build.props`
+- [x] Add nullable/reference/analyser settings consistently
+- [x] Add common code style/analyser packages if required
+- [x] Add architecture decision record for initial platform structure
+- [x] Add contribution guide
+- [x] Add local developer setup guide
 
 ## Codex CLI prompt
 
