@@ -316,32 +316,32 @@ src/AiSdlc.Agents/
 
 Tasks:
 
-- [ ] Define `IAgent`
-- [ ] Define `IAgentRunner`
-- [ ] Add `AgentRunner`
-- [ ] Add stub persona classes
-- [ ] Each stub should return an `AgentResult`
-- [ ] No real model calls yet
-- [ ] Add tests for successful execution
-- [ ] Add tests for unknown agent handling
+- [x] Define `IAgent`
+- [x] Define `IAgentRunner`
+- [x] Add `AgentRunner`
+- [x] Add stub persona classes
+- [x] Each stub should return an `AgentResult`
+- [x] No real model calls yet
+- [x] Add tests for successful execution
+- [x] Add tests for unknown agent handling
 
 ## 5.2 Full persona list
 
-- [ ] Product Strategist
-- [ ] Product Owner
-- [ ] Business Analyst
-- [ ] UX / Accessibility Reviewer
-- [ ] Content / SEO Reviewer
-- [ ] Data / Analytics Reviewer
-- [ ] Compliance / Legal Reviewer
-- [ ] Architect
-- [ ] Coder
-- [ ] QA / Test Engineer
-- [ ] Senior Coder
-- [ ] Security & Privacy Reviewer
-- [ ] DevOps / Platform Engineer
-- [ ] Risk Assessor
-- [ ] Release Manager
+- [x] Product Strategist (name constant defined)
+- [x] Product Owner (name constant defined)
+- [x] Business Analyst (agent implemented)
+- [x] UX / Accessibility Reviewer (name constant defined)
+- [x] Content / SEO Reviewer (name constant defined)
+- [x] Data / Analytics Reviewer (name constant defined)
+- [x] Compliance / Legal Reviewer (name constant defined)
+- [x] Architect (name constant defined)
+- [x] Coder (name constant defined)
+- [x] QA / Test Engineer (name constant defined)
+- [x] Senior Coder (name constant defined)
+- [x] Security & Privacy Reviewer (name constant defined)
+- [x] DevOps / Platform Engineer (name constant defined)
+- [x] Risk Assessor (name constant defined)
+- [x] Release Manager (name constant defined)
 
 ## 5.3 Persona prompt templates
 
