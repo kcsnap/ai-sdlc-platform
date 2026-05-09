@@ -1,2 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AiSdlc.Risk\AiSdlc.Risk.csproj" />
+    <ProjectReference Include="..\..\src\AiSdlc.Shared\AiSdlc.Shared.csproj" />
+  </ItemGroup>
 </Project>

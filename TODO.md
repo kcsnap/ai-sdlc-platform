@@ -113,39 +113,39 @@ tests/AiSdlc.Risk.Tests/
 
 ## Tasks
 
-- [ ] Accept changed file paths
-- [ ] Accept affected areas
-- [ ] Accept quality gate results
-- [ ] Accept whether Terraform changed
-- [ ] Accept whether database migrations changed
-- [ ] Accept whether GitHub Actions workflows changed
-- [ ] Accept whether auth/payment/security/privacy areas changed
-- [ ] Accept whether personal data handling changed
-- [ ] Accept whether secrets/Key Vault changed
-- [ ] Return `RiskLevel`
-- [ ] Return `RiskDecision`
-- [ ] Return rationale
-- [ ] Return triggered rules/signals
+- [x] Accept changed file paths
+- [x] Accept affected areas
+- [x] Accept quality gate results
+- [x] Accept whether Terraform changed
+- [x] Accept whether database migrations changed
+- [x] Accept whether GitHub Actions workflows changed
+- [x] Accept whether auth/payment/security/privacy areas changed
+- [x] Accept whether personal data handling changed
+- [x] Accept whether secrets/Key Vault changed
+- [x] Return `RiskLevel`
+- [x] Return `RiskDecision`
+- [x] Return rationale
+- [x] Return triggered rules/signals
 - [ ] Support configurable thresholds later
-- [ ] Add tests for low, medium and high risk scenarios
-- [ ] Add tests for failed mandatory quality gates
-- [ ] Add tests for unknown/ambiguous risk
+- [x] Add tests for low, medium and high risk scenarios
+- [x] Add tests for failed mandatory quality gates
+- [x] Add tests for unknown/ambiguous risk
 
 ## Initial deterministic rules
 
-- [ ] Docs-only changes default to low risk
-- [ ] Tests-only changes default to low risk
-- [ ] Simple frontend/content changes default to low risk
-- [ ] API changes default to medium risk
-- [ ] Database migration changes default to medium risk
-- [ ] Terraform changes default to medium risk
-- [ ] GitHub Actions workflow changes default to medium risk
-- [ ] Authentication/authorisation changes default to high risk
-- [ ] Payment/checkout changes default to high risk
-- [ ] Personal data handling changes default to high risk
-- [ ] Secrets/Key Vault changes default to high risk
-- [ ] Failed mandatory quality gates prevent autonomous continuation
-- [ ] Unknown/ambiguous signal prevents autonomous continuation
+- [x] Docs-only changes default to low risk
+- [x] Tests-only changes default to low risk
+- [x] Simple frontend/content changes default to low risk
+- [x] API changes default to medium risk
+- [x] Database migration changes default to medium risk
+- [x] Terraform changes default to medium risk
+- [x] GitHub Actions workflow changes default to medium risk
+- [x] Authentication/authorisation changes default to high risk
+- [x] Payment/checkout changes default to high risk
+- [x] Personal data handling changes default to high risk
+- [x] Secrets/Key Vault changes default to high risk
+- [x] Failed mandatory quality gates prevent autonomous continuation
+- [x] Unknown/ambiguous signal prevents autonomous continuation
 
 ## Codex CLI prompt
 
