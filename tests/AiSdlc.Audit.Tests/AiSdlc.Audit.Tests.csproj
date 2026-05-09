@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <PackageReference Include="xunit.extensions.ordering" Version="1.4.5" />
+    <PackageReference Include="Xunit.SkippableFact" Version="1.4.13" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\AiSdlc.Audit\AiSdlc.Audit.csproj" />
     <ProjectReference Include="..\..\src\AiSdlc.Shared\AiSdlc.Shared.csproj" />
   </ItemGroup>
