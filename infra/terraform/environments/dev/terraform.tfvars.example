@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and fill in real values.
+# terraform.tfvars is gitignored — never commit it.
+
+subscription_id = "66673944-b353-4256-b71c-0cd8751c81c0"
+tenant_id       = "<your-aad-tenant-id>"
+
+# Run: az ad signed-in-user show --query id -o tsv
+deployment_principal_object_id = "<your-object-id>"
