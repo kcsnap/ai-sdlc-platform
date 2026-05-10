@@ -116,7 +116,15 @@ public sealed class GitHubWebhookFunction
 
         try
         {
-            await durableClient.RaiseEventAsync(instanceId, command.ToString(), cancellation: cancellationToken);
+            // Map WorkflowCommand → WorkflowEventNames so orchestrator and webhook use the same constants
+            var eventName = command switch
+            {
+                WorkflowCommand.ApproveBrief   => WorkflowEventNames.ApproveBrief,
+                WorkflowCommand.RequestChanges => WorkflowEventNames.RequestChanges,
+                WorkflowCommand.ApproveRelease => WorkflowEventNames.ApproveRelease,
+                _                              => command.ToString()
+            };
+            await durableClient.RaiseEventAsync(instanceId, eventName, cancellation: cancellationToken);
             _logger.LogInformation("Raised event {Command} on orchestration {InstanceId}.", command, instanceId);
         }
         catch (Exception ex)
