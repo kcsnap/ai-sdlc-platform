@@ -28,7 +28,7 @@ public sealed class GitHubWebhookFunction
 
     [Function(nameof(GitHubWebhookFunction))]
     public async Task<HttpResponseData> RunAsync(
-        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "github/webhook")] HttpRequestData request,
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "github/webhook")] HttpRequestData request,
         [DurableClient] DurableTaskClient durableClient,
         CancellationToken cancellationToken)
     {
