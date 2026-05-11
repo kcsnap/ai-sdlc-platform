@@ -14,4 +14,7 @@ public interface IGitHubService
     Task<PullRequestDetails> GetPullRequestAsync(string repository, int pullRequestNumber, CancellationToken cancellationToken);
     Task<IReadOnlyList<ChangedFile>> GetChangedFilesAsync(string repository, int pullRequestNumber, CancellationToken cancellationToken);
     Task<IReadOnlyList<CheckRunResult>> GetCheckRunResultsAsync(string repository, string reference, CancellationToken cancellationToken);
+
+    /// <summary>Returns the decoded text content of a file, or null if not found.</summary>
+    Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken);
 }

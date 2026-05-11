@@ -49,8 +49,11 @@ public sealed class ProductOwnerAgent : IAgent
         var issueTitle      = GetMeta(request.Context, "issueTitle");
         var issueBody       = GetMeta(request.Context, "issueBody");
         var strategistOutput = GetMeta(request.Context, "strategistOutput");
+        var repoContext      = GetMeta(request.Context, "repoContext");
 
         var contextDocs = new Dictionary<string, string>();
+        if (!string.IsNullOrWhiteSpace(repoContext))
+            contextDocs["Repository Context"] = repoContext;
         if (!string.IsNullOrWhiteSpace(strategistOutput))
             contextDocs["Strategic Assessment"] = strategistOutput;
 

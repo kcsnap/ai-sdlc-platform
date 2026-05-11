@@ -6,6 +6,7 @@ using AiSdlc.Agents.Personas;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
+using AiSdlc.RepoIndex;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -63,6 +64,8 @@ var host = new HostBuilder()
             client.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
             client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
         });
+
+        services.AddSingleton<IRepoIndexer, GitHubRepoIndexer>();
     })
     .Build();
 

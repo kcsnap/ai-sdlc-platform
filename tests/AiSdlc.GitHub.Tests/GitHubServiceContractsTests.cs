@@ -148,6 +148,9 @@ public sealed class GitHubServiceContractsTests
         public Task<IReadOnlyList<string>> RemoveLabelsAsync(string repository, int issueOrPrNumber, IReadOnlyList<string> labels, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
 
+        public Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken) =>
+            Task.FromResult<string?>(null);
+
         private static IssueComment CreateComment(string repository, int issueOrPullRequestNumber, string markdown) =>
             new()
             {

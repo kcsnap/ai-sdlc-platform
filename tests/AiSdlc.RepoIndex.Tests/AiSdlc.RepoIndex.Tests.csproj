@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AiSdlc.RepoIndex\AiSdlc.RepoIndex.csproj" />
+    <ProjectReference Include="..\..\src\AiSdlc.GitHub\AiSdlc.GitHub.csproj" />
+    <ProjectReference Include="..\..\src\AiSdlc.Shared\AiSdlc.Shared.csproj" />
+  </ItemGroup>
+</Project>

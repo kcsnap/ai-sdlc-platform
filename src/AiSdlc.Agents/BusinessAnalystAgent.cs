@@ -48,9 +48,12 @@ public sealed class BusinessAnalystAgent : IAgent
         var issueTitle      = GetMeta(request.Context, "issueTitle");
         var issueBody       = GetMeta(request.Context, "issueBody");
         var strategistOutput = GetMeta(request.Context, "strategistOutput");
-        var ownerBrief      = GetMeta(request.Context, "ownerBrief");
+        var ownerBrief       = GetMeta(request.Context, "ownerBrief");
+        var repoContext      = GetMeta(request.Context, "repoContext");
 
         var contextDocs = new Dictionary<string, string>();
+        if (!string.IsNullOrWhiteSpace(repoContext))
+            contextDocs["Repository Context"] = repoContext;
         if (!string.IsNullOrWhiteSpace(strategistOutput))
             contextDocs["Strategic Assessment"] = strategistOutput;
         if (!string.IsNullOrWhiteSpace(ownerBrief))

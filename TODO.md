@@ -182,12 +182,12 @@ tests/AiSdlc.Audit.Tests/
 
 Tasks:
 
-- [ ] Confirm `IAuditService` exists and compiles
-- [ ] Create `InMemoryAuditService`
-- [ ] Add ability to write an `AuditEvent`
-- [ ] Add ability to retrieve events by `RunId`
-- [ ] Add tests
-- [ ] Defer Azure Storage/Cosmos/Blob implementations
+- [x] Confirm `IAuditService` exists and compiles
+- [x] Create `InMemoryAuditService`
+- [x] Add ability to write an `AuditEvent`
+- [x] Add ability to retrieve events by `RunId`
+- [x] Add tests
+- [x] Defer Azure Storage/Cosmos/Blob implementations
 
 ## 3.2 Secure audit storage later
 
@@ -467,31 +467,31 @@ src/AiSdlc.Orchestrator/
 
 Tasks:
 
-- [ ] Add orchestrator function skeleton
-- [ ] Add HTTP-triggered webhook placeholder
-- [ ] Add activity function placeholders
-- [ ] No real GitHub webhook validation yet
-- [ ] No real agent execution yet unless already available through interfaces
-- [ ] Build/test passes
+- [x] Add orchestrator function skeleton
+- [x] Add HTTP-triggered webhook placeholder
+- [x] Add activity function placeholders
+- [x] No real GitHub webhook validation yet
+- [x] No real agent execution yet unless already available through interfaces
+- [x] Build/test passes
 
 ## 7.2 Workflow states
 
-- [ ] Started
-- [ ] AwaitingClarification
-- [ ] BriefReady
-- [ ] AwaitingBriefApproval
-- [ ] BriefApproved
-- [ ] Analysing
-- [ ] Implementing
-- [ ] PullRequestOpen
-- [ ] Reviewing
-- [ ] RiskAssessing
-- [ ] AwaitingHumanReview
-- [ ] ReadyToRelease
-- [ ] Deploying
-- [ ] Released
-- [ ] Stopped
-- [ ] Failed
+- [x] Started
+- [x] AwaitingClarification
+- [x] BriefReady
+- [x] AwaitingBriefApproval
+- [x] BriefApproved
+- [x] Analysing
+- [x] Implementing
+- [x] PullRequestOpen
+- [x] Reviewing
+- [x] RiskAssessing
+- [x] AwaitingHumanReview
+- [x] ReadyToRelease
+- [x] Deploying
+- [x] Released
+- [x] Stopped
+- [x] Failed
 
 ## 7.3 External events
 
