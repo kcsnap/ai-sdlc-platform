@@ -1,4 +1,5 @@
 using AiSdlc.Agents.Personas;
+using AiSdlc.ModelProviders;
 using AiSdlc.Shared;
 using Xunit;
 
@@ -6,20 +7,28 @@ namespace AiSdlc.Agents.Tests;
 
 public sealed class AgentRunnerTests
 {
+    private static IModelProvider FakeModel() => new FakeModelProvider(new ModelProviderOptions
+    {
+        ProviderName     = "Fake",
+        ModelName        = "fake-model",
+        DefaultMaxTokens = 1024
+    });
+
     [Fact]
     public async Task ExecuteAsync_ShouldRunRegisteredAgentByName()
     {
+        var model  = FakeModel();
         IAgentRunner runner = new AgentRunner(new IAgent[]
         {
-            new ProductStrategistAgent(),
-            new ProductOwnerAgent(),
-            new BusinessAnalystAgent()
+            new ProductStrategistAgent(model),
+            new ProductOwnerAgent(model),
+            new BusinessAnalystAgent(model)
         });
 
         var request = new AgentExecutionRequest
         {
             AgentName = AgentNames.ProductStrategist,
-            Context = CreateContext(AgentNames.ProductStrategist)
+            Context   = CreateContext(AgentNames.ProductStrategist)
         };
 
         var result = await runner.ExecuteAsync(request, CancellationToken.None);
@@ -28,7 +37,7 @@ public sealed class AgentRunnerTests
         Assert.NotNull(result.Result);
         Assert.Equal(AgentNames.ProductStrategist, result.Result.AgentName);
         Assert.Equal("Completed", result.Result.Status);
-        Assert.Contains("strategy", result.Result.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("assessment", result.Result.Summary, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -36,13 +45,13 @@ public sealed class AgentRunnerTests
     {
         IAgentRunner runner = new AgentRunner(new IAgent[]
         {
-            new ProductStrategistAgent()
+            new ProductStrategistAgent(FakeModel())
         });
 
         var request = new AgentExecutionRequest
         {
             AgentName = "Unknown Agent",
-            Context = CreateContext("Unknown Agent")
+            Context   = CreateContext("Unknown Agent")
         };
 
         var result = await runner.ExecuteAsync(request, CancellationToken.None);
@@ -53,20 +62,21 @@ public sealed class AgentRunnerTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShouldSupportMultipleDeterministicPersonas()
+    public async Task ExecuteAsync_ShouldSupportMultiplePersonas()
     {
+        var model  = FakeModel();
         IAgentRunner runner = new AgentRunner(new IAgent[]
         {
-            new ProductStrategistAgent(),
-            new ProductOwnerAgent(),
-            new BusinessAnalystAgent()
+            new ProductStrategistAgent(model),
+            new ProductOwnerAgent(model),
+            new BusinessAnalystAgent(model)
         });
 
         var ownerResult = await runner.ExecuteAsync(
             new AgentExecutionRequest
             {
                 AgentName = AgentNames.ProductOwner,
-                Context = CreateContext(AgentNames.ProductOwner)
+                Context   = CreateContext(AgentNames.ProductOwner)
             },
             CancellationToken.None);
 
@@ -74,25 +84,25 @@ public sealed class AgentRunnerTests
             new AgentExecutionRequest
             {
                 AgentName = AgentNames.BusinessAnalyst,
-                Context = CreateContext(AgentNames.BusinessAnalyst)
+                Context   = CreateContext(AgentNames.BusinessAnalyst)
             },
             CancellationToken.None);
 
-        Assert.Equal(AgentNames.ProductOwner, ownerResult.Result?.AgentName);
+        Assert.Equal(AgentNames.ProductOwner,    ownerResult.Result?.AgentName);
         Assert.Equal(AgentNames.BusinessAnalyst, analystResult.Result?.AgentName);
         Assert.NotNull(ownerResult.Result);
         Assert.NotNull(analystResult.Result);
         Assert.NotEmpty(ownerResult.Result.ArtefactsCreated);
-        Assert.NotEmpty(analystResult.Result.FollowUpQuestions);
+        Assert.NotEmpty(analystResult.Result.ArtefactsCreated);
     }
 
     private static AgentContext CreateContext(string requestedAgent) =>
         new()
         {
-            RunId = "run-123",
-            Repository = "kcsnap/ai-sdlc-platform",
-            IssueNumber = 42,
-            CurrentState = "triage",
+            RunId          = "run-123",
+            Repository     = "kcsnap/ai-sdlc-platform",
+            IssueNumber    = 42,
+            CurrentState   = "triage",
             RequestedAgent = requestedAgent
         };
 }

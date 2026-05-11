@@ -7,7 +7,6 @@ public sealed class AgentRunner : IAgentRunner
     public AgentRunner(IEnumerable<IAgent> agents)
     {
         ArgumentNullException.ThrowIfNull(agents);
-
         _agentsByName = agents.ToDictionary(agent => agent.Name, StringComparer.OrdinalIgnoreCase);
     }
 

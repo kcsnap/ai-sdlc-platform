@@ -1,3 +1,4 @@
+using AiSdlc.Risk;
 using AiSdlc.Shared;
 using Xunit;
 
@@ -7,88 +8,194 @@ public sealed class RiskRulesEngineTests
 {
     private readonly IRiskRulesEngine _engine = new RiskRulesEngine();
 
+    // ── Low risk ─────────────────────────────────────────────────────────────
+
     [Fact]
-    public void Assess_ShouldReturnLowRiskForDocumentationOnlyChanges()
+    public void Assess_DocsOnlyChange_ReturnsLowRiskAndContinueAutonomously()
     {
-        var request = new RiskAssessmentRequest
+        var result = _engine.Assess(new RiskAssessmentRequest
         {
-            ChangedFilePaths = new[] { "docs/architecture.md", "README.md" }
-        };
+            ChangedFilePaths = ["docs/architecture.md", "README.md"]
+        });
 
-        var result = _engine.Assess(request);
-
-        Assert.Equal(RiskLevel.Low, result.RiskLevel);
+        Assert.Equal(RiskLevel.Low, result.Level);
         Assert.Equal(RiskDecision.ContinueAutonomously, result.Decision);
-        Assert.Contains(result.TriggeredSignals, signal => signal.Code == "docs-only-change");
-        Assert.Single(result.TriggeredRules);
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "LOW_DOCS_ONLY");
     }
 
     [Fact]
-    public void Assess_ShouldReturnMediumRiskForTerraformChanges()
+    public void Assess_TestsOnlyChange_ReturnsLowRiskAndContinueAutonomously()
     {
-        var request = new RiskAssessmentRequest
+        var result = _engine.Assess(new RiskAssessmentRequest
         {
-            ChangedFilePaths = new[] { "infra/terraform/main.tf" },
-            TerraformChanged = true
-        };
+            ChangedFilePaths = ["tests/AiSdlc.Agents.Tests/BusinessAnalystAgentTests.cs"]
+        });
 
-        var result = _engine.Assess(request);
+        Assert.Equal(RiskLevel.Low, result.Level);
+        Assert.Equal(RiskDecision.ContinueAutonomously, result.Decision);
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "LOW_TESTS_ONLY");
+    }
 
-        Assert.Equal(RiskLevel.Medium, result.RiskLevel);
+    [Fact]
+    public void Assess_FrontendOnlyChange_ReturnsLowRiskAndContinueAutonomously()
+    {
+        var result = _engine.Assess(new RiskAssessmentRequest
+        {
+            ChangedFilePaths =
+            [
+                "src/frontend/components/ProductCard.tsx",
+                "src/frontend/pages/Home.tsx",
+                "src/frontend/components/ProductCard.css"
+            ]
+        });
+
+        Assert.Equal(RiskLevel.Low, result.Level);
+        Assert.Equal(RiskDecision.ContinueAutonomously, result.Decision);
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "LOW_FRONTEND_CONTENT");
+    }
+
+    // ── Medium risk ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Assess_DatabaseMigrationFlag_ReturnsMediumRiskAndRequireHumanReview()
+    {
+        var result = _engine.Assess(new RiskAssessmentRequest
+        {
+            DatabaseMigrationsChanged = true,
+            ChangedFilePaths = ["src/api/Migrations/20240101_AddDeliveryTable.cs"]
+        });
+
+        Assert.Equal(RiskLevel.Medium, result.Level);
         Assert.Equal(RiskDecision.RequireHumanReview, result.Decision);
-        Assert.Contains(result.TriggeredSignals, signal => signal.Code == "terraform-change");
-        Assert.Contains("Terraform infrastructure changed.", result.Rationale);
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "MEDIUM_DB_MIGRATION");
     }
 
     [Fact]
-    public void Assess_ShouldReturnHighRiskForAuthenticationChanges()
+    public void Assess_TerraformFlag_ReturnsMediumRiskAndRequireHumanReview()
     {
-        var request = new RiskAssessmentRequest
+        var result = _engine.Assess(new RiskAssessmentRequest
         {
-            ChangedFilePaths = new[] { "src/Auth/LoginController.cs" },
-            AuthenticationChanged = true
-        };
+            TerraformChanged = true,
+            ChangedFilePaths = ["infra/terraform/modules/function-app/main.tf"]
+        });
 
-        var result = _engine.Assess(request);
-
-        Assert.Equal(RiskLevel.High, result.RiskLevel);
+        Assert.Equal(RiskLevel.Medium, result.Level);
         Assert.Equal(RiskDecision.RequireHumanReview, result.Decision);
-        Assert.Contains(result.TriggeredSignals, signal => signal.Code == "authentication-change");
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "MEDIUM_TERRAFORM");
     }
 
     [Fact]
-    public void Assess_ShouldStopWorkflowWhenMandatoryQualityGateFails()
+    public void Assess_GitHubActionsWorkflowChanged_ReturnsMediumRisk()
     {
-        var request = new RiskAssessmentRequest
+        var result = _engine.Assess(new RiskAssessmentRequest
         {
-            ChangedFilePaths = new[] { "src/AiSdlc.Shared/WorkflowRun.cs" },
-            QualityGateResults = new[]
-            {
-                new QualityGateResult
-                {
-                    Name = "unit-tests",
-                    Passed = false,
-                    IsMandatory = true
-                }
-            }
-        };
+            GitHubActionsWorkflowsChanged = true,
+            ChangedFilePaths = [".github/workflows/ci.yml"]
+        });
 
-        var result = _engine.Assess(request);
+        Assert.Equal(RiskLevel.Medium, result.Level);
+        Assert.Equal(RiskDecision.RequireHumanReview, result.Decision);
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "MEDIUM_GITHUB_ACTIONS");
+    }
 
-        Assert.Equal(RiskLevel.High, result.RiskLevel);
+    // ── High risk ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Assess_AuthFlag_ReturnsHighRiskAndRequireHumanReview()
+    {
+        var result = _engine.Assess(new RiskAssessmentRequest
+        {
+            AuthOrAuthorisationChanged = true,
+            ChangedFilePaths = ["src/api/Auth/JwtTokenService.cs"]
+        });
+
+        Assert.Equal(RiskLevel.High, result.Level);
+        Assert.Equal(RiskDecision.RequireHumanReview, result.Decision);
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "HIGH_AUTH");
+    }
+
+    [Fact]
+    public void Assess_PaymentFlag_ReturnsHighRiskAndRequireHumanReview()
+    {
+        var result = _engine.Assess(new RiskAssessmentRequest
+        {
+            PaymentOrCheckoutChanged = true,
+            ChangedFilePaths = ["src/api/Payment/StripeWebhookController.cs"]
+        });
+
+        Assert.Equal(RiskLevel.High, result.Level);
+        Assert.Equal(RiskDecision.RequireHumanReview, result.Decision);
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "HIGH_PAYMENT");
+    }
+
+    [Fact]
+    public void Assess_PersonalDataFlag_ReturnsHighRisk()
+    {
+        var result = _engine.Assess(new RiskAssessmentRequest
+        {
+            PersonalDataHandlingChanged = true
+        });
+
+        Assert.Equal(RiskLevel.High, result.Level);
+        Assert.Equal(RiskDecision.RequireHumanReview, result.Decision);
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "HIGH_PII");
+    }
+
+    [Fact]
+    public void Assess_SecretsFlag_ReturnsHighRisk()
+    {
+        var result = _engine.Assess(new RiskAssessmentRequest
+        {
+            SecretsOrKeyVaultChanged = true,
+            ChangedFilePaths = ["infra/terraform/modules/key-vault/main.tf"]
+        });
+
+        Assert.Equal(RiskLevel.High, result.Level);
+        Assert.Equal(RiskDecision.RequireHumanReview, result.Decision);
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "HIGH_SECRETS");
+    }
+
+    [Fact]
+    public void Assess_HighRiskOverridesMedium_WhenBothPresent()
+    {
+        var result = _engine.Assess(new RiskAssessmentRequest
+        {
+            TerraformChanged = true,
+            AuthOrAuthorisationChanged = true,
+            ChangedFilePaths = ["infra/terraform/main.tf", "src/api/Auth/Startup.cs"]
+        });
+
+        Assert.Equal(RiskLevel.High, result.Level);
+        Assert.Equal(RiskDecision.RequireHumanReview, result.Decision);
+    }
+
+    // ── Blocked ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Assess_QualityGatesFailed_ReturnsStopWorkflow()
+    {
+        var result = _engine.Assess(new RiskAssessmentRequest
+        {
+            QualityGatesPassed = false,
+            ChangedFilePaths = ["docs/README.md"]
+        });
+
+        Assert.Equal(RiskLevel.High, result.Level);
         Assert.Equal(RiskDecision.StopWorkflow, result.Decision);
-        Assert.Contains(result.TriggeredSignals, signal => signal.Code == "mandatory-quality-gate-failed");
+        Assert.Contains(result.TriggeredSignals, s => s.Code == "BLOCKED_QUALITY_GATES");
     }
 
+    // ── Unknown / ambiguous ───────────────────────────────────────────────────
+
     [Fact]
-    public void Assess_ShouldRequireHumanReviewWhenChangeScopeIsUnknown()
+    public void Assess_NoMatchingSignals_ReturnsUnknownAndStopWorkflow()
     {
-        var request = new RiskAssessmentRequest();
+        var result = _engine.Assess(new RiskAssessmentRequest
+        {
+            ChangedFilePaths = []
+        });
 
-        var result = _engine.Assess(request);
-
-        Assert.Equal(RiskLevel.Unknown, result.RiskLevel);
-        Assert.Equal(RiskDecision.RequireHumanReview, result.Decision);
-        Assert.Contains(result.TriggeredSignals, signal => signal.Code == "unknown-change-scope");
+        Assert.Equal(RiskLevel.Unknown, result.Level);
+        Assert.Equal(RiskDecision.StopWorkflow, result.Decision);
     }
 }

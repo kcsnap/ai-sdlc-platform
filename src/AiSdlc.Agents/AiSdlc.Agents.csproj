@@ -1,10 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\AiSdlc.Shared\AiSdlc.Shared.csproj" />
+    <ProjectReference Include="..\AiSdlc.ModelProviders\AiSdlc.ModelProviders.csproj" />
   </ItemGroup>
 </Project>

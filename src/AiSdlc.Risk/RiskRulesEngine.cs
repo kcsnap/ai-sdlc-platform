@@ -4,218 +4,184 @@ namespace AiSdlc.Risk;
 
 public sealed class RiskRulesEngine : IRiskRulesEngine
 {
+    private static readonly IReadOnlyList<RiskRule> Rules =
+    [
+        // High risk — explicit flags
+        new RiskRule
+        {
+            Code = "HIGH_AUTH",
+            Level = RiskLevel.High,
+            Description = "Authentication or authorisation code changed.",
+            Matches = r => r.AuthOrAuthorisationChanged || FilesMatch(r, "auth", "authoris", "authoriz", "identity", "login", "permission", "role", "claim")
+        },
+        new RiskRule
+        {
+            Code = "HIGH_PAYMENT",
+            Level = RiskLevel.High,
+            Description = "Payment or checkout code changed.",
+            Matches = r => r.PaymentOrCheckoutChanged || FilesMatch(r, "payment", "checkout", "billing", "stripe", "invoice")
+        },
+        new RiskRule
+        {
+            Code = "HIGH_PII",
+            Level = RiskLevel.High,
+            Description = "Personal data handling code changed.",
+            Matches = r => r.PersonalDataHandlingChanged || FilesMatch(r, "gdpr", "personaldata", "pii", "datasubject")
+        },
+        new RiskRule
+        {
+            Code = "HIGH_SECRETS",
+            Level = RiskLevel.High,
+            Description = "Secrets or Key Vault configuration changed.",
+            Matches = r => r.SecretsOrKeyVaultChanged || FilesMatch(r, "keyvault", "secretmanager", "credential")
+        },
+
+        // Medium risk — explicit flags
+        new RiskRule
+        {
+            Code = "MEDIUM_DB_MIGRATION",
+            Level = RiskLevel.Medium,
+            Description = "Database migration changed.",
+            Matches = r => r.DatabaseMigrationsChanged || FilesMatch(r, "/migrations/", ".sql")
+        },
+        new RiskRule
+        {
+            Code = "MEDIUM_TERRAFORM",
+            Level = RiskLevel.Medium,
+            Description = "Terraform infrastructure changed.",
+            Matches = r => r.TerraformChanged || FilesMatch(r, ".tf", "/infra/")
+        },
+        new RiskRule
+        {
+            Code = "MEDIUM_GITHUB_ACTIONS",
+            Level = RiskLevel.Medium,
+            Description = "GitHub Actions workflow changed.",
+            Matches = r => r.GitHubActionsWorkflowsChanged || FilesMatch(r, ".github/workflows/")
+        },
+        new RiskRule
+        {
+            Code = "MEDIUM_API",
+            Level = RiskLevel.Medium,
+            Description = "API or backend service layer changed.",
+            Matches = r => FilesMatch(r, "controller", "/api/", "endpoint", "service") && !OnlyLowRiskFiles(r)
+        },
+
+        // Low risk — file-path heuristics (checked last, only meaningful when nothing higher fired)
+        new RiskRule
+        {
+            Code = "LOW_DOCS_ONLY",
+            Level = RiskLevel.Low,
+            Description = "Documentation-only change.",
+            Matches = r => r.ChangedFilePaths.Count > 0 && r.ChangedFilePaths.All(IsDocFile)
+        },
+        new RiskRule
+        {
+            Code = "LOW_TESTS_ONLY",
+            Level = RiskLevel.Low,
+            Description = "Test-only change.",
+            Matches = r => r.ChangedFilePaths.Count > 0 && r.ChangedFilePaths.All(IsTestFile)
+        },
+        new RiskRule
+        {
+            Code = "LOW_FRONTEND_CONTENT",
+            Level = RiskLevel.Low,
+            Description = "Simple frontend or content change.",
+            Matches = r => r.ChangedFilePaths.Count > 0 && r.ChangedFilePaths.All(IsFrontendFile)
+                        && !r.ChangedFilePaths.Any(f => IsTestFile(f) || IsDocFile(f))
+        }
+    ];
+
     public RiskAssessmentResult Assess(RiskAssessmentRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var triggeredSignals = new List<RiskSignal>();
-        var triggeredRules = new List<RiskRule>();
-
-        var changedFilePaths = request.ChangedFilePaths
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(path => path.Replace('\\', '/'))
-            .ToArray();
-
-        var affectedAreas = request.AffectedAreas
-            .Where(area => !string.IsNullOrWhiteSpace(area))
-            .Select(area => area.Trim().ToLowerInvariant())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        if (changedFilePaths.Length == 0 && affectedAreas.Count == 0)
+        if (!request.QualityGatesPassed)
         {
-            AddRule(
-                triggeredSignals,
-                triggeredRules,
-                "unknown-change-scope",
-                "The change scope is empty or ambiguous.",
-                RiskLevel.Unknown);
-        }
-
-        foreach (var qualityGate in request.QualityGateResults.Where(result => result.IsMandatory && !result.Passed))
-        {
-            AddRule(
-                triggeredSignals,
-                triggeredRules,
-                "mandatory-quality-gate-failed",
-                $"Mandatory quality gate '{qualityGate.Name}' failed.",
-                RiskLevel.High);
-        }
-
-        if (request.TerraformChanged || changedFilePaths.Any(path => path.StartsWith("infra/terraform/", StringComparison.OrdinalIgnoreCase)))
-        {
-            AddRule(triggeredSignals, triggeredRules, "terraform-change", "Terraform infrastructure changed.", RiskLevel.Medium);
-        }
-
-        if (request.DatabaseMigrationsChanged || changedFilePaths.Any(IsDatabaseMigrationPath))
-        {
-            AddRule(triggeredSignals, triggeredRules, "database-migration-change", "Database migration assets changed.", RiskLevel.Medium);
-        }
-
-        if (request.AuthenticationChanged || affectedAreas.Contains("authentication") || affectedAreas.Contains("authorization") || ContainsAny(changedFilePaths, "auth", "identity", "login", "oauth"))
-        {
-            AddRule(triggeredSignals, triggeredRules, "authentication-change", "Authentication or authorisation logic changed.", RiskLevel.High);
-        }
-
-        if (request.PaymentChanged || affectedAreas.Contains("payment") || affectedAreas.Contains("checkout") || ContainsAny(changedFilePaths, "payment", "checkout", "billing"))
-        {
-            AddRule(triggeredSignals, triggeredRules, "payment-change", "Payment or checkout logic changed.", RiskLevel.High);
-        }
-
-        if (request.SecurityChanged || affectedAreas.Contains("security") || ContainsAny(changedFilePaths, "security", "permission", "secret", "keyvault", "key-vault"))
-        {
-            AddRule(triggeredSignals, triggeredRules, "security-sensitive-change", "Security-sensitive implementation changed.", RiskLevel.High);
-        }
-
-        if (request.PrivacyChanged || affectedAreas.Contains("privacy") || affectedAreas.Contains("personal-data") || ContainsAny(changedFilePaths, "privacy", "gdpr", "pii", "personal-data"))
-        {
-            AddRule(triggeredSignals, triggeredRules, "privacy-change", "Personal data handling changed.", RiskLevel.High);
-        }
-
-        if (changedFilePaths.Any(path => path.StartsWith(".github/workflows/", StringComparison.OrdinalIgnoreCase)))
-        {
-            AddRule(triggeredSignals, triggeredRules, "workflow-change", "GitHub Actions workflow files changed.", RiskLevel.Medium);
-        }
-
-        if (changedFilePaths.Any(IsApiPath))
-        {
-            AddRule(triggeredSignals, triggeredRules, "api-change", "API-facing backend code changed.", RiskLevel.Medium);
-        }
-
-        if (triggeredSignals.Count == 0 && changedFilePaths.Length > 0)
-        {
-            if (changedFilePaths.All(IsDocumentationPath))
+            return new RiskAssessmentResult
             {
-                AddRule(triggeredSignals, triggeredRules, "docs-only-change", "Only documentation files changed.", RiskLevel.Low);
-            }
-            else if (changedFilePaths.All(IsTestPath))
-            {
-                AddRule(triggeredSignals, triggeredRules, "tests-only-change", "Only automated tests changed.", RiskLevel.Low);
-            }
-            else if (changedFilePaths.All(IsSimpleFrontendPath))
-            {
-                AddRule(triggeredSignals, triggeredRules, "simple-frontend-change", "Only low-risk frontend or content files changed.", RiskLevel.Low);
-            }
+                Level = RiskLevel.High,
+                Decision = RiskDecision.StopWorkflow,
+                Rationale = "Mandatory quality gates have not passed. Autonomous continuation is blocked.",
+                TriggeredSignals = [new RiskSignal { Code = "BLOCKED_QUALITY_GATES", Level = RiskLevel.High, Description = "Quality gates failed." }]
+            };
         }
 
-        var riskLevel = DetermineRiskLevel(triggeredSignals);
-        var decision = DetermineDecision(riskLevel, triggeredSignals);
-        var rationale = BuildRationale(triggeredSignals, riskLevel, decision);
+        var triggered = Rules
+            .Where(rule => rule.Matches(request))
+            .Select(rule => new RiskSignal { Code = rule.Code, Level = rule.Level, Description = rule.Description })
+            .ToList();
 
-        return new RiskAssessmentResult
+        if (triggered.Count == 0)
         {
-            RiskLevel = riskLevel,
-            Decision = decision,
-            Rationale = rationale,
-            TriggeredSignals = triggeredSignals,
-            TriggeredRules = triggeredRules
+            return new RiskAssessmentResult
+            {
+                Level = RiskLevel.Unknown,
+                Decision = RiskDecision.StopWorkflow,
+                Rationale = "No risk signals matched the change. Manual review is required before continuing.",
+                TriggeredSignals = []
+            };
+        }
+
+        var highest = triggered.Max(s => s.Level);
+
+        return highest switch
+        {
+            RiskLevel.High => new RiskAssessmentResult
+            {
+                Level = RiskLevel.High,
+                Decision = RiskDecision.RequireHumanReview,
+                Rationale = BuildRationale(triggered),
+                TriggeredSignals = triggered
+            },
+            RiskLevel.Medium => new RiskAssessmentResult
+            {
+                Level = RiskLevel.Medium,
+                Decision = RiskDecision.RequireHumanReview,
+                Rationale = BuildRationale(triggered),
+                TriggeredSignals = triggered
+            },
+            _ => new RiskAssessmentResult
+            {
+                Level = RiskLevel.Low,
+                Decision = RiskDecision.ContinueAutonomously,
+                Rationale = BuildRationale(triggered),
+                TriggeredSignals = triggered
+            }
         };
     }
 
-    private static void AddRule(
-        ICollection<RiskSignal> signals,
-        ICollection<RiskRule> rules,
-        string code,
-        string description,
-        RiskLevel level)
-    {
-        signals.Add(new RiskSignal
-        {
-            Code = code,
-            Description = description,
-            Level = level
-        });
+    private static bool FilesMatch(RiskAssessmentRequest request, params string[] fragments) =>
+        request.ChangedFilePaths.Any(path =>
+            fragments.Any(f => path.Contains(f, StringComparison.OrdinalIgnoreCase)));
 
-        rules.Add(new RiskRule
-        {
-            Code = code,
-            Description = description
-        });
-    }
+    private static bool OnlyLowRiskFiles(RiskAssessmentRequest request) =>
+        request.ChangedFilePaths.Count > 0 &&
+        request.ChangedFilePaths.All(f => IsDocFile(f) || IsTestFile(f) || IsFrontendFile(f));
 
-    private static RiskLevel DetermineRiskLevel(IEnumerable<RiskSignal> signals)
-    {
-        if (signals.Any(signal => signal.Level == RiskLevel.High))
-        {
-            return RiskLevel.High;
-        }
+    private static bool IsDocFile(string path) =>
+        path.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
+        path.Contains("/docs/", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("docs/", StringComparison.OrdinalIgnoreCase);
 
-        if (signals.Any(signal => signal.Level == RiskLevel.Unknown))
-        {
-            return RiskLevel.Unknown;
-        }
+    private static bool IsTestFile(string path) =>
+        path.Contains("/tests/", StringComparison.OrdinalIgnoreCase) ||
+        path.Contains(".tests/", StringComparison.OrdinalIgnoreCase) ||
+        path.Contains("test/", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".test.ts", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".spec.ts", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith("Tests.cs", StringComparison.OrdinalIgnoreCase);
 
-        if (signals.Any(signal => signal.Level == RiskLevel.Medium))
-        {
-            return RiskLevel.Medium;
-        }
-
-        if (signals.Any(signal => signal.Level == RiskLevel.Low))
-        {
-            return RiskLevel.Low;
-        }
-
-        return RiskLevel.Unknown;
-    }
-
-    private static RiskDecision DetermineDecision(RiskLevel riskLevel, IEnumerable<RiskSignal> signals)
-    {
-        if (signals.Any(signal => signal.Code == "mandatory-quality-gate-failed"))
-        {
-            return RiskDecision.StopWorkflow;
-        }
-
-        return riskLevel switch
-        {
-            RiskLevel.Low => RiskDecision.ContinueAutonomously,
-            RiskLevel.Medium => RiskDecision.RequireHumanReview,
-            RiskLevel.High => RiskDecision.RequireHumanReview,
-            _ => RiskDecision.RequireHumanReview
-        };
-    }
-
-    private static string BuildRationale(
-        IReadOnlyCollection<RiskSignal> signals,
-        RiskLevel riskLevel,
-        RiskDecision decision)
-    {
-        if (signals.Count == 0)
-        {
-            return $"No deterministic rules matched. Risk level: {riskLevel}. Decision: {decision}.";
-        }
-
-        return $"Risk level: {riskLevel}. Decision: {decision}. Signals: {string.Join("; ", signals.Select(signal => signal.Description))}";
-    }
-
-    private static bool ContainsAny(IEnumerable<string> values, params string[] fragments) =>
-        values.Any(value => fragments.Any(fragment => value.Contains(fragment, StringComparison.OrdinalIgnoreCase)));
-
-    private static bool IsDocumentationPath(string path) =>
-        path.StartsWith("docs/", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsTestPath(string path) =>
-        path.StartsWith("tests/", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith("Tests.cs", StringComparison.OrdinalIgnoreCase) ||
-        path.Contains(".Tests/", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsSimpleFrontendPath(string path) =>
+    private static bool IsFrontendFile(string path) =>
+        path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase) ||
         path.EndsWith(".css", StringComparison.OrdinalIgnoreCase) ||
         path.EndsWith(".scss", StringComparison.OrdinalIgnoreCase) ||
         path.EndsWith(".html", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".jsx", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".js", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase);
+        path.Contains("/frontend/", StringComparison.OrdinalIgnoreCase) ||
+        path.Contains("/components/", StringComparison.OrdinalIgnoreCase) ||
+        path.Contains("/pages/", StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsApiPath(string path) =>
-        path.Contains("/controllers/", StringComparison.OrdinalIgnoreCase) ||
-        path.Contains("/api/", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith("Controller.cs", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsDatabaseMigrationPath(string path) =>
-        path.Contains("/migrations/", StringComparison.OrdinalIgnoreCase) ||
-        path.EndsWith(".sql", StringComparison.OrdinalIgnoreCase);
+    private static string BuildRationale(IReadOnlyList<RiskSignal> signals) =>
+        string.Join(" ", signals.Select(s => s.Description));
 }

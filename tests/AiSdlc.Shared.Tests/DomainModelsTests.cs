@@ -37,12 +37,14 @@ public sealed class DomainModelsTests
             AgentName = "ProductOwner",
             Status = "NeedsClarification",
             Summary = "More information is required.",
+            OutputMarkdown = "## Follow-up needed",
             FollowUpQuestions = new List<string> { "Who is the target user?" },
             BlockingIssues = new List<string> { "Acceptance criteria are missing." }
         };
 
         Assert.Equal("ProductOwner", result.AgentName);
         Assert.Equal("NeedsClarification", result.Status);
+        Assert.Equal("## Follow-up needed", result.OutputMarkdown);
         Assert.Single(result.FollowUpQuestions);
         Assert.Single(result.BlockingIssues);
     }

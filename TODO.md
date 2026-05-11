@@ -73,12 +73,12 @@ Purpose: create the shared vocabulary used by the orchestrator, agents, GitHub i
 
 - [x] Confirm every project is included in `AiSdlc.sln`
 - [x] Remove any redundant placeholder code once real tests exist
-- [ ] Add solution-level `Directory.Build.props`
-- [ ] Add nullable/reference/analyser settings consistently
-- [ ] Add common code style/analyser packages if required
-- [ ] Add architecture decision record for initial platform structure
+- [x] Add solution-level `Directory.Build.props`
+- [x] Add nullable/reference/analyser settings consistently
+- [x] Add common code style/analyser packages if required
+- [x] Add architecture decision record for initial platform structure
 - [x] Add contribution guide
-- [ ] Add local developer setup guide
+- [x] Add local developer setup guide
 
 ## Codex CLI prompt
 
@@ -182,11 +182,11 @@ tests/AiSdlc.Audit.Tests/
 
 Tasks:
 
-- [x] Confirm `IAuditService` exists and compiles
-- [x] Create `InMemoryAuditService`
-- [x] Add ability to write an `AuditEvent`
-- [x] Add ability to retrieve events by `RunId`
-- [x] Add tests
+- [ ] Confirm `IAuditService` exists and compiles
+- [ ] Create `InMemoryAuditService`
+- [ ] Add ability to write an `AuditEvent`
+- [ ] Add ability to retrieve events by `RunId`
+- [ ] Add tests
 - [ ] Defer Azure Storage/Cosmos/Blob implementations
 
 ## 3.2 Secure audit storage later
@@ -327,21 +327,21 @@ Tasks:
 
 ## 5.2 Full persona list
 
-- [ ] Product Strategist
-- [ ] Product Owner
-- [ ] Business Analyst
-- [ ] UX / Accessibility Reviewer
-- [ ] Content / SEO Reviewer
-- [ ] Data / Analytics Reviewer
-- [ ] Compliance / Legal Reviewer
-- [ ] Architect
-- [ ] Coder
-- [ ] QA / Test Engineer
-- [ ] Senior Coder
-- [ ] Security & Privacy Reviewer
-- [ ] DevOps / Platform Engineer
-- [ ] Risk Assessor
-- [ ] Release Manager
+- [x] Product Strategist (name constant defined)
+- [x] Product Owner (name constant defined)
+- [x] Business Analyst (agent implemented)
+- [x] UX / Accessibility Reviewer (name constant defined)
+- [x] Content / SEO Reviewer (name constant defined)
+- [x] Data / Analytics Reviewer (name constant defined)
+- [x] Compliance / Legal Reviewer (name constant defined)
+- [x] Architect (name constant defined)
+- [x] Coder (name constant defined)
+- [x] QA / Test Engineer (name constant defined)
+- [x] Senior Coder (name constant defined)
+- [x] Security & Privacy Reviewer (name constant defined)
+- [x] DevOps / Platform Engineer (name constant defined)
+- [x] Risk Assessor (name constant defined)
+- [x] Release Manager (name constant defined)
 
 ## 5.3 Persona prompt templates
 
@@ -467,12 +467,12 @@ src/AiSdlc.Orchestrator/
 
 Tasks:
 
-- [x] Add orchestrator function skeleton
-- [x] Add HTTP-triggered webhook placeholder
-- [x] Add activity function placeholders
-- [x] No real GitHub webhook validation yet
-- [x] No real agent execution yet unless already available through interfaces
-- [x] Build/test passes
+- [ ] Add orchestrator function skeleton
+- [ ] Add HTTP-triggered webhook placeholder
+- [ ] Add activity function placeholders
+- [ ] No real GitHub webhook validation yet
+- [ ] No real agent execution yet unless already available through interfaces
+- [ ] Build/test passes
 
 ## 7.2 Workflow states
 
