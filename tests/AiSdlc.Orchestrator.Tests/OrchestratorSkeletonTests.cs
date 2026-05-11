@@ -1,6 +1,7 @@
 using AiSdlc.Agents;
 using AiSdlc.Agents.Personas;
 using AiSdlc.GitHub;
+using AiSdlc.ModelProviders;
 using AiSdlc.Orchestrator.Functions;
 using AiSdlc.Shared;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -10,15 +11,24 @@ namespace AiSdlc.Orchestrator.Tests;
 
 public sealed class OrchestratorSkeletonTests
 {
-    private static AgentActivityFunctions BuildActivityFunctions() =>
-        new(
+    private static AgentActivityFunctions BuildActivityFunctions()
+    {
+        var fakeModel = new FakeModelProvider(new ModelProviderOptions
+        {
+            ProviderName     = "Fake",
+            ModelName        = "fake-model",
+            DefaultMaxTokens = 1024
+        });
+
+        return new(
             new AgentRunner([
-                new ProductStrategistAgent(),
-                new ProductOwnerAgent(),
-                new BusinessAnalystAgent()
+                new ProductStrategistAgent(fakeModel),
+                new ProductOwnerAgent(fakeModel),
+                new BusinessAnalystAgent(fakeModel)
             ]),
             new NoOpGitHubService(),
             NullLogger<AgentActivityFunctions>.Instance);
+    }
 
     [Fact]
     public async Task AgentActivityFunctions_ShouldExecuteRegisteredPersonaActivities()

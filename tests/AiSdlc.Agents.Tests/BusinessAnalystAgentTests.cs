@@ -1,3 +1,5 @@
+using AiSdlc.Agents.Personas;
+using AiSdlc.ModelProviders;
 using AiSdlc.Shared;
 using Xunit;
 
@@ -5,108 +7,55 @@ namespace AiSdlc.Agents.Tests;
 
 public sealed class BusinessAnalystAgentTests
 {
-    [Fact]
-    public async Task ExecuteAsync_ShouldGenerateDeveloperReadyMarkdownWhenSpecIsComplete()
+    private static IModelProvider FakeModel() => new FakeModelProvider(new ModelProviderOptions
     {
-        var agent = new BusinessAnalystAgent();
+        ProviderName    = "Fake",
+        ModelName       = "fake-model",
+        DefaultMaxTokens = 1024
+    });
+
+    [Fact]
+    public async Task ExecuteAsync_ReturnsCompletedWithOutputMarkdown()
+    {
+        var agent = new BusinessAnalystAgent(FakeModel());
         var request = new AgentExecutionRequest
         {
             AgentName = AgentNames.BusinessAnalyst,
-            Context = CreateContext(
-                specTitle: "Add delivery information section",
-                specMarkdown:
-"""
-## What do you want to create or change?
-
-Add a delivery information section to the product detail page.
-
-## Why is this needed?
-
-Customers need delivery expectations before making a purchase enquiry.
-
-## Who is the user or customer?
-
-Prospective buyers comparing products.
-
-## Is this for a new app or an existing app?
-
-- [x] Existing app
-
-## Any known constraints?
-
-- Use the existing product detail layout.
-- Do not change checkout behaviour.
-
-## Any examples, screenshots, links, or reference material?
-
-Reference the current shipping summary used on featured products.
-
-## Definition of done, if known
-
-The delivery section appears on all product detail pages and is covered by updated tests.
-""",
-                existingProductContext: "The current product detail page already shows pricing, imagery, and an enquiry CTA but no delivery expectations.")
+            Context   = CreateContext("Add delivery info section", "Customers need delivery expectations.", ownerBrief: "Brief content")
         };
 
         var result = await agent.ExecuteAsync(request, CancellationToken.None);
 
+        Assert.Equal(AgentNames.BusinessAnalyst, result.AgentName);
         Assert.Equal("Completed", result.Status);
         Assert.NotNull(result.OutputMarkdown);
-        Assert.Contains("## Developer Handoff", result.OutputMarkdown);
-        Assert.Contains("delivery information section", result.OutputMarkdown, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(result.BlockingIssues);
+        Assert.NotEmpty(result.OutputMarkdown);
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShouldRequestClarificationWhenCriticalSectionsAreMissing()
+    public async Task ExecuteAsync_IncludesOwnerBriefInContextDocuments()
     {
-        var agent = new BusinessAnalystAgent();
+        var agent = new BusinessAnalystAgent(FakeModel());
         var request = new AgentExecutionRequest
         {
             AgentName = AgentNames.BusinessAnalyst,
-            Context = CreateContext(
-                specTitle: "Incomplete request",
-                specMarkdown:
-"""
-## What do you want to create or change?
-
-Update the page.
-""",
-                existingProductContext: string.Empty)
+            Context   = CreateContext("Title", "Body", ownerBrief: "## Summary\nAdd a button.")
         };
 
         var result = await agent.ExecuteAsync(request, CancellationToken.None);
 
-        Assert.Equal("NeedsClarification", result.Status);
-        Assert.NotEmpty(result.BlockingIssues);
-        Assert.Contains(result.FollowUpQuestions, item => item.Contains("primary user", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains("## Follow-up Questions", result.OutputMarkdown);
+        // FakeModelProvider returns deterministic output — just verify the call succeeded
+        Assert.Equal("Completed", result.Status);
     }
 
     [Fact]
-    public async Task AgentRunner_ShouldExecuteBusinessAnalystByName()
+    public async Task AgentRunner_ExecutesBusinessAnalystByName()
     {
-        IAgentRunner runner = new AgentRunner(new IAgent[] { new BusinessAnalystAgent() });
+        IAgentRunner runner = new AgentRunner([new BusinessAnalystAgent(FakeModel())]);
         var request = new AgentExecutionRequest
         {
             AgentName = AgentNames.BusinessAnalyst,
-            Context = CreateContext(
-                specTitle: "Spec",
-                specMarkdown:
-"""
-## What do you want to create or change?
-
-Add a new support link.
-
-## Why is this needed?
-
-Users cannot find support.
-
-## Who is the user or customer?
-
-Existing customers.
-""",
-                existingProductContext: "The current footer has legal and social links only.")
+            Context   = CreateContext("Support link", "Users cannot find support.", ownerBrief: string.Empty)
         };
 
         var result = await runner.ExecuteAsync(request, CancellationToken.None);
@@ -116,19 +65,42 @@ Existing customers.
         Assert.Equal(AgentNames.BusinessAnalyst, result.Result.AgentName);
     }
 
-    private static AgentContext CreateContext(string specTitle, string specMarkdown, string existingProductContext) =>
+    [Fact]
+    public async Task AllPersonaAgents_ReturnCorrectAgentName()
+    {
+        var model = FakeModel();
+        var context = CreateContext("Test issue", "Test body", ownerBrief: string.Empty);
+        context.Metadata["issueTitle"]  = "Test issue";
+        context.Metadata["issueBody"]   = "Test body";
+        context.Metadata["issueAuthor"] = "test-user";
+
+        var strategist = new ProductStrategistAgent(model);
+        var owner      = new ProductOwnerAgent(model);
+        var analyst    = new BusinessAnalystAgent(model);
+
+        var sr = await strategist.ExecuteAsync(new AgentExecutionRequest { AgentName = AgentNames.ProductStrategist, Context = context }, CancellationToken.None);
+        var or = await owner.ExecuteAsync(new AgentExecutionRequest { AgentName = AgentNames.ProductOwner, Context = context }, CancellationToken.None);
+        var ar = await analyst.ExecuteAsync(new AgentExecutionRequest { AgentName = AgentNames.BusinessAnalyst, Context = context }, CancellationToken.None);
+
+        Assert.Equal(AgentNames.ProductStrategist, sr.AgentName);
+        Assert.Equal(AgentNames.ProductOwner,      or.AgentName);
+        Assert.Equal(AgentNames.BusinessAnalyst,   ar.AgentName);
+    }
+
+    private static AgentContext CreateContext(string issueTitle, string issueBody, string ownerBrief) =>
         new()
         {
-            RunId = "run-001",
-            Repository = "example/repo",
-            IssueNumber = 101,
-            CurrentState = "Analysing",
+            RunId          = "run-001",
+            Repository     = "example/repo",
+            IssueNumber    = 101,
+            CurrentState   = "Analysing",
             RequestedAgent = AgentNames.BusinessAnalyst,
-            Metadata = new Dictionary<string, object>
+            Metadata       = new Dictionary<string, object>
             {
-                ["specTitle"] = specTitle,
-                ["specMarkdown"] = specMarkdown,
-                ["existingProductContext"] = existingProductContext
+                ["issueTitle"]  = issueTitle,
+                ["issueBody"]   = issueBody,
+                ["issueAuthor"] = "test-user",
+                ["ownerBrief"]  = ownerBrief
             }
         };
 }

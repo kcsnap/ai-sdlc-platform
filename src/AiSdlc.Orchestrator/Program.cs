@@ -5,6 +5,7 @@ using AiSdlc.Agents;
 using AiSdlc.Agents.Personas;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
+using AiSdlc.ModelProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,6 +13,22 @@ var host = new HostBuilder()
     .ConfigureFunctionsWorkerDefaults()
     .ConfigureServices(services =>
     {
+        services.AddSingleton(new ModelProviderOptions
+        {
+            ProviderName    = "Anthropic",
+            ModelName       = Environment.GetEnvironmentVariable("AnthropicModel") ?? "claude-haiku-4-5-20251001",
+            DefaultMaxTokens = 2048
+        });
+
+        services.AddHttpClient<IModelProvider, AnthropicModelProvider>(client =>
+        {
+            var apiKey = Environment.GetEnvironmentVariable("AnthropicApiKey")
+                ?? throw new InvalidOperationException("AnthropicApiKey is not configured.");
+            client.BaseAddress = new Uri("https://api.anthropic.com/v1/");
+            client.DefaultRequestHeaders.Add("x-api-key", apiKey);
+            client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+        });
+
         services.AddSingleton<IAgent, ProductStrategistAgent>();
         services.AddSingleton<IAgent, ProductOwnerAgent>();
         services.AddSingleton<IAgent, BusinessAnalystAgent>();

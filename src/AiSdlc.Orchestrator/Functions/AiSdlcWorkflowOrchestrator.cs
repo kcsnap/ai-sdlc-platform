@@ -29,6 +29,9 @@ public static class AiSdlcWorkflowOrchestrator
         var strategistResult = await context.CallActivityAsync<AgentResult>(
             nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext);
 
+        // Pass strategist output to subsequent agents via metadata
+        agentContext.Metadata["strategistOutput"] = strategistResult.OutputMarkdown ?? strategistResult.Summary;
+
         // ── Step 2: ProductOwner writes the brief ──────────────────────────────
         // Up to MaxBriefAttempts rounds of revisions before giving up.
         AgentResult ownerResult = strategistResult; // will be overwritten below
@@ -76,6 +79,9 @@ public static class AiSdlcWorkflowOrchestrator
             if (attempt == MaxBriefAttempts - 1)
                 return Stopped(agentContext.RunId, issue, createdAt, context);
         }
+
+        // Pass approved brief to Business Analyst
+        agentContext.Metadata["ownerBrief"] = ownerResult.OutputMarkdown ?? ownerResult.Summary;
 
         // ── Step 3: Brief approved — Business Analyst analyses impact ──────────
         var analystResult = await context.CallActivityAsync<AgentResult>(
