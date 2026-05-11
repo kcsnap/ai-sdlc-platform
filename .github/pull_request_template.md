@@ -2,37 +2,48 @@
 
 Closes #
 
-## AI SDLC run
+## AI SDLC run ID
 
-Run ID:
+<!-- The orchestration instance ID, e.g. kcsnap_ai-sdlc-platform_42 -->
 
-## Summary
+## Change summary
 
-## Functional impact
+<!-- One paragraph: what changed and why -->
+
+## Impacted areas
 
 - [ ] Frontend
-- [ ] Backend/API
-- [ ] Database
-- [ ] Infrastructure/Terraform
-- [ ] Pipeline/GitHub Actions
-- [ ] Security/privacy
-- [ ] Analytics
-- [ ] UX/accessibility
-- [ ] Content/SEO
+- [ ] Backend / API
+- [ ] Database / migrations
+- [ ] Infrastructure / Terraform
+- [ ] CI/CD / GitHub Actions
+- [ ] Authentication / authorisation
+- [ ] Payment / checkout
+- [ ] Personal data handling
+- [ ] Security / privacy
+- [ ] Analytics / tracking
+- [ ] UX / accessibility
+- [ ] Content / SEO
 - [ ] Documentation
-- [ ] Tests
+- [ ] Tests only
 
 ## Risk assessment
 
-Risk level:
-Risk rationale:
-Human review required:
+| | |
+|---|---|
+| Risk level | `Low` / `Medium` / `High` |
+| Human review required | Yes / No |
+| Rationale | |
 
-## Deployment
+## Test plan
 
-- [ ] Dev deployed
-- [ ] Test deployed
-- [ ] Staging deployed
-- [ ] Production deployment eligible
-- [ ] Production deployed
-- [ ] Post-deployment checks passed
+- [ ] Existing tests pass
+- [ ] New/updated tests added for changed behaviour
+- [ ] Manual verification steps completed (describe below)
+
+## Deployment checklist
+
+- [ ] Dev deployed and smoke-tested
+- [ ] Staging deployed and smoke-tested
+- [ ] Post-deployment checks defined
+- [ ] Rollback plan documented (if medium/high risk)

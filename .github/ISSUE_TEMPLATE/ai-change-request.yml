@@ -1,0 +1,75 @@
+name: AI SDLC Change Request
+description: Request a new feature, update, or fix. The AI SDLC workflow will pick this up automatically.
+title: "[Change]: "
+labels: ["ai-sdlc:triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fill in as much detail as you can. The more context you provide, the better the AI agents can assess and plan the change.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What do you want to create or change?
+      description: Describe the new feature, update, or fix in plain language.
+      placeholder: "Add a delivery information section to the product detail page showing estimated dispatch and delivery times."
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is this needed?
+      description: Explain the business or user reason for the change.
+      placeholder: "Customers are abandoning purchase enquiries because they cannot see delivery expectations upfront."
+    validations:
+      required: true
+
+  - type: textarea
+    id: who
+    attributes:
+      label: Who is the user or customer?
+      description: Describe who benefits from this change and how they currently experience the problem.
+      placeholder: "Prospective buyers on the product detail page who want delivery certainty before making an enquiry."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: app-type
+    attributes:
+      label: New app or existing app?
+      options:
+        - Existing app
+        - New app
+    validations:
+      required: true
+
+  - type: textarea
+    id: definition-of-done
+    attributes:
+      label: Definition of done
+      description: What does success look like? How will you know this change is complete?
+      placeholder: "The delivery section appears on all product detail pages, is covered by updated tests, and does not affect checkout behaviour."
+    validations:
+      required: false
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Known constraints
+      description: "Deadline, design constraints, technical constraints, compliance concerns, browser/device requirements, budget."
+      placeholder: |
+        - Use the existing product detail page layout
+        - Do not change checkout behaviour
+        - Must be accessible (WCAG 2.1 AA)
+    validations:
+      required: false
+
+  - type: textarea
+    id: references
+    attributes:
+      label: Examples, screenshots, or reference material
+      description: Links, designs, screenshots, related issues, or anything else that helps.
+    validations:
+      required: false

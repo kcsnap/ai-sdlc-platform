@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: AI SDLC documentation
+    url: https://github.com/kcsnap/ai-sdlc-platform/blob/main/docs/how-to-raise-an-issue.md
+    about: Learn how the AI SDLC workflow processes your change request.
