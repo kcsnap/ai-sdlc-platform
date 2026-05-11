@@ -130,6 +130,19 @@ public sealed class GitHubApiClient : IGitHubService
         }).ToArray();
     }
 
+    public async Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken)
+    {
+        using var response = await _http.GetAsync($"/repos/{repository}/contents/{path}", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadFromJsonAsync<FileContentJson>(JsonOptions, cancellationToken);
+        if (json is null || json.Encoding != "base64") return null;
+
+        var bytes = Convert.FromBase64String(json.Content.Replace("\n", ""));
+        return System.Text.Encoding.UTF8.GetString(bytes);
+    }
+
     private async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync(path, cancellationToken);
@@ -212,4 +225,5 @@ public sealed class GitHubApiClient : IGitHubService
     private sealed record UserJson(string Login);
     private sealed record LabelJson(string Name);
     private sealed record BranchRefJson(string Ref);
+    private sealed record FileContentJson(string Encoding, string Content);
 }

@@ -27,6 +27,7 @@ public sealed class OrchestratorSkeletonTests
                 new BusinessAnalystAgent(fakeModel)
             ]),
             new NoOpGitHubService(),
+            new NoOpRepoIndexer(),
             NullLogger<AgentActivityFunctions>.Instance);
     }
 
@@ -83,6 +84,12 @@ public sealed class OrchestratorSkeletonTests
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.AddGitHubLabelAsync)));
     }
 
+    private sealed class NoOpRepoIndexer : AiSdlc.RepoIndex.IRepoIndexer
+    {
+        public Task<AiSdlc.RepoIndex.RepoIndex?> IndexAsync(string repository, CancellationToken cancellationToken)
+            => Task.FromResult<AiSdlc.RepoIndex.RepoIndex?>(null);
+    }
+
     // Minimal no-op IGitHubService — returns empty/stub values; swallows writes.
     private sealed class NoOpGitHubService : IGitHubService
     {
@@ -131,6 +138,9 @@ public sealed class OrchestratorSkeletonTests
 
         public Task<IReadOnlyList<CheckRunResult>> GetCheckRunResultsAsync(string repository, string reference, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<CheckRunResult>>([]);
+
+        public Task<string?> GetFileContentAsync(string repository, string path, CancellationToken ct) =>
+            Task.FromResult<string?>(null);
 
         private static IssueComment StubComment(string repository, int number) => new()
         {

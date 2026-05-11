@@ -45,6 +45,11 @@ public sealed class ProductStrategistAgent : IAgent
         var issueBody   = GetMeta(request.Context, "issueBody");
         var issueAuthor = GetMeta(request.Context, "issueAuthor");
 
+        var repoContext = GetMeta(request.Context, "repoContext");
+        var contextDocs = new Dictionary<string, string>();
+        if (!string.IsNullOrWhiteSpace(repoContext))
+            contextDocs["Repository Context"] = repoContext;
+
         var userPrompt = $"""
             Repository: {request.Context.Repository}
             Issue #{request.Context.IssueNumber} by @{issueAuthor}: {issueTitle}
@@ -54,11 +59,12 @@ public sealed class ProductStrategistAgent : IAgent
 
         var response = await _model.CompleteAsync(new ModelRequest
         {
-            AgentName    = Name,
-            TaskType     = "StrategicAssessment",
-            SystemPrompt = SystemPrompt,
-            UserPrompt   = userPrompt,
-            MaxTokens    = 1024
+            AgentName        = Name,
+            TaskType         = "StrategicAssessment",
+            SystemPrompt     = SystemPrompt,
+            UserPrompt       = userPrompt,
+            ContextDocuments = contextDocs,
+            MaxTokens        = 1024
         }, cancellationToken);
 
         return new AgentResult

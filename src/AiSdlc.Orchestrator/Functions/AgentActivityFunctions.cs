@@ -1,5 +1,6 @@
 using AiSdlc.Agents;
 using AiSdlc.GitHub;
+using AiSdlc.RepoIndex;
 using AiSdlc.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
@@ -10,16 +11,19 @@ public sealed class AgentActivityFunctions
 {
     private readonly IAgentRunner _agentRunner;
     private readonly IGitHubService _gitHub;
+    private readonly IRepoIndexer _repoIndexer;
     private readonly ILogger<AgentActivityFunctions> _logger;
 
     public AgentActivityFunctions(
         IAgentRunner agentRunner,
         IGitHubService gitHub,
+        IRepoIndexer repoIndexer,
         ILogger<AgentActivityFunctions> logger)
     {
-        _agentRunner = agentRunner;
-        _gitHub      = gitHub;
-        _logger      = logger;
+        _agentRunner  = agentRunner;
+        _gitHub       = gitHub;
+        _repoIndexer  = repoIndexer;
+        _logger       = logger;
     }
 
     [Function(nameof(RunProductStrategistAsync))]
@@ -39,6 +43,19 @@ public sealed class AgentActivityFunctions
     {
         _logger.LogInformation("Posting comment to {Repository}#{Issue}", input.Repository, input.IssueNumber);
         await _gitHub.AddIssueCommentAsync(input.Repository, input.IssueNumber, input.Markdown, cancellationToken);
+    }
+
+    [Function(nameof(FetchRepoIndexAsync))]
+    public async Task<string?> FetchRepoIndexAsync([ActivityTrigger] string repository, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Fetching repo index for {Repository}", repository);
+        var index = await _repoIndexer.IndexAsync(repository, cancellationToken);
+        if (index is null)
+        {
+            _logger.LogInformation("No .ai-sdlc.yml found in {Repository} — skipping repo index.", repository);
+            return null;
+        }
+        return RepoIndexMarkdownRenderer.Render(index);
     }
 
     [Function(nameof(AddGitHubLabelAsync))]

@@ -25,6 +25,13 @@ public static class AiSdlcWorkflowOrchestrator
         // Use context.CurrentUtcDateTime for determinism during replay
         var createdAt = new DateTimeOffset(context.CurrentUtcDateTime, TimeSpan.Zero);
 
+        // ── Step 0: Fetch repo index (best-effort — no .ai-sdlc.yml is fine) ──
+        var repoContext = await context.CallActivityAsync<string?>(
+            nameof(AgentActivityFunctions.FetchRepoIndexAsync), agentContext.Repository);
+
+        if (!string.IsNullOrWhiteSpace(repoContext))
+            agentContext.Metadata["repoContext"] = repoContext;
+
         // ── Step 1: ProductStrategist reviews value & feasibility ──────────────
         var strategistResult = await context.CallActivityAsync<AgentResult>(
             nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext);
