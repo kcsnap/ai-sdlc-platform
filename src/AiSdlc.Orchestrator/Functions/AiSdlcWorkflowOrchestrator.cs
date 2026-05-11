@@ -9,7 +9,8 @@ namespace AiSdlc.Orchestrator.Functions;
 public static class AiSdlcWorkflowOrchestrator
 {
     private const int MaxBriefAttempts = 3;
-    private static readonly TimeSpan BriefApprovalTimeout = TimeSpan.FromDays(7);
+    private static readonly TimeSpan BriefApprovalTimeout  = TimeSpan.FromDays(7);
+    private static readonly TimeSpan HumanReviewTimeout    = TimeSpan.FromDays(14);
 
     [Function(nameof(AiSdlcWorkflowOrchestrator))]
     public static async Task<WorkflowRun> RunAsync([OrchestrationTrigger] TaskOrchestrationContext context)
@@ -17,32 +18,23 @@ public static class AiSdlcWorkflowOrchestrator
         var agentContext = context.GetInput<AgentContext>()
             ?? throw new InvalidOperationException("Workflow input must include an AgentContext payload.");
 
-        var issue = new GitHubIssueReference(
-            agentContext.Repository,
-            agentContext.IssueNumber,
-            $"https://github.com/{agentContext.Repository}/issues/{agentContext.IssueNumber}");
-
-        // Use context.CurrentUtcDateTime for determinism during replay
+        var issue     = BuildIssueRef(agentContext);
         var createdAt = new DateTimeOffset(context.CurrentUtcDateTime, TimeSpan.Zero);
 
-        // ── Step 0: Fetch repo index (best-effort — no .ai-sdlc.yml is fine) ──
+        // ── Step 0: Fetch repo index ───────────────────────────────────────────
         var repoContext = await context.CallActivityAsync<string?>(
             nameof(AgentActivityFunctions.FetchRepoIndexAsync), agentContext.Repository);
-
         if (!string.IsNullOrWhiteSpace(repoContext))
             agentContext.Metadata["repoContext"] = repoContext;
 
-        // ── Step 1: ProductStrategist reviews value & feasibility ──────────────
+        // ── Step 1: Product Strategist ─────────────────────────────────────────
         var strategistResult = await context.CallActivityAsync<AgentResult>(
             nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext);
-
-        // Pass strategist output to subsequent agents via metadata
         agentContext.Metadata["strategistOutput"] = strategistResult.OutputMarkdown ?? strategistResult.Summary;
 
-        // ── Step 2: ProductOwner writes the brief ──────────────────────────────
-        // Up to MaxBriefAttempts rounds of revisions before giving up.
-        AgentResult ownerResult = strategistResult; // will be overwritten below
-        var briefApproved = false;
+        // ── Step 2: Product Owner — brief with human approval loop ─────────────
+        AgentResult ownerResult   = strategistResult;
+        var briefApproved         = false;
 
         for (var attempt = 0; attempt < MaxBriefAttempts && !briefApproved; attempt++)
         {
@@ -51,55 +43,145 @@ public static class AiSdlcWorkflowOrchestrator
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                new PostCommentInput(
-                    agentContext.Repository,
-                    agentContext.IssueNumber,
+                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
                     BuildBriefComment(ownerResult, attempt)));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
-                new AddLabelInput(
-                    agentContext.Repository,
-                    agentContext.IssueNumber,
+                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
                     "ai-sdlc:awaiting-brief-approval"));
 
-            // ── Wait for human response ────────────────────────────────────────
             using var cts = new CancellationTokenSource();
-            var approveTask  = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveBrief,  cts.Token);
-            var changesTask  = context.WaitForExternalEvent<object?>(WorkflowEventNames.RequestChanges, cts.Token);
-            var timeoutTask  = context.CreateTimer(
-                context.CurrentUtcDateTime.Add(BriefApprovalTimeout), cts.Token);
+            var approveTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveBrief,  cts.Token);
+            var changesTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.RequestChanges, cts.Token);
+            var timeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(BriefApprovalTimeout), cts.Token);
 
             var winner = await Task.WhenAny(approveTask, changesTask, timeoutTask);
-            cts.Cancel(); // cancel timer if an event arrived first
+            cts.Cancel();
 
-            if (winner == approveTask)
-            {
-                briefApproved = true;
-                break;
-            }
-
-            if (winner == timeoutTask)
-                return Stopped(agentContext.RunId, issue, createdAt, context);
-
-            // RequestChanges received — loop if attempts remain
-            if (attempt == MaxBriefAttempts - 1)
-                return Stopped(agentContext.RunId, issue, createdAt, context);
+            if (winner == approveTask)       { briefApproved = true; break; }
+            if (winner == timeoutTask)       return Stopped(agentContext.RunId, issue, createdAt, context);
+            if (attempt == MaxBriefAttempts - 1) return Stopped(agentContext.RunId, issue, createdAt, context);
         }
 
-        // Pass approved brief to Business Analyst
         agentContext.Metadata["ownerBrief"] = ownerResult.OutputMarkdown ?? ownerResult.Summary;
 
-        // ── Step 3: Brief approved — Business Analyst analyses impact ──────────
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+            new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:brief-approved"));
+
+        // ── Step 3: Business Analyst ───────────────────────────────────────────
         var analystResult = await context.CallActivityAsync<AgentResult>(
             nameof(AgentActivityFunctions.RunBusinessAnalystAsync), agentContext);
+        agentContext.Metadata["analystOutput"] = analystResult.OutputMarkdown ?? analystResult.Summary;
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-            new PostCommentInput(
-                agentContext.Repository,
-                agentContext.IssueNumber,
-                BuildAnalysisComment(analystResult)));
+            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                BuildSectionComment("AI SDLC — Business Analysis", analystResult)));
+
+        // ── Step 4: Architect ──────────────────────────────────────────────────
+        var architectResult = await context.CallActivityAsync<AgentResult>(
+            nameof(AgentActivityFunctions.RunArchitectAsync), agentContext);
+        agentContext.Metadata["architectOutput"] = architectResult.OutputMarkdown ?? architectResult.Summary;
+
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                BuildSectionComment("AI SDLC — Architecture Review", architectResult)));
+
+        // ── Step 5: Parallel specialist reviews (fan-out) ─────────────────────
+        var reviewTasks = new List<Task<AgentResult>>
+        {
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSecurityPrivacyReviewerAsync), agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunUxAccessibilityReviewerAsync), agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDevOpsPlatformEngineerAsync),  agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunContentSeoReviewerAsync),      agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunComplianceLegalReviewerAsync), agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDataAnalyticsReviewerAsync),   agentContext),
+        };
+
+        var reviewResults = await Task.WhenAll(reviewTasks);
+
+        var securityResult   = reviewResults[0];
+        var uxResult         = reviewResults[1];
+        var devopsResult     = reviewResults[2];
+        var contentResult    = reviewResults[3];
+        var complianceResult = reviewResults[4];
+        var analyticsResult  = reviewResults[5];
+
+        agentContext.Metadata["securityOutput"]   = securityResult.OutputMarkdown   ?? securityResult.Summary;
+        agentContext.Metadata["uxOutput"]         = uxResult.OutputMarkdown         ?? uxResult.Summary;
+        agentContext.Metadata["devopsOutput"]     = devopsResult.OutputMarkdown     ?? devopsResult.Summary;
+        agentContext.Metadata["contentOutput"]    = contentResult.OutputMarkdown    ?? contentResult.Summary;
+        agentContext.Metadata["complianceOutput"] = complianceResult.OutputMarkdown ?? complianceResult.Summary;
+        agentContext.Metadata["analyticsOutput"]  = analyticsResult.OutputMarkdown  ?? analyticsResult.Summary;
+
+        // Post all specialist reviews as a single consolidated comment
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                BuildSpecialistReviewsComment(securityResult, uxResult, devopsResult, contentResult, complianceResult, analyticsResult)));
+
+        // ── Step 6: QA + Senior Coder (parallel) ──────────────────────────────
+        var qaTask     = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunQaTestEngineerAsync), agentContext);
+        var coderTask  = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSeniorCoderAsync),    agentContext);
+
+        var qaResult    = await qaTask;
+        var coderResult = await coderTask;
+
+        agentContext.Metadata["testPlan"] = qaResult.OutputMarkdown    ?? qaResult.Summary;
+        agentContext.Metadata["implSpec"] = coderResult.OutputMarkdown ?? coderResult.Summary;
+
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                BuildImplementationComment(qaResult, coderResult)));
+
+        // ── Step 7: Risk Assessor ──────────────────────────────────────────────
+        var riskResult = await context.CallActivityAsync<AgentResult>(
+            nameof(AgentActivityFunctions.RunRiskAssessorAsync), agentContext);
+        agentContext.Metadata["riskAssessment"] = riskResult.OutputMarkdown ?? riskResult.Summary;
+
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                BuildSectionComment("AI SDLC — Risk Assessment", riskResult)));
+
+        // ── Step 8: Route on risk decision ────────────────────────────────────
+        var riskDecision = riskResult.Decision ?? "HUMAN_REVIEW_REQUIRED";
+
+        if (riskDecision == "BLOCKED")
+            return Failed(agentContext.RunId, issue, createdAt, context, riskResult);
+
+        if (riskDecision == "HUMAN_REVIEW_REQUIRED")
+        {
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:awaiting-human-review"));
+
+            using var cts = new CancellationTokenSource();
+            var approveTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveRelease, cts.Token);
+            var timeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(HumanReviewTimeout),  cts.Token);
+            var winner      = await Task.WhenAny(approveTask, timeoutTask);
+            cts.Cancel();
+
+            if (winner == timeoutTask)
+                return Stopped(agentContext.RunId, issue, createdAt, context);
+        }
+
+        // ── Step 9: Release Manager ────────────────────────────────────────────
+        var releaseResult = await context.CallActivityAsync<AgentResult>(
+            nameof(AgentActivityFunctions.RunReleaseManagerAsync), agentContext);
+
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                BuildDevReadyComment(releaseResult, riskDecision)));
+
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+            new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:analysis-ready"));
 
         var updatedAt = new DateTimeOffset(context.CurrentUtcDateTime, TimeSpan.Zero);
 
@@ -111,14 +193,21 @@ public static class AiSdlcWorkflowOrchestrator
             Status       = WorkflowRunStatus.AwaitingHumanReview,
             CreatedAtUtc = createdAt,
             UpdatedAtUtc = updatedAt,
-            RiskLevel    = RiskLevel.Unknown,
-            RiskDecision = RiskDecision.Unknown.ToString(),
-            Artefacts    = MapArtefacts(strategistResult, ownerResult, analystResult)
+            RiskLevel    = ParseRiskLevel(riskResult.Decision),
+            RiskDecision = riskDecision,
+            Artefacts    = MapArtefacts(strategistResult, ownerResult, analystResult, architectResult,
+                               securityResult, uxResult, devopsResult, complianceResult, contentResult,
+                               analyticsResult, qaResult, coderResult, riskResult, releaseResult)
         };
     }
 
-    private static WorkflowRun Stopped(
-        string runId, GitHubIssueReference issue, DateTimeOffset createdAt, TaskOrchestrationContext context) =>
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static GitHubIssueReference BuildIssueRef(AgentContext ctx) =>
+        new(ctx.Repository, ctx.IssueNumber,
+            $"https://github.com/{ctx.Repository}/issues/{ctx.IssueNumber}");
+
+    private static WorkflowRun Stopped(string runId, GitHubIssueReference issue, DateTimeOffset createdAt, TaskOrchestrationContext ctx) =>
         new()
         {
             RunId        = runId,
@@ -126,64 +215,126 @@ public static class AiSdlcWorkflowOrchestrator
             Issue        = issue,
             Status       = WorkflowRunStatus.Stopped,
             CreatedAtUtc = createdAt,
-            UpdatedAtUtc = new DateTimeOffset(context.CurrentUtcDateTime, TimeSpan.Zero),
+            UpdatedAtUtc = new DateTimeOffset(ctx.CurrentUtcDateTime, TimeSpan.Zero),
             RiskLevel    = RiskLevel.Unknown,
             RiskDecision = RiskDecision.Unknown.ToString()
         };
 
+    private static WorkflowRun Failed(string runId, GitHubIssueReference issue, DateTimeOffset createdAt, TaskOrchestrationContext ctx, AgentResult riskResult) =>
+        new()
+        {
+            RunId        = runId,
+            Repository   = issue.Repository,
+            Issue        = issue,
+            Status       = WorkflowRunStatus.Failed,
+            CreatedAtUtc = createdAt,
+            UpdatedAtUtc = new DateTimeOffset(ctx.CurrentUtcDateTime, TimeSpan.Zero),
+            RiskLevel    = RiskLevel.High,
+            RiskDecision = RiskDecision.StopWorkflow.ToString(),
+            Artefacts    = MapArtefacts(riskResult)
+        };
+
+    private static RiskLevel ParseRiskLevel(string? decision) => decision switch
+    {
+        "AUTO_MERGE_ELIGIBLE" => RiskLevel.Low,
+        "BLOCKED"             => RiskLevel.High,
+        _                     => RiskLevel.Medium
+    };
+
     private static string BuildBriefComment(AgentResult result, int attempt)
     {
         var sb = new StringBuilder();
-
         if (attempt > 0)
         {
             sb.AppendLine($"> **Revised brief — attempt {attempt + 1} of {MaxBriefAttempts}**");
             sb.AppendLine();
         }
-
         sb.AppendLine("## AI SDLC — Refined Brief");
         sb.AppendLine();
         sb.AppendLine(!string.IsNullOrWhiteSpace(result.OutputMarkdown) ? result.OutputMarkdown : result.Summary);
-
-        if (result.FollowUpQuestions.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("### Questions for clarification");
-            foreach (var q in result.FollowUpQuestions)
-                sb.AppendLine($"- {q}");
-        }
-
-        if (result.BlockingIssues.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("### Blocking issues");
-            foreach (var b in result.BlockingIssues)
-                sb.AppendLine($"- {b}");
-        }
-
+        AppendLists(sb, result);
         sb.AppendLine();
         sb.AppendLine("---");
         sb.AppendLine("Reply `/approve-brief` to proceed or `/request-changes` with your feedback.");
-
         return sb.ToString();
     }
 
-    private static string BuildAnalysisComment(AgentResult result)
+    private static string BuildSectionComment(string heading, AgentResult result)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("## AI SDLC — Business Analysis");
+        sb.AppendLine($"## {heading}");
         sb.AppendLine();
         sb.AppendLine(!string.IsNullOrWhiteSpace(result.OutputMarkdown) ? result.OutputMarkdown : result.Summary);
+        AppendLists(sb, result);
+        return sb.ToString();
+    }
 
+    private static string BuildSpecialistReviewsComment(
+        AgentResult security, AgentResult ux, AgentResult devops,
+        AgentResult content, AgentResult compliance, AgentResult analytics)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## AI SDLC — Specialist Reviews");
+        sb.AppendLine();
+        AppendCollapsible(sb, "Security & Privacy Review",   security);
+        AppendCollapsible(sb, "UX & Accessibility Review",   ux);
+        AppendCollapsible(sb, "DevOps & Platform Review",    devops);
+        AppendCollapsible(sb, "Content & SEO Review",        content);
+        AppendCollapsible(sb, "Compliance & Legal Review",   compliance);
+        AppendCollapsible(sb, "Data & Analytics Review",     analytics);
+        return sb.ToString();
+    }
+
+    private static string BuildImplementationComment(AgentResult qa, AgentResult coder)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## AI SDLC — Implementation Guidance");
+        sb.AppendLine();
+        AppendCollapsible(sb, "Test Plan",                   qa);
+        AppendCollapsible(sb, "Implementation Specification", coder);
+        return sb.ToString();
+    }
+
+    private static string BuildDevReadyComment(AgentResult release, string riskDecision)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## AI SDLC — Ready for Development");
+        sb.AppendLine();
+
+        if (riskDecision == "AUTO_MERGE_ELIGIBLE")
+            sb.AppendLine("> ✅ **Risk level: LOW — eligible for auto-merge after all checks pass.**");
+        else
+            sb.AppendLine("> ⚠️ **Risk level: MEDIUM/HIGH — human review required before merge.**");
+
+        sb.AppendLine();
+        sb.AppendLine("### Release Documentation");
+        sb.AppendLine();
+        sb.AppendLine(!string.IsNullOrWhiteSpace(release.OutputMarkdown) ? release.OutputMarkdown : release.Summary);
+        return sb.ToString();
+    }
+
+    private static void AppendCollapsible(StringBuilder sb, string title, AgentResult result)
+    {
+        sb.AppendLine($"<details><summary><strong>{title}</strong></summary>");
+        sb.AppendLine();
+        sb.AppendLine(!string.IsNullOrWhiteSpace(result.OutputMarkdown) ? result.OutputMarkdown : result.Summary);
+        sb.AppendLine();
+        sb.AppendLine("</details>");
+        sb.AppendLine();
+    }
+
+    private static void AppendLists(StringBuilder sb, AgentResult result)
+    {
+        if (result.FollowUpQuestions.Count > 0)
+        {
+            sb.AppendLine(); sb.AppendLine("### Questions for clarification");
+            foreach (var q in result.FollowUpQuestions) sb.AppendLine($"- {q}");
+        }
         if (result.BlockingIssues.Count > 0)
         {
-            sb.AppendLine();
-            sb.AppendLine("### Blocking issues (require resolution before proceeding)");
-            foreach (var b in result.BlockingIssues)
-                sb.AppendLine($"- {b}");
+            sb.AppendLine(); sb.AppendLine("### Blocking issues");
+            foreach (var b in result.BlockingIssues) sb.AppendLine($"- {b}");
         }
-
-        return sb.ToString();
     }
 
     private static IReadOnlyList<ArtefactReference> MapArtefacts(params AgentResult[] results) =>

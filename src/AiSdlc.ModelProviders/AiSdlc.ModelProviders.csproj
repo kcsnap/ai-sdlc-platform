@@ -1,2 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\AiSdlc.Shared\AiSdlc.Shared.csproj" />
+  </ItemGroup>
 </Project>

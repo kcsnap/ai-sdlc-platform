@@ -201,7 +201,7 @@ Tasks:
 
 ## 3.3 Observability
 
-- [ ] Add Application Insights integration
+- [x] Add Application Insights integration
 - [ ] Add Log Analytics workspace integration
 - [ ] Add correlation IDs using `RunId`
 - [ ] Add structured logging conventions
@@ -330,18 +330,18 @@ Tasks:
 - [x] Product Strategist (name constant defined)
 - [x] Product Owner (name constant defined)
 - [x] Business Analyst (agent implemented)
-- [x] UX / Accessibility Reviewer (name constant defined)
-- [x] Content / SEO Reviewer (name constant defined)
-- [x] Data / Analytics Reviewer (name constant defined)
-- [x] Compliance / Legal Reviewer (name constant defined)
-- [x] Architect (name constant defined)
+- [x] UX / Accessibility Reviewer (agent implemented)
+- [x] Content / SEO Reviewer (agent implemented)
+- [x] Data / Analytics Reviewer (agent implemented)
+- [x] Compliance / Legal Reviewer (agent implemented)
+- [x] Architect (agent implemented)
 - [x] Coder (name constant defined)
-- [x] QA / Test Engineer (name constant defined)
-- [x] Senior Coder (name constant defined)
-- [x] Security & Privacy Reviewer (name constant defined)
-- [x] DevOps / Platform Engineer (name constant defined)
-- [x] Risk Assessor (name constant defined)
-- [x] Release Manager (name constant defined)
+- [x] QA / Test Engineer (agent implemented)
+- [x] Senior Coder (agent implemented)
+- [x] Security & Privacy Reviewer (agent implemented)
+- [x] DevOps / Platform Engineer (agent implemented)
+- [x] Risk Assessor (agent implemented)
+- [x] Release Manager (agent implemented)
 
 ## 5.3 Persona prompt templates
 
@@ -495,14 +495,14 @@ Tasks:
 
 ## 7.3 External events
 
-- [ ] Issue created
+- [x] Issue created
 - [ ] Issue comment added
-- [ ] `/approve-brief`
+- [x] `/approve-brief`
 - [ ] PR opened
 - [ ] PR updated
 - [ ] GitHub Actions completed
-- [ ] Human review approved
-- [ ] Human review rejected
+- [x] Human review approved (ApproveRelease event, 14-day timeout)
+- [x] Human review rejected
 - [ ] Deployment completed
 - [ ] Post-deployment checks completed
 
@@ -540,12 +540,12 @@ Ensure dotnet build and dotnet test pass.
 
 ## 8.3 Secret and PII redaction
 
-- [ ] Create redaction abstraction
-- [ ] Detect common secret patterns
-- [ ] Detect common PII patterns
-- [ ] Redact before storing full prompts/responses
+- [x] Create redaction abstraction
+- [x] Detect common secret patterns
+- [x] Detect common PII patterns
+- [x] Redact before storing full prompts/responses
 - [ ] Store redaction metadata in audit events
-- [ ] Add tests for redaction
+- [x] Add tests for redaction
 
 ## 8.4 Compliance/security checks
 
@@ -771,13 +771,13 @@ A change can auto-merge and auto-deploy only when all are true:
 
 ## Implementation tasks
 
-- [ ] Implement auto-merge eligibility service
+- [x] Implement auto-merge eligibility service
 - [ ] Implement production deployment eligibility service
 - [ ] Read GitHub check results
 - [ ] Read risk assessment result
 - [ ] Read human review state
 - [ ] Block auto-deploy on missing/unknown signals
-- [ ] Add tests
+- [x] Add tests
 
 ---
 
@@ -968,16 +968,16 @@ Create the first example app that demonstrates the AI SDLC end to end.
 
 ## Platform docs
 
-- [ ] Architecture overview
-- [ ] Local development guide
+- [x] Architecture overview
+- [x] Local development guide
 - [ ] Deployment guide
 - [ ] GitHub integration guide
 - [ ] Agent/persona guide
-- [ ] Risk model guide
+- [x] Risk model guide
 - [ ] Audit/logging guide
 - [ ] Security/privacy guide
 - [ ] Troubleshooting guide
-- [ ] Operator runbook
+- [x] Operator runbook
 
 ## User docs
 
