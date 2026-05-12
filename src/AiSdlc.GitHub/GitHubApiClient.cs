@@ -130,6 +130,16 @@ public sealed class GitHubApiClient : IGitHubService
         }).ToArray();
     }
 
+    public async Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken cancellationToken)
+    {
+        using var response = await _http.PutAsJsonAsync(
+            $"/repos/{repository}/pulls/{pullRequestNumber}/merge",
+            new { merge_method = "squash", commit_message = commitMessage },
+            JsonOptions,
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync($"/repos/{repository}/contents/{path}", cancellationToken);

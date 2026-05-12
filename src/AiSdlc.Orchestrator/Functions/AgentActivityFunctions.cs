@@ -2,6 +2,7 @@ using AiSdlc.Agents;
 using AiSdlc.GitHub;
 using AiSdlc.RepoIndex;
 using AiSdlc.Shared;
+using AiSdlc.Shared.AutoMerge;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 
@@ -12,18 +13,21 @@ public sealed class AgentActivityFunctions
     private readonly IAgentRunner _agentRunner;
     private readonly IGitHubService _gitHub;
     private readonly IRepoIndexer _repoIndexer;
+    private readonly IAutoMergeEligibilityService _autoMergeEligibility;
     private readonly ILogger<AgentActivityFunctions> _logger;
 
     public AgentActivityFunctions(
         IAgentRunner agentRunner,
         IGitHubService gitHub,
         IRepoIndexer repoIndexer,
+        IAutoMergeEligibilityService autoMergeEligibility,
         ILogger<AgentActivityFunctions> logger)
     {
-        _agentRunner  = agentRunner;
-        _gitHub       = gitHub;
-        _repoIndexer  = repoIndexer;
-        _logger       = logger;
+        _agentRunner          = agentRunner;
+        _gitHub               = gitHub;
+        _repoIndexer          = repoIndexer;
+        _autoMergeEligibility = autoMergeEligibility;
+        _logger               = logger;
     }
 
     [Function(nameof(RunProductStrategistAsync))]
@@ -107,6 +111,64 @@ public sealed class AgentActivityFunctions
     {
         _logger.LogInformation("Adding label '{Label}' to {Repository}#{Issue}", input.Label, input.Repository, input.IssueOrPrNumber);
         await _gitHub.AddLabelsAsync(input.Repository, input.IssueOrPrNumber, [input.Label], cancellationToken);
+    }
+
+    [Function(nameof(GetPullRequestContextAsync))]
+    public async Task<PrMergeContext> GetPullRequestContextAsync([ActivityTrigger] GetPrContextInput input, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Fetching PR context for {Repository}#{Pr}", input.Repository, input.PullRequestNumber);
+
+        var pr       = await _gitHub.GetPullRequestAsync(input.Repository, input.PullRequestNumber, cancellationToken);
+        var files    = await _gitHub.GetChangedFilesAsync(input.Repository, input.PullRequestNumber, cancellationToken);
+        var checks   = await _gitHub.GetCheckRunResultsAsync(input.Repository, input.HeadSha, cancellationToken);
+
+        var allChecksPass = checks.Count > 0
+            && checks.All(c => c.Status == "completed" && c.Conclusion == "success");
+
+        var hasTestCoverage = checks.Any(c =>
+            (c.Name.Contains("test", StringComparison.OrdinalIgnoreCase) ||
+             c.Name.Contains("coverage", StringComparison.OrdinalIgnoreCase))
+            && c.Conclusion == "success")
+            || files.Any(f => f.Path.Contains("test", StringComparison.OrdinalIgnoreCase));
+
+        return new PrMergeContext(
+            PullRequestNumber: input.PullRequestNumber,
+            HeadSha:           input.HeadSha,
+            Mergeable:         pr.Mergeable,
+            AllChecksPass:     allChecksPass,
+            HasTestCoverage:   hasTestCoverage,
+            ChangedFiles:      files);
+    }
+
+    [Function(nameof(EvaluateAutoMergeAsync))]
+    public Task<AutoMergeEligibilityResult> EvaluateAutoMergeAsync([ActivityTrigger] EvaluateMergeInput input, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Evaluating auto-merge gates for {Repository} run {RunId}", input.Repository, input.RunId);
+
+        var result = _autoMergeEligibility.Evaluate(new AutoMergeEligibilityRequest
+        {
+            RunId                       = input.RunId,
+            Repository                  = input.Repository,
+            RiskLevel                   = input.RiskLevel,
+            RiskDecision                = input.RiskDecision,
+            BriefApproved               = input.BriefApproved,
+            AllReviewsCompleted         = input.AllReviewsCompleted,
+            NoBlockingIssues            = input.NoBlockingIssues,
+            AllChecksPass               = input.AllChecksPass,
+            HasTestCoverage             = input.HasTestCoverage,
+            RollbackDocumented          = input.RollbackDocumented,
+            ReleaseNotesGenerated       = input.ReleaseNotesGenerated,
+            PostDeploymentChecksDefinied = input.PostDeploymentChecksDefined
+        });
+
+        return Task.FromResult(result);
+    }
+
+    [Function(nameof(MergePullRequestActivityAsync))]
+    public async Task MergePullRequestActivityAsync([ActivityTrigger] MergePrInput input, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Merging PR #{Pr} on {Repository}", input.PullRequestNumber, input.Repository);
+        await _gitHub.MergePullRequestAsync(input.Repository, input.PullRequestNumber, input.CommitMessage, cancellationToken);
     }
 
     private async Task<AgentResult> ExecuteAsync(string agentName, AgentContext context, CancellationToken cancellationToken)

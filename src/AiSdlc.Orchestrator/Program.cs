@@ -7,6 +7,7 @@ using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
 using AiSdlc.RepoIndex;
+using AiSdlc.Shared.AutoMerge;
 using AiSdlc.Shared.Redaction;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -50,6 +51,7 @@ var host = new HostBuilder()
         services.AddSingleton<IAgent, RiskAssessorAgent>();
         services.AddSingleton<IAgent, ReleaseManagerAgent>();
         services.AddSingleton<IAgentRunner, AgentRunner>();
+        services.AddSingleton<IAutoMergeEligibilityService, AutoMergeEligibilityService>();
 
         var credential = new DefaultAzureCredential();
         var auditAccountName = Environment.GetEnvironmentVariable("AuditStorageAccountName")
