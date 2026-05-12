@@ -38,6 +38,50 @@ public sealed class AgentActivityFunctions
     public Task<AgentResult> RunBusinessAnalystAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
         ExecuteAsync(AgentNames.BusinessAnalyst, context, cancellationToken);
 
+    [Function(nameof(RunArchitectAsync))]
+    public Task<AgentResult> RunArchitectAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.Architect, context, cancellationToken);
+
+    [Function(nameof(RunUxAccessibilityReviewerAsync))]
+    public Task<AgentResult> RunUxAccessibilityReviewerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.UxAccessibilityReviewer, context, cancellationToken);
+
+    [Function(nameof(RunContentSeoReviewerAsync))]
+    public Task<AgentResult> RunContentSeoReviewerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.ContentSeoReviewer, context, cancellationToken);
+
+    [Function(nameof(RunDataAnalyticsReviewerAsync))]
+    public Task<AgentResult> RunDataAnalyticsReviewerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.DataAnalyticsReviewer, context, cancellationToken);
+
+    [Function(nameof(RunComplianceLegalReviewerAsync))]
+    public Task<AgentResult> RunComplianceLegalReviewerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.ComplianceLegalReviewer, context, cancellationToken);
+
+    [Function(nameof(RunSecurityPrivacyReviewerAsync))]
+    public Task<AgentResult> RunSecurityPrivacyReviewerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.SecurityPrivacyReviewer, context, cancellationToken);
+
+    [Function(nameof(RunDevOpsPlatformEngineerAsync))]
+    public Task<AgentResult> RunDevOpsPlatformEngineerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.DevOpsPlatformEngineer, context, cancellationToken);
+
+    [Function(nameof(RunQaTestEngineerAsync))]
+    public Task<AgentResult> RunQaTestEngineerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.QaTestEngineer, context, cancellationToken);
+
+    [Function(nameof(RunSeniorCoderAsync))]
+    public Task<AgentResult> RunSeniorCoderAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.SeniorCoder, context, cancellationToken);
+
+    [Function(nameof(RunRiskAssessorAsync))]
+    public Task<AgentResult> RunRiskAssessorAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.RiskAssessor, context, cancellationToken);
+
+    [Function(nameof(RunReleaseManagerAsync))]
+    public Task<AgentResult> RunReleaseManagerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.ReleaseManager, context, cancellationToken);
+
     [Function(nameof(PostGitHubCommentAsync))]
     public async Task PostGitHubCommentAsync([ActivityTrigger] PostCommentInput input, CancellationToken cancellationToken)
     {

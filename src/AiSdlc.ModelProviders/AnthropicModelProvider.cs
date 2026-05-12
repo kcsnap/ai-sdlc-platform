@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AiSdlc.Shared.Redaction;
 
 namespace AiSdlc.ModelProviders;
 
@@ -9,6 +10,7 @@ public sealed class AnthropicModelProvider : IModelProvider
 {
     private readonly HttpClient _http;
     private readonly ModelProviderOptions _options;
+    private readonly IRedactionService _redaction;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -16,21 +18,24 @@ public sealed class AnthropicModelProvider : IModelProvider
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public AnthropicModelProvider(HttpClient http, ModelProviderOptions options)
+    public AnthropicModelProvider(HttpClient http, ModelProviderOptions options, IRedactionService redaction)
     {
-        _http    = http;
-        _options = options;
+        _http      = http;
+        _options   = options;
+        _redaction = redaction;
     }
 
     public string ProviderName => "Anthropic";
 
     public async Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken)
     {
+        var systemPrompt = _redaction.Redact(request.SystemPrompt ?? string.Empty).RedactedText;
+
         var body = new
         {
             Model     = _options.ModelName,
             MaxTokens = request.MaxTokens ?? _options.DefaultMaxTokens,
-            System    = request.SystemPrompt,
+            System    = systemPrompt,
             Messages  = new[] { new { Role = "user", Content = BuildUserContent(request) } }
         };
 
@@ -56,20 +61,22 @@ public sealed class AnthropicModelProvider : IModelProvider
         };
     }
 
-    private static string BuildUserContent(ModelRequest request)
+    private string BuildUserContent(ModelRequest request)
     {
+        var userPrompt = _redaction.Redact(request.UserPrompt).RedactedText;
+
         if (request.ContextDocuments.Count == 0)
-            return request.UserPrompt;
+            return userPrompt;
 
         var sb = new StringBuilder();
         foreach (var (name, content) in request.ContextDocuments)
         {
             sb.AppendLine($"<document name=\"{name}\">");
-            sb.AppendLine(content);
+            sb.AppendLine(_redaction.Redact(content).RedactedText);
             sb.AppendLine("</document>");
             sb.AppendLine();
         }
-        sb.Append(request.UserPrompt);
+        sb.Append(userPrompt);
         return sb.ToString();
     }
 

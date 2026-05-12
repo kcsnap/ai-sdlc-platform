@@ -7,11 +7,14 @@ using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
 using AiSdlc.RepoIndex;
+using AiSdlc.Shared.Redaction;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 var host = new HostBuilder()
     .ConfigureFunctionsWorkerDefaults()
+    // Application Insights is enabled automatically when APPLICATIONINSIGHTS_CONNECTION_STRING
+    // is set. The Microsoft.Azure.Functions.Worker.ApplicationInsights package wires it up.
     .ConfigureServices(services =>
     {
         services.AddSingleton(new ModelProviderOptions
@@ -20,6 +23,8 @@ var host = new HostBuilder()
             ModelName       = Environment.GetEnvironmentVariable("AnthropicModel") ?? "claude-haiku-4-5-20251001",
             DefaultMaxTokens = 2048
         });
+
+        services.AddSingleton<IRedactionService, RegexRedactionService>();
 
         services.AddHttpClient<IModelProvider, AnthropicModelProvider>(client =>
         {
@@ -33,6 +38,17 @@ var host = new HostBuilder()
         services.AddSingleton<IAgent, ProductStrategistAgent>();
         services.AddSingleton<IAgent, ProductOwnerAgent>();
         services.AddSingleton<IAgent, BusinessAnalystAgent>();
+        services.AddSingleton<IAgent, ArchitectAgent>();
+        services.AddSingleton<IAgent, UxAccessibilityReviewerAgent>();
+        services.AddSingleton<IAgent, ContentSeoReviewerAgent>();
+        services.AddSingleton<IAgent, DataAnalyticsReviewerAgent>();
+        services.AddSingleton<IAgent, ComplianceLegalReviewerAgent>();
+        services.AddSingleton<IAgent, QaTestEngineerAgent>();
+        services.AddSingleton<IAgent, SeniorCoderAgent>();
+        services.AddSingleton<IAgent, SecurityPrivacyReviewerAgent>();
+        services.AddSingleton<IAgent, DevOpsPlatformEngineerAgent>();
+        services.AddSingleton<IAgent, RiskAssessorAgent>();
+        services.AddSingleton<IAgent, ReleaseManagerAgent>();
         services.AddSingleton<IAgentRunner, AgentRunner>();
 
         var credential = new DefaultAzureCredential();

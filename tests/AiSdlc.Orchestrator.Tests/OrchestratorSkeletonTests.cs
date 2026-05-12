@@ -24,7 +24,18 @@ public sealed class OrchestratorSkeletonTests
             new AgentRunner([
                 new ProductStrategistAgent(fakeModel),
                 new ProductOwnerAgent(fakeModel),
-                new BusinessAnalystAgent(fakeModel)
+                new BusinessAnalystAgent(fakeModel),
+                new ArchitectAgent(fakeModel),
+                new UxAccessibilityReviewerAgent(fakeModel),
+                new ContentSeoReviewerAgent(fakeModel),
+                new DataAnalyticsReviewerAgent(fakeModel),
+                new ComplianceLegalReviewerAgent(fakeModel),
+                new SecurityPrivacyReviewerAgent(fakeModel),
+                new DevOpsPlatformEngineerAgent(fakeModel),
+                new QaTestEngineerAgent(fakeModel),
+                new SeniorCoderAgent(fakeModel),
+                new RiskAssessorAgent(fakeModel),
+                new ReleaseManagerAgent(fakeModel)
             ]),
             new NoOpGitHubService(),
             new NoOpRepoIndexer(),
@@ -73,6 +84,36 @@ public sealed class OrchestratorSkeletonTests
     }
 
     [Fact]
+    public async Task NewPersonaActivities_Execute()
+    {
+        var functions = BuildActivityFunctions();
+        var context = new AgentContext
+        {
+            RunId = "run-456", Repository = "kcsnap/ai-sdlc-platform",
+            IssueNumber = 42, CurrentState = WorkflowRunStatus.Analysing.ToString(),
+            RequestedAgent = AgentNames.Architect
+        };
+
+        var archResult     = await functions.RunArchitectAsync(context, CancellationToken.None);
+        var secResult      = await functions.RunSecurityPrivacyReviewerAsync(context, CancellationToken.None);
+        var uxResult       = await functions.RunUxAccessibilityReviewerAsync(context, CancellationToken.None);
+        var devopsResult   = await functions.RunDevOpsPlatformEngineerAsync(context, CancellationToken.None);
+        var qaResult       = await functions.RunQaTestEngineerAsync(context, CancellationToken.None);
+        var coderResult    = await functions.RunSeniorCoderAsync(context, CancellationToken.None);
+        var riskResult     = await functions.RunRiskAssessorAsync(context, CancellationToken.None);
+        var releaseResult  = await functions.RunReleaseManagerAsync(context, CancellationToken.None);
+
+        Assert.Equal(AgentNames.Architect,              archResult.AgentName);
+        Assert.Equal(AgentNames.SecurityPrivacyReviewer, secResult.AgentName);
+        Assert.Equal(AgentNames.UxAccessibilityReviewer, uxResult.AgentName);
+        Assert.Equal(AgentNames.DevOpsPlatformEngineer,  devopsResult.AgentName);
+        Assert.Equal(AgentNames.QaTestEngineer,          qaResult.AgentName);
+        Assert.Equal(AgentNames.SeniorCoder,             coderResult.AgentName);
+        Assert.Equal(AgentNames.RiskAssessor,            riskResult.AgentName);
+        Assert.Equal(AgentNames.ReleaseManager,          releaseResult.AgentName);
+    }
+
+    [Fact]
     public void FunctionTypes_ShouldExposeExpectedSkeletonClasses()
     {
         Assert.NotNull(typeof(AiSdlcWorkflowOrchestrator));
@@ -80,6 +121,9 @@ public sealed class OrchestratorSkeletonTests
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.RunProductStrategistAsync)));
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.RunProductOwnerAsync)));
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.RunBusinessAnalystAsync)));
+        Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.RunArchitectAsync)));
+        Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.RunRiskAssessorAsync)));
+        Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.RunReleaseManagerAsync)));
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.PostGitHubCommentAsync)));
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.AddGitHubLabelAsync)));
     }
