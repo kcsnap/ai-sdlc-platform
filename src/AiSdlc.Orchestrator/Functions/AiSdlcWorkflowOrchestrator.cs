@@ -140,6 +140,64 @@ public static class AiSdlcWorkflowOrchestrator
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
             new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                BuildSectionComment("AI SDLC — Business Analysis", analystResult)));
+
+        // ── Step 4: Architect ──────────────────────────────────────────────────
+        var architectResult = await context.CallActivityAsync<AgentResult>(
+            nameof(AgentActivityFunctions.RunArchitectAsync), agentContext);
+        agentContext.Metadata["architectOutput"] = architectResult.OutputMarkdown ?? architectResult.Summary;
+
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                BuildSectionComment("AI SDLC — Architecture Review", architectResult)));
+
+        // ── Step 5: Parallel specialist reviews (fan-out) ─────────────────────
+        var reviewTasks = new List<Task<AgentResult>>
+        {
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSecurityPrivacyReviewerAsync), agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunUxAccessibilityReviewerAsync), agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDevOpsPlatformEngineerAsync),  agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunContentSeoReviewerAsync),      agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunComplianceLegalReviewerAsync), agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDataAnalyticsReviewerAsync),   agentContext),
+        };
+
+        var reviewResults = await Task.WhenAll(reviewTasks);
+
+        var securityResult   = reviewResults[0];
+        var uxResult         = reviewResults[1];
+        var devopsResult     = reviewResults[2];
+        var contentResult    = reviewResults[3];
+        var complianceResult = reviewResults[4];
+        var analyticsResult  = reviewResults[5];
+
+        agentContext.Metadata["securityOutput"]   = securityResult.OutputMarkdown   ?? securityResult.Summary;
+        agentContext.Metadata["uxOutput"]         = uxResult.OutputMarkdown         ?? uxResult.Summary;
+        agentContext.Metadata["devopsOutput"]     = devopsResult.OutputMarkdown     ?? devopsResult.Summary;
+        agentContext.Metadata["contentOutput"]    = contentResult.OutputMarkdown    ?? contentResult.Summary;
+        agentContext.Metadata["complianceOutput"] = complianceResult.OutputMarkdown ?? complianceResult.Summary;
+        agentContext.Metadata["analyticsOutput"]  = analyticsResult.OutputMarkdown  ?? analyticsResult.Summary;
+
+        // Post all specialist reviews as a single consolidated comment
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                BuildSpecialistReviewsComment(securityResult, uxResult, devopsResult, contentResult, complianceResult, analyticsResult)));
+
+        // ── Step 6: QA + Senior Coder (parallel) ──────────────────────────────
+        var qaTask     = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunQaTestEngineerAsync), agentContext);
+        var coderTask  = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSeniorCoderAsync),    agentContext);
+
+        var qaResult    = await qaTask;
+        var coderResult = await coderTask;
+
+        agentContext.Metadata["testPlan"] = qaResult.OutputMarkdown    ?? qaResult.Summary;
+        agentContext.Metadata["implSpec"] = coderResult.OutputMarkdown ?? coderResult.Summary;
+
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
                 BuildImplementationComment(qaResult, coderResult)));
 
         // ── Step 7: Risk Assessor ──────────────────────────────────────────────
@@ -301,7 +359,7 @@ public static class AiSdlcWorkflowOrchestrator
             Status       = WorkflowRunStatus.Released,
             CreatedAtUtc = createdAt,
             UpdatedAtUtc = updatedAt,
-            RiskLevel    = ParseRiskLevel(riskDecision),
+            RiskLevel    = ParseRiskLevel(riskResult.Decision),
             RiskDecision = riskDecision,
             Artefacts    = MapArtefacts(strategistResult, ownerResult, analystResult, architectResult,
                                securityResult, uxResult, devopsResult, complianceResult, contentResult,
@@ -441,6 +499,51 @@ public static class AiSdlcWorkflowOrchestrator
 
         sb.AppendLine();
         sb.AppendLine($"Reply `/approve-merge` on this issue to merge PR #{prNumber}.");
+        return sb.ToString();
+    }
+
+    private static string BuildDevReadyComment(AgentResult release, string riskDecision)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("---");
+        sb.AppendLine("Reply `/approve-brief` to proceed or `/request-changes` with your feedback.");
+        return sb.ToString();
+    }
+
+    private static string BuildSectionComment(string heading, AgentResult result)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"## {heading}");
+        sb.AppendLine();
+        sb.AppendLine(!string.IsNullOrWhiteSpace(result.OutputMarkdown) ? result.OutputMarkdown : result.Summary);
+        AppendLists(sb, result);
+        return sb.ToString();
+    }
+
+    private static string BuildSpecialistReviewsComment(
+        AgentResult security, AgentResult ux, AgentResult devops,
+        AgentResult content, AgentResult compliance, AgentResult analytics)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## AI SDLC — Specialist Reviews");
+        sb.AppendLine();
+        AppendCollapsible(sb, "Security & Privacy Review",   security);
+        AppendCollapsible(sb, "UX & Accessibility Review",   ux);
+        AppendCollapsible(sb, "DevOps & Platform Review",    devops);
+        AppendCollapsible(sb, "Content & SEO Review",        content);
+        AppendCollapsible(sb, "Compliance & Legal Review",   compliance);
+        AppendCollapsible(sb, "Data & Analytics Review",     analytics);
+        return sb.ToString();
+    }
+
+    private static string BuildImplementationComment(AgentResult qa, AgentResult coder)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## AI SDLC — Implementation Guidance");
+        sb.AppendLine();
+        AppendCollapsible(sb, "Test Plan",                   qa);
+        AppendCollapsible(sb, "Implementation Specification", coder);
         return sb.ToString();
     }
 
