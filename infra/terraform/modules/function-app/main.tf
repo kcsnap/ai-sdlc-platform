@@ -31,7 +31,7 @@ resource "azurerm_linux_function_app" "this" {
   app_settings = merge(
     {
       APPLICATIONINSIGHTS_CONNECTION_STRING = var.app_insights_connection_string
-      AZURE_CLIENT_ID                       = "" # set after identity principal propagates
+      AZURE_CLIENT_ID                       = var.managed_identity_client_id
       KeyVaultUri                           = var.key_vault_uri
       AuditStorageAccountName               = var.audit_storage_account_name
       FUNCTIONS_EXTENSION_VERSION           = "~4"

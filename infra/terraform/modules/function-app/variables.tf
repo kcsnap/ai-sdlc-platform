@@ -31,6 +31,11 @@ variable "user_assigned_identity_id" {
   type        = string
 }
 
+variable "managed_identity_client_id" {
+  description = "Client ID of the user-assigned managed identity (written to AZURE_CLIENT_ID app setting)"
+  type        = string
+}
+
 variable "key_vault_uri" {
   type = string
 }

@@ -109,6 +109,7 @@ module "function_app" {
 
   app_insights_connection_string = module.app_insights.connection_string
   user_assigned_identity_id      = module.managed_identity.id
+  managed_identity_client_id     = module.managed_identity.client_id
   key_vault_uri                  = module.key_vault.vault_uri
   audit_storage_account_name     = module.audit_storage.name
 }

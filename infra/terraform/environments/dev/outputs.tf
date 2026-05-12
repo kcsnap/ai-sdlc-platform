@@ -2,6 +2,11 @@ output "function_app_hostname" {
   value = module.function_app.default_hostname
 }
 
+output "webhook_url" {
+  description = "Set this as the GitHub webhook URL on any target repository"
+  value       = "https://${module.function_app.default_hostname}/api/github/webhook"
+}
+
 output "function_app_name" {
   value = module.function_app.name
 }

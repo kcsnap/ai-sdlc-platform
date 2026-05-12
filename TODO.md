@@ -496,14 +496,14 @@ Tasks:
 ## 7.3 External events
 
 - [x] Issue created
-- [ ] Issue comment added
+- [x] Issue comment added
 - [x] `/approve-brief`
-- [ ] PR opened
-- [ ] PR updated
+- [x] PR opened (`PullRequestReady` event raised from `HandlePullRequestEventAsync`)
+- [ ] PR updated (re-evaluate gates on new push)
 - [ ] GitHub Actions completed
-- [x] Human review approved (ApproveRelease event, 14-day timeout)
+- [x] Human review approved (`/approve-merge`, 14-day timeout)
 - [x] Human review rejected
-- [ ] Deployment completed
+- [ ] Deployment completed (`DeploymentCompleted` event — future: launchcart CD posts back)
 - [ ] Post-deployment checks completed
 
 ## Codex CLI prompt
@@ -532,9 +532,9 @@ Ensure dotnet build and dotnet test pass.
 
 ## 8.2 GitHub Actions to Azure
 
-- [ ] Configure GitHub OIDC federation to Azure
-- [ ] Remove need for long-lived Azure credentials
-- [ ] Define Azure federated credentials per environment
+- [x] Configure OIDC federation in `ci.yml` (`permissions: id-token: write`)
+- [x] Remove need for long-lived Azure credentials (using `azure/login@v2` with OIDC)
+- [ ] Create service principal and federated credentials (one-time, see section 9.2)
 - [ ] Define deployment permissions per environment
 - [ ] Add GitHub environment protections where available/free
 
@@ -580,16 +580,79 @@ infra/terraform/
 
 Tasks:
 
-- [ ] Create Terraform backend strategy
-- [ ] Create Azure Resource Group module/usage
-- [ ] Create Storage Account for Functions/Durable state
-- [ ] Create Azure Function App
-- [ ] Create Application Insights
-- [ ] Create Log Analytics Workspace
-- [ ] Create Key Vault
-- [ ] Create managed identity
-- [ ] Add environment-specific variables
-- [ ] Add Terraform validate/plan workflow
+- [x] Create Terraform backend strategy
+- [x] Create Azure Resource Group module/usage
+- [x] Create Storage Account for Functions/Durable state (host + audit)
+- [x] Create Azure Function App (Linux Consumption Y1)
+- [x] Create Application Insights
+- [x] Create Log Analytics Workspace
+- [x] Create Key Vault with managed identity secret reader
+- [x] Create user-assigned managed identity
+- [x] Wire `AZURE_CLIENT_ID` from managed identity (no longer left blank)
+- [x] Add `webhook_url` Terraform output
+- [x] Add environment-specific variables
+- [ ] Add Terraform validate/plan workflow (GitHub Actions)
+- [ ] Run `terraform apply` for the `dev` environment (not yet applied)
+
+## 9.2 Production deployment — one-time setup
+
+Steps required before the Function App is live. See also section 8.2.
+
+- [ ] **Create Azure service principal for GitHub Actions (OIDC)**
+  ```bash
+  az ad sp create-for-rbac --name "sp-aisdlc-github" --role contributor \
+    --scopes /subscriptions/{subscription-id}/resourceGroups/rg-aisdlc-dev
+  az ad app federated-credential create --id {app-id} \
+    --parameters '{"name":"github-main","issuer":"https://token.actions.githubusercontent.com","subject":"repo:kcsnap/ai-sdlc-platform:ref:refs/heads/main","audiences":["api://AzureADTokenExchange"]}'
+  ```
+
+- [ ] **Run `terraform apply`**
+  ```bash
+  cd infra/terraform/environments/dev
+  terraform init
+  terraform apply \
+    -var="subscription_id=<id>" \
+    -var="tenant_id=<id>" \
+    -var="deployment_principal_object_id=<sp-object-id>"
+  ```
+
+- [ ] **Load secrets into Key Vault** (Key Vault name: `kv-aisdlc-81c0`)
+  ```bash
+  az keyvault secret set --vault-name kv-aisdlc-81c0 --name AnthropicApiKey     --value "sk-ant-..."
+  az keyvault secret set --vault-name kv-aisdlc-81c0 --name GitHubPat           --value "ghp_..."
+  az keyvault secret set --vault-name kv-aisdlc-81c0 --name GitHubWebhookSecret --value "<secret>"
+  ```
+
+- [ ] **Add GitHub Actions secrets** to `kcsnap/ai-sdlc-platform` → Settings → Secrets → Actions:
+  - `AZURE_CLIENT_ID` — client ID of `sp-aisdlc-github`
+  - `AZURE_TENANT_ID` — Azure tenant ID
+  - `AZURE_SUBSCRIPTION_ID` — Azure subscription ID
+  - `AZURE_FUNCTION_APP_NAME` — `func-aisdlc-dev-81c0` (from `terraform output function_app_name`)
+
+- [ ] **Create a `dev` GitHub environment** in `kcsnap/ai-sdlc-platform` → Settings → Environments
+  (deploy job targets `environment: dev`)
+
+- [ ] **Update launchcart webhook to the permanent Azure URL**
+  ```bash
+  # Get the URL
+  terraform -chdir=infra/terraform/environments/dev output webhook_url
+
+  # Update webhook (current hook ID: 621737166)
+  gh api repos/kcsnap/launchcart/hooks/621737166 --method PATCH \
+    -f "config[url]=<webhook_url output>" \
+    -f "config[secret]=<GitHubWebhookSecret value>"
+  ```
+
+- [ ] **Add `pull_request` to launchcart webhook events** (currently only `issues` + `issue_comment`)
+  ```bash
+  gh api repos/kcsnap/launchcart/hooks/621737166 --method PATCH \
+    -f "events[]=issues" -f "events[]=issue_comment" -f "events[]=pull_request"
+  ```
+
+- [ ] **Trigger first deploy** — push any commit to `main`, or:
+  ```bash
+  gh workflow run ci.yml --ref main
+  ```
 
 ## 9.2 Application infrastructure modules later
 
@@ -623,6 +686,8 @@ Tasks:
 - [x] Run `dotnet restore`
 - [x] Run `dotnet build --configuration Release --no-restore`
 - [x] Run `dotnet test --configuration Release --no-build`
+- [x] Publish and upload artifact on push to `main`
+- [x] Deploy job: Azure login (OIDC) + `azure/functions-action` on push to `main`
 
 ## 10.2 Platform quality gates
 
@@ -772,12 +837,14 @@ A change can auto-merge and auto-deploy only when all are true:
 ## Implementation tasks
 
 - [x] Implement auto-merge eligibility service
-- [ ] Implement production deployment eligibility service
-- [ ] Read GitHub check results
-- [ ] Read risk assessment result
-- [ ] Read human review state
-- [ ] Block auto-deploy on missing/unknown signals
+- [x] Read GitHub check results (`GetCheckRunResultsAsync` in `GetPullRequestContextAsync`)
+- [x] Read risk assessment result (risk decision routes Phase 2)
+- [x] Read human review state (`/approve-merge` raises `HumanReviewApproved`)
+- [x] Block auto-deploy on missing/unknown signals (gate evaluation returns `IsEligible=false`)
+- [x] Auto-merge LOW risk changes when all 10 gates pass
+- [x] Human-review path for MEDIUM risk or gate failures
 - [x] Add tests
+- [ ] Implement production deployment eligibility service (post-merge CD is launchcart's pipeline)
 
 ---
 
