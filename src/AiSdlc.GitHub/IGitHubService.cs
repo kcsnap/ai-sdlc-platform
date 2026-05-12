@@ -17,4 +17,6 @@ public interface IGitHubService
 
     /// <summary>Returns the decoded text content of a file, or null if not found.</summary>
     Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken);
+
+    Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken cancellationToken);
 }

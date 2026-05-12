@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AiSdlc.Agents;
 using AiSdlc.GitHub;
 using AiSdlc.GitHub.Webhooks;
@@ -122,6 +123,7 @@ public sealed class GitHubWebhookFunction
                 WorkflowCommand.ApproveBrief   => WorkflowEventNames.ApproveBrief,
                 WorkflowCommand.RequestChanges => WorkflowEventNames.RequestChanges,
                 WorkflowCommand.ApproveRelease => WorkflowEventNames.ApproveRelease,
+                WorkflowCommand.ApproveMerge   => WorkflowEventNames.HumanReviewApproved,
                 _                              => command.ToString()
             };
             await durableClient.RaiseEventAsync(instanceId, eventName, cancellation: cancellationToken);
@@ -146,19 +148,52 @@ public sealed class GitHubWebhookFunction
         if (payload.Action is not ("opened" or "synchronize"))
             return Accepted(request);
 
-        var repository  = payload.Repository.FullName;
-        var prNumber    = payload.PullRequest.Number;
-        var headBranch  = payload.PullRequest.Head.Ref;
+        var repository = payload.Repository.FullName;
+        var prNumber   = payload.PullRequest.Number;
+        var headBranch = payload.PullRequest.Head.Ref;
+        var headSha    = payload.PullRequest.Head.Sha;
 
-        // Infer issue number from branch naming convention: ai/{issueNumber}-...
-        // This can be extended to check PR body for "Closes #N" links
         _logger.LogInformation("PR {PrNumber} ({Action}) on {Repository} branch {Branch}.", prNumber, payload.Action, repository, headBranch);
 
-        // Signal any running orchestration that a PR exists for this issue
-        // The orchestrator will handle this event in a future iteration (section 7.3)
-        _ = (durableClient, cancellationToken); // suppress warnings until 7.3 is wired up
+        var issueNumber = ExtractIssueNumber(headBranch, payload.PullRequest.Body);
+        if (issueNumber is null)
+        {
+            _logger.LogWarning("Could not extract issue number from PR {PrNumber} branch '{Branch}' — skipping.", prNumber, headBranch);
+            return Accepted(request);
+        }
+
+        var instanceId = BuildInstanceId(repository, issueNumber.Value);
+        var prPayload  = new PrReadyPayload(prNumber, headSha);
+
+        try
+        {
+            await durableClient.RaiseEventAsync(instanceId, WorkflowEventNames.PullRequestReady, prPayload, cancellation: cancellationToken);
+            _logger.LogInformation("Raised PullRequestReady for orchestration {InstanceId} (PR #{PrNumber}).", instanceId, prNumber);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not raise PullRequestReady on {InstanceId}.", instanceId);
+        }
 
         return Accepted(request);
+    }
+
+    private static int? ExtractIssueNumber(string branchName, string? prBody)
+    {
+        // Primary: branch name convention ai/{issueNumber}-... or ai/{issueNumber}_...
+        var branchMatch = Regex.Match(branchName, @"[a-z]+/(\d+)[-_]", RegexOptions.IgnoreCase);
+        if (branchMatch.Success && int.TryParse(branchMatch.Groups[1].Value, out var fromBranch))
+            return fromBranch;
+
+        // Fallback: "Closes #N" / "Fixes #N" in PR body
+        if (!string.IsNullOrWhiteSpace(prBody))
+        {
+            var bodyMatch = Regex.Match(prBody, @"(?:closes?|fixes?)\s+#(\d+)", RegexOptions.IgnoreCase);
+            if (bodyMatch.Success && int.TryParse(bodyMatch.Groups[1].Value, out var fromBody))
+                return fromBody;
+        }
+
+        return null;
     }
 
     private bool ValidateSignature(HttpRequestData request, byte[] bodyBytes)

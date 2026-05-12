@@ -6,12 +6,19 @@ namespace AiSdlc.RepoIndex;
 // Maps to .ai-sdlc.yml in the target application repo.
 public sealed class AiSdlcConfig
 {
-    public RepoSection?    Repo       { get; set; }
-    public StackSection?   Stack      { get; set; }
-    public RiskSection?    RiskAreas  { get; set; }
+    public RepoSection?        Repo       { get; set; }
+    public StackSection?       Stack      { get; set; }
+    public RiskSection?        RiskAreas  { get; set; }
+    public AutomationSection?  Automation { get; set; }
 
     [YamlMember(Alias = "branch_naming")]
     public string? BranchNaming { get; set; }
+
+    public sealed class AutomationSection
+    {
+        public bool AllowLowRiskAutoMerge        { get; set; }
+        public bool AllowLowRiskProductionDeploy { get; set; }
+    }
 
     public sealed class RepoSection
     {

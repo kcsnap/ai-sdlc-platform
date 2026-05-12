@@ -279,5 +279,6 @@ public sealed class GitHubRepoIndexerTests
         public Task<PullRequestDetails> GetPullRequestAsync(string r, int n, CancellationToken c) => throw new NotImplementedException();
         public Task<IReadOnlyList<ChangedFile>> GetChangedFilesAsync(string r, int n, CancellationToken c) => throw new NotImplementedException();
         public Task<IReadOnlyList<CheckRunResult>> GetCheckRunResultsAsync(string r, string re, CancellationToken c) => throw new NotImplementedException();
+        public Task MergePullRequestAsync(string r, int n, string m, CancellationToken c) => throw new NotImplementedException();
     }
 }

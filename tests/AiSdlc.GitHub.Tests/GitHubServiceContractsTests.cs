@@ -151,6 +151,9 @@ public sealed class GitHubServiceContractsTests
         public Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken) =>
             Task.FromResult<string?>(null);
 
+        public Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
         private static IssueComment CreateComment(string repository, int issueOrPullRequestNumber, string markdown) =>
             new()
             {

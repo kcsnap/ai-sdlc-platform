@@ -12,6 +12,9 @@ public sealed class WorkflowCommandParserTests
     [InlineData("/request-changes",              WorkflowCommand.RequestChanges)]
     [InlineData("/request-changes Need more detail on auth flow.", WorkflowCommand.RequestChanges)]
     [InlineData("/approve-release",              WorkflowCommand.ApproveRelease)]
+    [InlineData("/approve-merge",                WorkflowCommand.ApproveMerge)]
+    [InlineData("/APPROVE-MERGE",                WorkflowCommand.ApproveMerge)]
+    [InlineData("/approve-merge LGTM",           WorkflowCommand.ApproveMerge)]
     public void KnownCommands_AreDetectedCorrectly(string body, WorkflowCommand expected)
     {
         Assert.Equal(expected, WorkflowCommandParser.Parse(body));

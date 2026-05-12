@@ -50,6 +50,7 @@ public sealed record WebhookPullRequest
 {
     [JsonPropertyName("number")]   public int Number    { get; init; }
     [JsonPropertyName("title")]    public string Title  { get; init; } = string.Empty;
+    [JsonPropertyName("body")]     public string? Body  { get; init; }
     [JsonPropertyName("html_url")] public string Url    { get; init; } = string.Empty;
     [JsonPropertyName("head")]     public WebhookBranch Head { get; init; } = new();
     [JsonPropertyName("base")]     public WebhookBranch Base { get; init; } = new();
@@ -68,4 +69,7 @@ public sealed record WebhookUser
 public sealed record WebhookBranch
 {
     [JsonPropertyName("ref")] public string Ref { get; init; } = string.Empty;
+    [JsonPropertyName("sha")] public string Sha { get; init; } = string.Empty;
 }
+
+public sealed record PrReadyPayload(int PullRequestNumber, string HeadSha);

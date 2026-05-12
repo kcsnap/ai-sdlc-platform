@@ -1,6 +1,8 @@
 using System.Text;
 using AiSdlc.Agents;
+using AiSdlc.GitHub.Webhooks;
 using AiSdlc.Shared;
+using AiSdlc.Shared.AutoMerge;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.DurableTask;
 
@@ -11,6 +13,8 @@ public static class AiSdlcWorkflowOrchestrator
     private const int MaxBriefAttempts = 3;
     private static readonly TimeSpan BriefApprovalTimeout  = TimeSpan.FromDays(7);
     private static readonly TimeSpan HumanReviewTimeout    = TimeSpan.FromDays(14);
+    private static readonly TimeSpan PrReadyTimeout        = TimeSpan.FromDays(30);
+    private static readonly TimeSpan MergeApprovalTimeout  = TimeSpan.FromDays(14);
 
     [Function(nameof(AiSdlcWorkflowOrchestrator))]
     public static async Task<WorkflowRun> RunAsync([OrchestrationTrigger] TaskOrchestrationContext context)
@@ -183,6 +187,109 @@ public static class AiSdlcWorkflowOrchestrator
             nameof(AgentActivityFunctions.AddGitHubLabelAsync),
             new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:analysis-ready"));
 
+        // ── Phase 2: Wait for PR, evaluate gates, merge ────────────────────────
+
+        // Step 10: Wait for a PR to be opened referencing this issue
+        using var prCts     = new CancellationTokenSource();
+        var prReadyTask     = context.WaitForExternalEvent<PrReadyPayload>(WorkflowEventNames.PullRequestReady, prCts.Token);
+        var prTimeoutTask   = context.CreateTimer(context.CurrentUtcDateTime.Add(PrReadyTimeout), prCts.Token);
+        var prWinner        = await Task.WhenAny(prReadyTask, prTimeoutTask);
+        prCts.Cancel();
+
+        if (prWinner == prTimeoutTask)
+            return Stopped(agentContext.RunId, issue, createdAt, context);
+
+        var prPayload = await prReadyTask;
+
+        var prRef = new GitHubPullRequestReference(
+            agentContext.Repository, prPayload.PullRequestNumber, string.Empty,
+            $"https://github.com/{agentContext.Repository}/pull/{prPayload.PullRequestNumber}");
+
+        // Step 11: Fetch PR details, changed files, and check run results
+        var prContext = await context.CallActivityAsync<PrMergeContext>(
+            nameof(AgentActivityFunctions.GetPullRequestContextAsync),
+            new GetPrContextInput(agentContext.Repository, prPayload.PullRequestNumber, prPayload.HeadSha));
+
+        // Step 12: Evaluate all 10 auto-merge gates
+        var noBlockingIssues = reviewResults.All(r => r.BlockingIssues.Count == 0)
+                               && qaResult.BlockingIssues.Count == 0
+                               && coderResult.BlockingIssues.Count == 0;
+
+        var rollbackDocumented  = releaseResult.OutputMarkdown?.Contains("rollback", StringComparison.OrdinalIgnoreCase) ?? false;
+        var releaseNotesGenerated = !string.IsNullOrWhiteSpace(releaseResult.OutputMarkdown);
+        var postDeployDefined   = releaseResult.OutputMarkdown?.Contains("post-deploy", StringComparison.OrdinalIgnoreCase) ?? false;
+
+        var eligibility = await context.CallActivityAsync<AutoMergeEligibilityResult>(
+            nameof(AgentActivityFunctions.EvaluateAutoMergeAsync),
+            new EvaluateMergeInput(
+                RunId:                   agentContext.RunId,
+                Repository:              agentContext.Repository,
+                RiskLevel:               ParseRiskLevel(riskDecision),
+                RiskDecision:            riskDecision,
+                BriefApproved:           briefApproved,
+                AllReviewsCompleted:     true,
+                NoBlockingIssues:        noBlockingIssues,
+                AllChecksPass:           prContext.AllChecksPass,
+                HasTestCoverage:         prContext.HasTestCoverage,
+                RollbackDocumented:      rollbackDocumented,
+                ReleaseNotesGenerated:   releaseNotesGenerated,
+                PostDeploymentChecksDefined: postDeployDefined));
+
+        var issueTitle    = agentContext.Metadata.TryGetValue("issueTitle", out var t) ? t?.ToString() ?? "AI SDLC" : "AI SDLC";
+        var commitMessage  = $"feat: {issueTitle} (closes #{agentContext.IssueNumber})";
+
+        if (riskDecision == "AUTO_MERGE_ELIGIBLE" && eligibility.IsEligible)
+        {
+            // All gates pass — merge automatically
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.MergePullRequestActivityAsync),
+                new MergePrInput(agentContext.Repository, prPayload.PullRequestNumber, commitMessage));
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                    BuildAutoMergedComment(prPayload.PullRequestNumber, eligibility)));
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:auto-merged"));
+        }
+        else
+        {
+            // Gate failure or medium risk — post results and await human approval
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                    BuildGateResultsComment(prPayload.PullRequestNumber, eligibility, riskDecision)));
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:awaiting-human-review"));
+
+            using var mergeCts      = new CancellationTokenSource();
+            var approveTask         = context.WaitForExternalEvent<object?>(WorkflowEventNames.HumanReviewApproved, mergeCts.Token);
+            var mergeTimeoutTask    = context.CreateTimer(context.CurrentUtcDateTime.Add(MergeApprovalTimeout), mergeCts.Token);
+            var mergeWinner         = await Task.WhenAny(approveTask, mergeTimeoutTask);
+            mergeCts.Cancel();
+
+            if (mergeWinner == mergeTimeoutTask)
+                return Stopped(agentContext.RunId, issue, createdAt, context);
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.MergePullRequestActivityAsync),
+                new MergePrInput(agentContext.Repository, prPayload.PullRequestNumber, commitMessage));
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                    $"## AI SDLC — Merged\n\nPR #{prPayload.PullRequestNumber} merged after human approval. " +
+                    "Launchcart CI/CD pipeline will deploy to test and production."));
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:merged"));
+        }
+
         var updatedAt = new DateTimeOffset(context.CurrentUtcDateTime, TimeSpan.Zero);
 
         return new WorkflowRun
@@ -190,10 +297,11 @@ public static class AiSdlcWorkflowOrchestrator
             RunId        = agentContext.RunId,
             Repository   = agentContext.Repository,
             Issue        = issue,
-            Status       = WorkflowRunStatus.AwaitingHumanReview,
+            PullRequest  = prRef,
+            Status       = WorkflowRunStatus.Released,
             CreatedAtUtc = createdAt,
             UpdatedAtUtc = updatedAt,
-            RiskLevel    = ParseRiskLevel(riskResult.Decision),
+            RiskLevel    = ParseRiskLevel(riskDecision),
             RiskDecision = riskDecision,
             Artefacts    = MapArtefacts(strategistResult, ownerResult, analystResult, architectResult,
                                securityResult, uxResult, devopsResult, complianceResult, contentResult,
@@ -292,6 +400,47 @@ public static class AiSdlcWorkflowOrchestrator
         sb.AppendLine();
         AppendCollapsible(sb, "Test Plan",                   qa);
         AppendCollapsible(sb, "Implementation Specification", coder);
+        return sb.ToString();
+    }
+
+    private static string BuildAutoMergedComment(int prNumber, AutoMergeEligibilityResult eligibility)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## AI SDLC — Auto-Merged");
+        sb.AppendLine();
+        sb.AppendLine($"> ✅ PR #{prNumber} merged automatically — all {eligibility.PassedGates.Count} gates passed.");
+        sb.AppendLine();
+        sb.AppendLine("Launchcart CI/CD pipeline will now deploy to test and production.");
+        return sb.ToString();
+    }
+
+    private static string BuildGateResultsComment(int prNumber, AutoMergeEligibilityResult eligibility, string riskDecision)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## AI SDLC — Merge Gate Results");
+        sb.AppendLine();
+
+        if (riskDecision != "AUTO_MERGE_ELIGIBLE")
+            sb.AppendLine($"> ⚠️ Risk decision is `{riskDecision}` — human approval required before merge.");
+        else
+            sb.AppendLine($"> ⚠️ {eligibility.FailedGates.Count} gate(s) failed — human approval required.");
+
+        if (eligibility.FailedGates.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("### Failed gates");
+            foreach (var gate in eligibility.FailedGates) sb.AppendLine($"- ❌ {gate}");
+        }
+
+        if (eligibility.PassedGates.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("### Passed gates");
+            foreach (var gate in eligibility.PassedGates) sb.AppendLine($"- ✅ {gate}");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine($"Reply `/approve-merge` on this issue to merge PR #{prNumber}.");
         return sb.ToString();
     }
 

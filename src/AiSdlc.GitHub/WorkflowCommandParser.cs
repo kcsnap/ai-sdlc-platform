@@ -7,9 +7,10 @@ public static class WorkflowCommandParser
 
     private static readonly (string Prefix, WorkflowCommand Command)[] KnownCommands =
     [
-        ("/approve-brief",  WorkflowCommand.ApproveBrief),
+        ("/approve-brief",   WorkflowCommand.ApproveBrief),
         ("/request-changes", WorkflowCommand.RequestChanges),
-        ("/approve-release", WorkflowCommand.ApproveRelease)
+        ("/approve-release", WorkflowCommand.ApproveRelease),
+        ("/approve-merge",   WorkflowCommand.ApproveMerge)
     ];
 
     public static WorkflowCommand Parse(string commentBody)
