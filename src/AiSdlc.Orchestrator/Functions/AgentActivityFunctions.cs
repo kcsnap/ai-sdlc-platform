@@ -94,16 +94,13 @@ public sealed class AgentActivityFunctions
     }
 
     [Function(nameof(FetchRepoIndexAsync))]
-    public async Task<string?> FetchRepoIndexAsync([ActivityTrigger] string repository, CancellationToken cancellationToken)
+    public async Task<AiSdlc.RepoIndex.RepoIndex?> FetchRepoIndexAsync([ActivityTrigger] string repository, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Fetching repo index for {Repository}", repository);
         var index = await _repoIndexer.IndexAsync(repository, cancellationToken);
         if (index is null)
-        {
             _logger.LogInformation("No .ai-sdlc.yml found in {Repository} — skipping repo index.", repository);
-            return null;
-        }
-        return RepoIndexMarkdownRenderer.Render(index);
+        return index;
     }
 
     [Function(nameof(AddGitHubLabelAsync))]
@@ -158,7 +155,7 @@ public sealed class AgentActivityFunctions
             HasTestCoverage             = input.HasTestCoverage,
             RollbackDocumented          = input.RollbackDocumented,
             ReleaseNotesGenerated       = input.ReleaseNotesGenerated,
-            PostDeploymentChecksDefinied = input.PostDeploymentChecksDefined
+            PostDeploymentChecksDefined  = input.PostDeploymentChecksDefined
         });
 
         return Task.FromResult(result);

@@ -29,7 +29,7 @@ public sealed record AutoMergeEligibilityRequest
     // Compliance gates
     public required bool RollbackDocumented          { get; init; }
     public required bool ReleaseNotesGenerated       { get; init; }
-    public required bool PostDeploymentChecksDefinied { get; init; }
+    public required bool PostDeploymentChecksDefined  { get; init; }
 }
 
 public sealed record AutoMergeEligibilityResult

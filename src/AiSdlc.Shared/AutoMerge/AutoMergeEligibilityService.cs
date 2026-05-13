@@ -56,7 +56,7 @@ public sealed class AutoMergeEligibilityService : IAutoMergeEligibilityService
             "Release notes have not been generated",
             passed, failed);
 
-        Check(request.PostDeploymentChecksDefinied,
+        Check(request.PostDeploymentChecksDefined,
             "Post-deployment checks defined",
             "Post-deployment checks have not been defined",
             passed, failed);

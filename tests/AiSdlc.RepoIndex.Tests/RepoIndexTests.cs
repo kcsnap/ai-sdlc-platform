@@ -134,6 +134,21 @@ public sealed class AiSdlcConfigParseTests
     }
 
     [Fact]
+    public void Parse_AutomationSection_MapsFlags()
+    {
+        const string yaml = """
+            automation:
+              allow_low_risk_auto_merge: true
+              allow_low_risk_production_deploy: false
+            """;
+
+        var config = AiSdlcConfig.Parse(yaml);
+
+        Assert.True(config?.Automation?.AllowLowRiskAutoMerge);
+        Assert.False(config?.Automation?.AllowLowRiskProductionDeploy);
+    }
+
+    [Fact]
     public void Parse_UnknownKeys_AreIgnored()
     {
         const string yaml = """
@@ -262,6 +277,40 @@ public sealed class GitHubRepoIndexerTests
         Assert.Equal("GET /api/products", result.ApiEndpoints[0]);
         Assert.Single(result.DatabaseTables);
         Assert.Equal("Products", result.DatabaseTables[0]);
+    }
+
+    [Fact]
+    public async Task IndexAsync_AutomationFlags_FlowThroughToRepoIndex()
+    {
+        const string yaml = """
+            repo:
+              name: launchcart
+            automation:
+              allow_low_risk_auto_merge: true
+              allow_low_risk_production_deploy: true
+            """;
+
+        var indexer = new GitHubRepoIndexer(new StubGitHubService(yaml));
+
+        var result = await indexer.IndexAsync("owner/repo", CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.True(result.AllowLowRiskAutoMerge);
+        Assert.True(result.AllowLowRiskProductionDeploy);
+    }
+
+    [Fact]
+    public async Task IndexAsync_NoAutomationSection_DefaultsToFalse()
+    {
+        const string yaml = "repo:\n  name: launchcart";
+
+        var indexer = new GitHubRepoIndexer(new StubGitHubService(yaml));
+
+        var result = await indexer.IndexAsync("owner/repo", CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.False(result.AllowLowRiskAutoMerge);
+        Assert.False(result.AllowLowRiskProductionDeploy);
     }
 
     private sealed class StubGitHubService(string? content) : IGitHubService

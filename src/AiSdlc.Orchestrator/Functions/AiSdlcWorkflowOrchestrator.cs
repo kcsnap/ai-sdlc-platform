@@ -1,6 +1,7 @@
 using System.Text;
 using AiSdlc.Agents;
 using AiSdlc.GitHub.Webhooks;
+using AiSdlc.RepoIndex;
 using AiSdlc.Shared;
 using AiSdlc.Shared.AutoMerge;
 using Microsoft.Azure.Functions.Worker;
@@ -26,10 +27,11 @@ public static class AiSdlcWorkflowOrchestrator
         var createdAt = new DateTimeOffset(context.CurrentUtcDateTime, TimeSpan.Zero);
 
         // ── Step 0: Fetch repo index ───────────────────────────────────────────
-        var repoContext = await context.CallActivityAsync<string?>(
+        var repoIndex = await context.CallActivityAsync<AiSdlc.RepoIndex.RepoIndex?>(
             nameof(AgentActivityFunctions.FetchRepoIndexAsync), agentContext.Repository);
-        if (!string.IsNullOrWhiteSpace(repoContext))
-            agentContext.Metadata["repoContext"] = repoContext;
+        if (repoIndex is not null)
+            agentContext.Metadata["repoContext"] = RepoIndexMarkdownRenderer.Render(repoIndex);
+        var allowAutoMerge = repoIndex?.AllowLowRiskAutoMerge ?? false;
 
         // ── Step 1: Product Strategist ─────────────────────────────────────────
         var strategistResult = await context.CallActivityAsync<AgentResult>(
@@ -238,9 +240,9 @@ public static class AiSdlcWorkflowOrchestrator
         var issueTitle    = agentContext.Metadata.TryGetValue("issueTitle", out var t) ? t?.ToString() ?? "AI SDLC" : "AI SDLC";
         var commitMessage  = $"feat: {issueTitle} (closes #{agentContext.IssueNumber})";
 
-        if (riskDecision == "AUTO_MERGE_ELIGIBLE" && eligibility.IsEligible)
+        if (riskDecision == "AUTO_MERGE_ELIGIBLE" && eligibility.IsEligible && allowAutoMerge)
         {
-            // All gates pass — merge automatically
+            // All gates pass and repo has opted in — merge automatically
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.MergePullRequestActivityAsync),
                 new MergePrInput(agentContext.Repository, prPayload.PullRequestNumber, commitMessage));
@@ -260,7 +262,7 @@ public static class AiSdlcWorkflowOrchestrator
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    BuildGateResultsComment(prPayload.PullRequestNumber, eligibility, riskDecision)));
+                    BuildGateResultsComment(prPayload.PullRequestNumber, eligibility, riskDecision, allowAutoMerge)));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
@@ -414,13 +416,15 @@ public static class AiSdlcWorkflowOrchestrator
         return sb.ToString();
     }
 
-    private static string BuildGateResultsComment(int prNumber, AutoMergeEligibilityResult eligibility, string riskDecision)
+    private static string BuildGateResultsComment(int prNumber, AutoMergeEligibilityResult eligibility, string riskDecision, bool allowAutoMerge)
     {
         var sb = new StringBuilder();
         sb.AppendLine("## AI SDLC — Merge Gate Results");
         sb.AppendLine();
 
-        if (riskDecision != "AUTO_MERGE_ELIGIBLE")
+        if (!allowAutoMerge)
+            sb.AppendLine("> ℹ️ Auto-merge is not enabled for this repository (`allow_low_risk_auto_merge: false` in `.ai-sdlc.yml`) — human approval required.");
+        else if (riskDecision != "AUTO_MERGE_ELIGIBLE")
             sb.AppendLine($"> ⚠️ Risk decision is `{riskDecision}` — human approval required before merge.");
         else
             sb.AppendLine($"> ⚠️ {eligibility.FailedGates.Count} gate(s) failed — human approval required.");

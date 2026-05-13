@@ -32,8 +32,10 @@ public sealed class GitHubRepoIndexer : IRepoIndexer
             HighRiskPaths  = config.RiskAreas?.High.AsReadOnly()   ?? (IReadOnlyList<string>)[],
             MediumRiskPaths = config.RiskAreas?.Medium.AsReadOnly() ?? (IReadOnlyList<string>)[],
             LowRiskPaths   = config.RiskAreas?.Low.AsReadOnly()    ?? (IReadOnlyList<string>)[],
-            BranchNaming   = config.BranchNaming ?? string.Empty,
-            IndexedAtUtc   = DateTimeOffset.UtcNow
+            BranchNaming                 = config.BranchNaming ?? string.Empty,
+            AllowLowRiskAutoMerge        = config.Automation?.AllowLowRiskAutoMerge ?? false,
+            AllowLowRiskProductionDeploy = config.Automation?.AllowLowRiskProductionDeploy ?? false,
+            IndexedAtUtc                 = DateTimeOffset.UtcNow
         };
     }
 

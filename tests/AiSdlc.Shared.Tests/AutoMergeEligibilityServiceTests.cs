@@ -20,7 +20,7 @@ public sealed class AutoMergeEligibilityServiceTests
         HasTestCoverage              = true,
         RollbackDocumented           = true,
         ReleaseNotesGenerated        = true,
-        PostDeploymentChecksDefinied = true
+        PostDeploymentChecksDefined  = true
     };
 
     [Fact]

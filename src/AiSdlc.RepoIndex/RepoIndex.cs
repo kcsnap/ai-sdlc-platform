@@ -12,6 +12,8 @@ public sealed record RepoIndex
     public IReadOnlyList<string>       MediumRiskPaths{ get; init; } = [];
     public IReadOnlyList<string>       LowRiskPaths   { get; init; } = [];
     public string                      BranchNaming   { get; init; } = string.Empty;
+    public bool                        AllowLowRiskAutoMerge        { get; init; }
+    public bool                        AllowLowRiskProductionDeploy { get; init; }
     public DateTimeOffset              IndexedAtUtc   { get; init; } = DateTimeOffset.UtcNow;
 }
 
