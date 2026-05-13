@@ -101,7 +101,7 @@ module "function_app" {
   source              = "../../modules/function-app"
   name                = "func-aisdlc-${var.environment}-${var.suffix}"
   resource_group_name = azurerm_resource_group.this.name
-  location            = var.location
+  location            = var.function_app_location
   tags                = local.tags
 
   storage_account_name       = module.host_storage.name
