@@ -27,6 +27,8 @@ public sealed class AnthropicModelProvider : IModelProvider
 
     public string ProviderName => "Anthropic";
 
+    private const int MaxRetries = 4;
+
     public async Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken)
     {
         var systemPrompt = _redaction.Redact(request.SystemPrompt ?? string.Empty).RedactedText;
@@ -39,7 +41,26 @@ public sealed class AnthropicModelProvider : IModelProvider
             Messages  = new[] { new { Role = "user", Content = BuildUserContent(request) } }
         };
 
-        var httpResponse = await _http.PostAsJsonAsync("messages", body, JsonOpts, cancellationToken);
+        HttpResponseMessage httpResponse = null!;
+        for (var attempt = 0; attempt <= MaxRetries; attempt++)
+        {
+            httpResponse = await _http.PostAsJsonAsync("messages", body, JsonOpts, cancellationToken);
+
+            if ((int)httpResponse.StatusCode != 429)
+                break;
+
+            if (attempt == MaxRetries)
+                break; // let EnsureSuccessStatusCode throw below
+
+            // Honour retry-after if Anthropic sends it; otherwise exponential backoff
+            var retryAfter = httpResponse.Headers.TryGetValues("retry-after", out var vals)
+                && int.TryParse(vals.FirstOrDefault(), out var secs)
+                    ? secs
+                    : (int)Math.Pow(3, attempt + 1) * 5; // 15s, 45s, 135s
+
+            await Task.Delay(TimeSpan.FromSeconds(retryAfter), cancellationToken);
+        }
+
         httpResponse.EnsureSuccessStatusCode();
 
         var result = await httpResponse.Content.ReadFromJsonAsync<AnthropicResponse>(JsonOpts, cancellationToken)
