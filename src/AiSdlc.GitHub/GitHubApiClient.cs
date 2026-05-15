@@ -140,6 +140,51 @@ public sealed class GitHubApiClient : IGitHubService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task<string> GetDefaultBranchShaAsync(string repository, string branch, CancellationToken cancellationToken)
+    {
+        var json = await GetAsync<GitRefJson>($"/repos/{repository}/git/ref/heads/{Uri.EscapeDataString(branch)}", cancellationToken);
+        return json.Object.Sha;
+    }
+
+    public async Task CreateBranchAsync(string repository, string branchName, string sha, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(
+                $"/repos/{repository}/git/refs",
+                new { @ref = $"refs/heads/{branchName}", sha },
+                JsonOptions,
+                cancellationToken);
+            response.EnsureSuccessStatusCode();
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
+        {
+            // Branch already exists — idempotent, ignore
+        }
+    }
+
+    public async Task CreateOrUpdateFileAsync(string repository, string path, string content, string commitMessage, string branch, CancellationToken cancellationToken)
+    {
+        string? existingBlobSha = null;
+        using var getResponse = await _http.GetAsync($"/repos/{repository}/contents/{path}?ref={Uri.EscapeDataString(branch)}", cancellationToken);
+        if (getResponse.IsSuccessStatusCode)
+        {
+            var existing = await getResponse.Content.ReadFromJsonAsync<FileContentJson>(JsonOptions, cancellationToken);
+            existingBlobSha = existing?.Sha;
+        }
+
+        var body = new
+        {
+            message = commitMessage,
+            content = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(content)),
+            branch,
+            sha     = existingBlobSha
+        };
+
+        using var putResponse = await _http.PutAsJsonAsync($"/repos/{repository}/contents/{path}", body, JsonOptions, cancellationToken);
+        putResponse.EnsureSuccessStatusCode();
+    }
+
     public async Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync($"/repos/{repository}/contents/{path}", cancellationToken);
@@ -235,5 +280,7 @@ public sealed class GitHubApiClient : IGitHubService
     private sealed record UserJson(string Login);
     private sealed record LabelJson(string Name);
     private sealed record BranchRefJson(string Ref);
-    private sealed record FileContentJson(string Encoding, string Content);
+    private sealed record FileContentJson(string Encoding, string Content, string? Sha);
+    private sealed record GitRefJson(GitRefObjectJson Object);
+    private sealed record GitRefObjectJson(string Sha);
 }

@@ -1,0 +1,86 @@
+using AiSdlc.ModelProviders;
+using AiSdlc.Shared;
+
+namespace AiSdlc.Agents.Personas;
+
+public sealed class CodeImplementerAgent : IAgent
+{
+    private const string SystemPrompt = """
+        You are the Code Implementer in an AI-driven SDLC pipeline.
+
+        Write the actual files needed to implement the feature based on the brief,
+        business analysis, architecture review, and implementation specification provided.
+
+        Rules:
+        - Output ONLY fenced code blocks — no prose, no explanation, no text outside blocks.
+        - For every file to create or modify, use EXACTLY this format:
+
+          ```path:relative/path/from/repo/root
+          (file content here)
+          ```
+
+        - Paths are relative to the repository root (e.g. README.md, src/api/Controllers/Foo.cs).
+        - Output all files required to fully implement the feature.
+        - Do not output anything outside the fenced code blocks.
+        """;
+
+    private readonly IModelProvider _model;
+
+    public CodeImplementerAgent(IModelProvider model) => _model = model;
+
+    public string Name => AgentNames.CodeImplementer;
+
+    public async Task<AgentResult> ExecuteAsync(AgentExecutionRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var contextDocs = BuildContextDocs(request.Context);
+        var userPrompt  = BuildUserPrompt(request.Context);
+
+        var response = await _model.CompleteAsync(new ModelRequest
+        {
+            AgentName        = Name,
+            TaskType         = "CodeImplementation",
+            SystemPrompt     = SystemPrompt,
+            UserPrompt       = userPrompt,
+            ContextDocuments = contextDocs,
+            MaxTokens        = 8000
+        }, cancellationToken);
+
+        return new AgentResult
+        {
+            AgentName      = Name,
+            Status         = "Completed",
+            Summary        = $"Code implementation generated for issue #{request.Context.IssueNumber}.",
+            OutputMarkdown = response.ResponseText
+        };
+    }
+
+    private static Dictionary<string, string> BuildContextDocs(AgentContext ctx)
+    {
+        var docs = new Dictionary<string, string>();
+        AddIfPresent(docs, ctx, "repoContext",     "Repository Context");
+        AddIfPresent(docs, ctx, "ownerBrief",      "Approved Product Brief");
+        AddIfPresent(docs, ctx, "analystOutput",   "Business Analysis");
+        AddIfPresent(docs, ctx, "architectOutput", "Architecture Review");
+        AddIfPresent(docs, ctx, "implSpec",        "Implementation Specification");
+        return docs;
+    }
+
+    private static string BuildUserPrompt(AgentContext ctx) =>
+        $"""
+        Repository: {ctx.Repository}
+        Issue #{ctx.IssueNumber}: {GetMeta(ctx, "issueTitle")}
+
+        {GetMeta(ctx, "issueBody")}
+        """;
+
+    private static void AddIfPresent(Dictionary<string, string> docs, AgentContext ctx, string key, string label)
+    {
+        var v = GetMeta(ctx, key);
+        if (!string.IsNullOrWhiteSpace(v)) docs[label] = v;
+    }
+
+    private static string GetMeta(AgentContext ctx, string key) =>
+        ctx.Metadata.TryGetValue(key, out var v) ? Convert.ToString(v) ?? string.Empty : string.Empty;
+}

@@ -174,6 +174,47 @@ public sealed class AgentActivityFunctions
         await _gitHub.MergePullRequestAsync(input.Repository, input.PullRequestNumber, input.CommitMessage, cancellationToken);
     }
 
+    [Function(nameof(RunCodeImplementerAsync))]
+    public Task<AgentResult> RunCodeImplementerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.CodeImplementer, context, cancellationToken);
+
+    [Function(nameof(GetDefaultBranchShaActivityAsync))]
+    public async Task<string> GetDefaultBranchShaActivityAsync([ActivityTrigger] GetHeadShaInput input, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Getting HEAD SHA of {Branch} on {Repository}", input.Branch, input.Repository);
+        return await _gitHub.GetDefaultBranchShaAsync(input.Repository, input.Branch, cancellationToken);
+    }
+
+    [Function(nameof(CreateBranchActivityAsync))]
+    public async Task CreateBranchActivityAsync([ActivityTrigger] CreateBranchInput input, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Creating branch {Branch} on {Repository} from {Sha}", input.BranchName, input.Repository, input.Sha);
+        await _gitHub.CreateBranchAsync(input.Repository, input.BranchName, input.Sha, cancellationToken);
+    }
+
+    [Function(nameof(CommitFileAsync))]
+    public async Task CommitFileAsync([ActivityTrigger] CommitFileInput input, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Committing {Path} to {Branch} on {Repository}", input.Path, input.Branch, input.Repository);
+        await _gitHub.CreateOrUpdateFileAsync(input.Repository, input.Path, input.Content, input.CommitMessage, input.Branch, cancellationToken);
+    }
+
+    [Function(nameof(CreatePrActivityAsync))]
+    public async Task<GitHubPullRequestReference> CreatePrActivityAsync([ActivityTrigger] CreatePrActivityInput input, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Creating PR '{Title}' on {Repository} from branch {Branch}", input.Title, input.Repository, input.BranchName);
+        return await _gitHub.CreatePullRequestAsync(
+            new CreatePullRequestRequest
+            {
+                Repository   = input.Repository,
+                Title        = input.Title,
+                BodyMarkdown = input.Body,
+                HeadBranch   = input.BranchName,
+                BaseBranch   = "main"
+            },
+            cancellationToken);
+    }
+
     private async Task<AgentResult> ExecuteAsync(string agentName, AgentContext context, CancellationToken cancellationToken)
     {
         var executionResult = await _agentRunner.ExecuteAsync(
@@ -186,3 +227,10 @@ public sealed class AgentActivityFunctions
         return executionResult.Result;
     }
 }
+
+public sealed record GetHeadShaInput(string Repository, string Branch);
+public sealed record CreateBranchInput(string Repository, string BranchName, string Sha);
+public sealed record CommitFileInput(string Repository, string Path, string Content,
+                                     string CommitMessage, string Branch);
+public sealed record CreatePrActivityInput(string Repository, string Title,
+                                           string Body, string BranchName);

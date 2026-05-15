@@ -1,5 +1,7 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using AiSdlc.Agents;
+using AiSdlc.GitHub;
 using AiSdlc.GitHub.Webhooks;
 using AiSdlc.RepoIndex;
 using AiSdlc.Shared;
@@ -207,28 +209,88 @@ public static class AiSdlcWorkflowOrchestrator
             nameof(AgentActivityFunctions.AddGitHubLabelAsync),
             new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:analysis-ready"));
 
-        // ── Phase 2: Wait for PR, evaluate gates, merge ────────────────────────
+        // ── Phase 2: Code implementation → PR → evaluate gates → merge ─────────
 
-        // Step 10: Wait for a PR to be opened referencing this issue
-        using var prCts     = new CancellationTokenSource();
-        var prReadyTask     = context.WaitForExternalEvent<PrReadyPayload>(WorkflowEventNames.PullRequestReady, prCts.Token);
-        var prTimeoutTask   = context.CreateTimer(context.CurrentUtcDateTime.Add(PrReadyTimeout), prCts.Token);
-        var prWinner        = await Task.WhenAny(prReadyTask, prTimeoutTask);
-        prCts.Cancel();
+        var issueTitle = agentContext.Metadata.TryGetValue("issueTitle", out var titleMeta)
+            ? titleMeta?.ToString() ?? "change" : "change";
 
-        if (prWinner == prTimeoutTask)
-            return Stopped(agentContext.RunId, issue, createdAt, context);
+        GitHubPullRequestReference prRef    = null!;
+        PrMergeContext             prContext = null!;
 
-        var prPayload = await prReadyTask;
+        if (allowAutoMerge)
+        {
+            // ── Step 10: Generate code implementation ─────────────────────────
+            var implResult = await context.CallActivityAsync<AgentResult>(
+                nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext);
 
-        var prRef = new GitHubPullRequestReference(
-            agentContext.Repository, prPayload.PullRequestNumber, string.Empty,
-            $"https://github.com/{agentContext.Repository}/pull/{prPayload.PullRequestNumber}");
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                    BuildSectionComment("AI SDLC — Implementation", implResult)));
 
-        // Step 11: Fetch PR details, changed files, and check run results
-        var prContext = await context.CallActivityAsync<PrMergeContext>(
-            nameof(AgentActivityFunctions.GetPullRequestContextAsync),
-            new GetPrContextInput(agentContext.Repository, prPayload.PullRequestNumber, prPayload.HeadSha));
+            var fileChanges = CodeChangeParser.Parse(implResult.OutputMarkdown);
+
+            // ── Step 11: Create branch and commit files ────────────────────────
+            var slug       = GenerateBranchSlug(issueTitle);
+            var branchName = $"ai/{agentContext.IssueNumber}-{slug}";
+
+            var headSha = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                new GetHeadShaInput(agentContext.Repository, "main"));
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.CreateBranchActivityAsync),
+                new CreateBranchInput(agentContext.Repository, branchName, headSha));
+
+            var commitMsg = $"feat: {issueTitle} (closes #{agentContext.IssueNumber}) [ai-sdlc]";
+            foreach (var file in fileChanges)
+            {
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.CommitFileAsync),
+                    new CommitFileInput(agentContext.Repository, file.Path, file.Content, commitMsg, branchName));
+            }
+
+            // Get branch HEAD SHA after all commits
+            var prHeadSha = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                new GetHeadShaInput(agentContext.Repository, branchName));
+
+            // ── Step 12: Open PR ───────────────────────────────────────────────
+            var prBody = $"Closes #{agentContext.IssueNumber}\n\n{implResult.Summary}";
+            prRef = await context.CallActivityAsync<GitHubPullRequestReference>(
+                nameof(AgentActivityFunctions.CreatePrActivityAsync),
+                new CreatePrActivityInput(agentContext.Repository, issueTitle, prBody, branchName));
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:pr-opened"));
+
+            prContext = await context.CallActivityAsync<PrMergeContext>(
+                nameof(AgentActivityFunctions.GetPullRequestContextAsync),
+                new GetPrContextInput(agentContext.Repository, prRef.PullRequestNumber, prHeadSha));
+        }
+        else
+        {
+            // ── Step 10: Wait for a human-created PR ──────────────────────────
+            using var prCts   = new CancellationTokenSource();
+            var prReadyTask   = context.WaitForExternalEvent<PrReadyPayload>(WorkflowEventNames.PullRequestReady, prCts.Token);
+            var prTimeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(PrReadyTimeout), prCts.Token);
+            var prWinner      = await Task.WhenAny(prReadyTask, prTimeoutTask);
+            prCts.Cancel();
+
+            if (prWinner == prTimeoutTask)
+                return Stopped(agentContext.RunId, issue, createdAt, context);
+
+            var prPayload = await prReadyTask;
+
+            prRef = new GitHubPullRequestReference(
+                agentContext.Repository, prRef.PullRequestNumber, string.Empty,
+                $"https://github.com/{agentContext.Repository}/pull/{prRef.PullRequestNumber}");
+
+            prContext = await context.CallActivityAsync<PrMergeContext>(
+                nameof(AgentActivityFunctions.GetPullRequestContextAsync),
+                new GetPrContextInput(agentContext.Repository, prRef.PullRequestNumber, prPayload.HeadSha));
+        }
 
         // Step 12: Evaluate all 10 auto-merge gates
         var noBlockingIssues = reviewResults.All(r => r.BlockingIssues.Count == 0)
@@ -255,20 +317,19 @@ public static class AiSdlcWorkflowOrchestrator
                 ReleaseNotesGenerated:   releaseNotesGenerated,
                 PostDeploymentChecksDefined: postDeployDefined));
 
-        var issueTitle    = agentContext.Metadata.TryGetValue("issueTitle", out var t) ? t?.ToString() ?? "AI SDLC" : "AI SDLC";
-        var commitMessage  = $"feat: {issueTitle} (closes #{agentContext.IssueNumber})";
+        var commitMessage = $"feat: {issueTitle} (closes #{agentContext.IssueNumber})";
 
         if (riskDecision == "AUTO_MERGE_ELIGIBLE" && eligibility.IsEligible && allowAutoMerge)
         {
             // All gates pass and repo has opted in — merge automatically
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.MergePullRequestActivityAsync),
-                new MergePrInput(agentContext.Repository, prPayload.PullRequestNumber, commitMessage));
+                new MergePrInput(agentContext.Repository, prRef.PullRequestNumber, commitMessage));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    BuildAutoMergedComment(prPayload.PullRequestNumber, eligibility)));
+                    BuildAutoMergedComment(prRef.PullRequestNumber, eligibility)));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
@@ -280,7 +341,7 @@ public static class AiSdlcWorkflowOrchestrator
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    BuildGateResultsComment(prPayload.PullRequestNumber, eligibility, riskDecision, allowAutoMerge)));
+                    BuildGateResultsComment(prRef.PullRequestNumber, eligibility, riskDecision, allowAutoMerge)));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
@@ -297,12 +358,12 @@ public static class AiSdlcWorkflowOrchestrator
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.MergePullRequestActivityAsync),
-                new MergePrInput(agentContext.Repository, prPayload.PullRequestNumber, commitMessage));
+                new MergePrInput(agentContext.Repository, prRef.PullRequestNumber, commitMessage));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    $"## AI SDLC — Merged\n\nPR #{prPayload.PullRequestNumber} merged after human approval. " +
+                    $"## AI SDLC — Merged\n\nPR #{prRef.PullRequestNumber} merged after human approval. " +
                     "Launchcart CI/CD pipeline will deploy to test and production."));
 
             await context.CallActivityAsync(
@@ -368,6 +429,12 @@ public static class AiSdlcWorkflowOrchestrator
         "BLOCKED"             => RiskLevel.High,
         _                     => RiskLevel.Medium
     };
+
+    private static string GenerateBranchSlug(string issueTitle)
+    {
+        var slug = Regex.Replace(issueTitle.ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
+        return slug.Length > 40 ? slug[..40].TrimEnd('-') : slug;
+    }
 
     private static string BuildBriefComment(AgentResult result, int attempt)
     {
