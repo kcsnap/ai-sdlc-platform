@@ -119,13 +119,19 @@ public sealed class AgentActivityFunctions
         var files    = await _gitHub.GetChangedFilesAsync(input.Repository, input.PullRequestNumber, cancellationToken);
         var checks   = await _gitHub.GetCheckRunResultsAsync(input.Repository, input.HeadSha, cancellationToken);
 
-        var allChecksPass = checks.Count > 0
-            && checks.All(c => c.Status == "completed" && c.Conclusion == "success");
+        var allChecksPass = checks.Count == 0
+            || checks.All(c => c.Status == "completed" && c.Conclusion == "success");
 
-        var hasTestCoverage = checks.Any(c =>
-            (c.Name.Contains("test", StringComparison.OrdinalIgnoreCase) ||
-             c.Name.Contains("coverage", StringComparison.OrdinalIgnoreCase))
-            && c.Conclusion == "success")
+        var isDocsOnly = files.Count > 0
+            && files.All(f => f.Path.EndsWith(".md",  StringComparison.OrdinalIgnoreCase)
+                           || f.Path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)
+                           || f.Path.EndsWith(".rst", StringComparison.OrdinalIgnoreCase));
+
+        var hasTestCoverage = isDocsOnly
+            || checks.Any(c =>
+                (c.Name.Contains("test", StringComparison.OrdinalIgnoreCase) ||
+                 c.Name.Contains("coverage", StringComparison.OrdinalIgnoreCase))
+                && c.Conclusion == "success")
             || files.Any(f => f.Path.Contains("test", StringComparison.OrdinalIgnoreCase));
 
         return new PrMergeContext(

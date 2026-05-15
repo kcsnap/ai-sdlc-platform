@@ -38,11 +38,11 @@ public static class AiSdlcWorkflowOrchestrator
             nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext);
         agentContext.Metadata["strategistOutput"] = strategistResult.OutputMarkdown ?? strategistResult.Summary;
 
-        // ── Step 2: Product Owner — brief with human approval loop ─────────────
-        AgentResult ownerResult   = strategistResult;
-        var briefApproved         = false;
+        // ── Step 2: Product Owner — brief, auto-approved when allowAutoMerge ────
+        AgentResult ownerResult;
+        bool briefApproved;
 
-        for (var attempt = 0; attempt < MaxBriefAttempts && !briefApproved; attempt++)
+        if (allowAutoMerge)
         {
             ownerResult = await context.CallActivityAsync<AgentResult>(
                 nameof(AgentActivityFunctions.RunProductOwnerAsync), agentContext);
@@ -50,24 +50,42 @@ public static class AiSdlcWorkflowOrchestrator
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    BuildBriefComment(ownerResult, attempt)));
+                    BuildBriefComment(ownerResult, 0)));
 
-            await context.CallActivityAsync(
-                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
-                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
-                    "ai-sdlc:awaiting-brief-approval"));
+            briefApproved = true;
+        }
+        else
+        {
+            ownerResult   = strategistResult;
+            briefApproved = false;
 
-            using var cts = new CancellationTokenSource();
-            var approveTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveBrief,  cts.Token);
-            var changesTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.RequestChanges, cts.Token);
-            var timeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(BriefApprovalTimeout), cts.Token);
+            for (var attempt = 0; attempt < MaxBriefAttempts && !briefApproved; attempt++)
+            {
+                ownerResult = await context.CallActivityAsync<AgentResult>(
+                    nameof(AgentActivityFunctions.RunProductOwnerAsync), agentContext);
 
-            var winner = await Task.WhenAny(approveTask, changesTask, timeoutTask);
-            cts.Cancel();
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                    new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                        BuildBriefComment(ownerResult, attempt)));
 
-            if (winner == approveTask)       { briefApproved = true; break; }
-            if (winner == timeoutTask)       return Stopped(agentContext.RunId, issue, createdAt, context);
-            if (attempt == MaxBriefAttempts - 1) return Stopped(agentContext.RunId, issue, createdAt, context);
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                    new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
+                        "ai-sdlc:awaiting-brief-approval"));
+
+                using var cts = new CancellationTokenSource();
+                var approveTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveBrief,  cts.Token);
+                var changesTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.RequestChanges, cts.Token);
+                var timeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(BriefApprovalTimeout), cts.Token);
+
+                var winner = await Task.WhenAny(approveTask, changesTask, timeoutTask);
+                cts.Cancel();
+
+                if (winner == approveTask)           { briefApproved = true; break; }
+                if (winner == timeoutTask)           return Stopped(agentContext.RunId, issue, createdAt, context);
+                if (attempt == MaxBriefAttempts - 1) return Stopped(agentContext.RunId, issue, createdAt, context);
+            }
         }
 
         agentContext.Metadata["ownerBrief"] = ownerResult.OutputMarkdown ?? ownerResult.Summary;

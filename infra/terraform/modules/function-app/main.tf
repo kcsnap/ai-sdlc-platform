@@ -1,42 +1,90 @@
+terraform {
+  required_providers {
+    azapi = {
+      source = "azure/azapi"
+    }
+  }
+}
+
+locals {
+  kv_ref = "@Microsoft.KeyVault(SecretUri=${var.key_vault_uri}secrets"
+
+  app_settings_list = [
+    for k, v in merge(
+      {
+        APPLICATIONINSIGHTS_CONNECTION_STRING = var.app_insights_connection_string
+        AZURE_CLIENT_ID                       = var.managed_identity_client_id
+        KeyVaultUri                           = var.key_vault_uri
+        AuditStorageAccountName               = var.audit_storage_account_name
+        FUNCTIONS_EXTENSION_VERSION           = "~4"
+        AzureWebJobsStorage__accountName      = var.storage_account_name
+        AzureWebJobsStorage__credential       = "managedidentity"
+        AzureWebJobsStorage__clientId         = var.managed_identity_client_id
+        AnthropicModel                        = "claude-haiku-4-5-20251001"
+        AnthropicApiKey                       = "${local.kv_ref}/AnthropicApiKey;ManagedIdentityClientId=${var.managed_identity_client_id})"
+        GitHubPat                             = "${local.kv_ref}/GitHubPat;ManagedIdentityClientId=${var.managed_identity_client_id})"
+        GitHubWebhookSecret                   = "${local.kv_ref}/GitHubWebhookSecret;ManagedIdentityClientId=${var.managed_identity_client_id})"
+      },
+      var.app_settings
+    ) : { name = k, value = v }
+  ]
+}
+
+data "azurerm_resource_group" "this" {
+  name = var.resource_group_name
+}
+
 resource "azurerm_service_plan" "this" {
   name                = "${var.name}-plan"
   resource_group_name = var.resource_group_name
   location            = var.location
   os_type             = "Linux"
-  sku_name            = "B1"
+  sku_name            = "FC1"
   tags                = var.tags
 }
 
-resource "azurerm_linux_function_app" "this" {
-  name                       = var.name
-  resource_group_name        = var.resource_group_name
-  location                   = var.location
-  service_plan_id            = azurerm_service_plan.this.id
-  storage_account_name       = var.storage_account_name
-  storage_account_access_key = var.storage_account_access_key
-  tags                       = var.tags
+resource "azapi_resource" "function_app" {
+  type      = "Microsoft.Web/sites@2023-12-01"
+  name      = var.name
+  location  = var.location
+  parent_id = data.azurerm_resource_group.this.id
+  tags      = var.tags
 
   identity {
     type         = "UserAssigned"
     identity_ids = [var.user_assigned_identity_id]
   }
 
-  site_config {
-    application_stack {
-      dotnet_version              = "8.0"
-      use_dotnet_isolated_runtime = true
+  body = {
+    kind = "functionapp,linux"
+    properties = {
+      serverFarmId = azurerm_service_plan.this.id
+      functionAppConfig = {
+        deployment = {
+          storage = {
+            type  = "blobContainer"
+            value = "${var.storage_account_blob_endpoint}deployments"
+            authentication = {
+              type                           = "UserAssignedIdentity"
+              userAssignedIdentityResourceId = var.user_assigned_identity_id
+            }
+          }
+        }
+        scaleAndConcurrency = {
+          maximumInstanceCount = 100
+          instanceMemoryMB     = 2048
+        }
+        runtime = {
+          name    = "dotnet-isolated"
+          version = "8.0"
+        }
+      }
+      keyVaultReferenceIdentity = var.user_assigned_identity_id
+      siteConfig = {
+        appSettings = local.app_settings_list
+      }
     }
   }
 
-  app_settings = merge(
-    {
-      APPLICATIONINSIGHTS_CONNECTION_STRING = var.app_insights_connection_string
-      AZURE_CLIENT_ID                       = var.managed_identity_client_id
-      KeyVaultUri                           = var.key_vault_uri
-      AuditStorageAccountName               = var.audit_storage_account_name
-      FUNCTIONS_EXTENSION_VERSION           = "~4"
-      WEBSITE_RUN_FROM_PACKAGE              = "1"
-    },
-    var.app_settings
-  )
+  response_export_values = ["properties.defaultHostName"]
 }
