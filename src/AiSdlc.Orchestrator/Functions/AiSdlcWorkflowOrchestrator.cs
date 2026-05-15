@@ -19,6 +19,12 @@ public static class AiSdlcWorkflowOrchestrator
     private static readonly TimeSpan PrReadyTimeout        = TimeSpan.FromDays(30);
     private static readonly TimeSpan MergeApprovalTimeout  = TimeSpan.FromDays(14);
 
+    // Retry agent activities up to 3× (Durable-level) when Anthropic rate-limits us.
+    // AnthropicModelProvider already does 2 HTTP retries (≈1 min); these Durable retries
+    // add wider spacing so concurrent fan-out calls don't all hit the API together.
+    private static readonly TaskOptions AgentRetryOptions = TaskOptions.FromRetryPolicy(
+        new RetryPolicy(maxNumberOfAttempts: 3, firstRetryInterval: TimeSpan.FromMinutes(3), backoffCoefficient: 2.0));
+
     [Function(nameof(AiSdlcWorkflowOrchestrator))]
     public static async Task<WorkflowRun> RunAsync([OrchestrationTrigger] TaskOrchestrationContext context)
     {
@@ -37,7 +43,7 @@ public static class AiSdlcWorkflowOrchestrator
 
         // ── Step 1: Product Strategist ─────────────────────────────────────────
         var strategistResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext);
+            nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext, AgentRetryOptions);
         agentContext.Metadata["strategistOutput"] = strategistResult.OutputMarkdown ?? strategistResult.Summary;
 
         // ── Step 2: Product Owner — brief, auto-approved when allowAutoMerge ────
@@ -47,7 +53,7 @@ public static class AiSdlcWorkflowOrchestrator
         if (allowAutoMerge)
         {
             ownerResult = await context.CallActivityAsync<AgentResult>(
-                nameof(AgentActivityFunctions.RunProductOwnerAsync), agentContext);
+                nameof(AgentActivityFunctions.RunProductOwnerAsync), agentContext, AgentRetryOptions);
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -98,7 +104,7 @@ public static class AiSdlcWorkflowOrchestrator
 
         // ── Step 3: Business Analyst ───────────────────────────────────────────
         var analystResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunBusinessAnalystAsync), agentContext);
+            nameof(AgentActivityFunctions.RunBusinessAnalystAsync), agentContext, AgentRetryOptions);
         agentContext.Metadata["analystOutput"] = analystResult.OutputMarkdown ?? analystResult.Summary;
 
         await context.CallActivityAsync(
@@ -108,7 +114,7 @@ public static class AiSdlcWorkflowOrchestrator
 
         // ── Step 4: Architect ──────────────────────────────────────────────────
         var architectResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunArchitectAsync), agentContext);
+            nameof(AgentActivityFunctions.RunArchitectAsync), agentContext, AgentRetryOptions);
         agentContext.Metadata["architectOutput"] = architectResult.OutputMarkdown ?? architectResult.Summary;
 
         await context.CallActivityAsync(
@@ -119,12 +125,12 @@ public static class AiSdlcWorkflowOrchestrator
         // ── Step 5: Parallel specialist reviews (fan-out) ─────────────────────
         var reviewTasks = new List<Task<AgentResult>>
         {
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSecurityPrivacyReviewerAsync), agentContext),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunUxAccessibilityReviewerAsync), agentContext),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDevOpsPlatformEngineerAsync),  agentContext),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunContentSeoReviewerAsync),      agentContext),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunComplianceLegalReviewerAsync), agentContext),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDataAnalyticsReviewerAsync),   agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSecurityPrivacyReviewerAsync), agentContext, AgentRetryOptions),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunUxAccessibilityReviewerAsync), agentContext, AgentRetryOptions),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDevOpsPlatformEngineerAsync),  agentContext, AgentRetryOptions),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunContentSeoReviewerAsync),      agentContext, AgentRetryOptions),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunComplianceLegalReviewerAsync), agentContext, AgentRetryOptions),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDataAnalyticsReviewerAsync),   agentContext, AgentRetryOptions),
         };
 
         var reviewResults = await Task.WhenAll(reviewTasks);
@@ -150,8 +156,8 @@ public static class AiSdlcWorkflowOrchestrator
                 BuildSpecialistReviewsComment(securityResult, uxResult, devopsResult, contentResult, complianceResult, analyticsResult)));
 
         // ── Step 6: QA + Senior Coder (parallel) ──────────────────────────────
-        var qaTask     = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunQaTestEngineerAsync), agentContext);
-        var coderTask  = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSeniorCoderAsync),    agentContext);
+        var qaTask     = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunQaTestEngineerAsync), agentContext, AgentRetryOptions);
+        var coderTask  = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSeniorCoderAsync),    agentContext, AgentRetryOptions);
 
         var qaResult    = await qaTask;
         var coderResult = await coderTask;
@@ -166,7 +172,7 @@ public static class AiSdlcWorkflowOrchestrator
 
         // ── Step 7: Risk Assessor ──────────────────────────────────────────────
         var riskResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunRiskAssessorAsync), agentContext);
+            nameof(AgentActivityFunctions.RunRiskAssessorAsync), agentContext, AgentRetryOptions);
         agentContext.Metadata["riskAssessment"] = riskResult.OutputMarkdown ?? riskResult.Summary;
 
         await context.CallActivityAsync(
@@ -198,7 +204,7 @@ public static class AiSdlcWorkflowOrchestrator
 
         // ── Step 9: Release Manager ────────────────────────────────────────────
         var releaseResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunReleaseManagerAsync), agentContext);
+            nameof(AgentActivityFunctions.RunReleaseManagerAsync), agentContext, AgentRetryOptions);
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -221,7 +227,7 @@ public static class AiSdlcWorkflowOrchestrator
         {
             // ── Step 10: Generate code implementation ─────────────────────────
             var implResult = await context.CallActivityAsync<AgentResult>(
-                nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext);
+                nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions);
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -284,8 +290,8 @@ public static class AiSdlcWorkflowOrchestrator
             var prPayload = await prReadyTask;
 
             prRef = new GitHubPullRequestReference(
-                agentContext.Repository, prRef.PullRequestNumber, string.Empty,
-                $"https://github.com/{agentContext.Repository}/pull/{prRef.PullRequestNumber}");
+                agentContext.Repository, prPayload.PullRequestNumber, string.Empty,
+                $"https://github.com/{agentContext.Repository}/pull/{prPayload.PullRequestNumber}");
 
             prContext = await context.CallActivityAsync<PrMergeContext>(
                 nameof(AgentActivityFunctions.GetPullRequestContextAsync),

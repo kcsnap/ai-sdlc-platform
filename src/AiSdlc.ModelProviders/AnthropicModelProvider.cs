@@ -27,7 +27,7 @@ public sealed class AnthropicModelProvider : IModelProvider
 
     public string ProviderName => "Anthropic";
 
-    private const int MaxRetries = 4;
+    private const int MaxRetries = 2;
 
     public async Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken)
     {
