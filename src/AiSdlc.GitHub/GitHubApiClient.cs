@@ -142,7 +142,7 @@ public sealed class GitHubApiClient : IGitHubService
 
     public async Task<string> GetDefaultBranchShaAsync(string repository, string branch, CancellationToken cancellationToken)
     {
-        var json = await GetAsync<GitRefJson>($"/repos/{repository}/git/ref/heads/{Uri.EscapeDataString(branch)}", cancellationToken);
+        var json = await GetAsync<GitRefJson>($"/repos/{repository}/git/refs/heads/{Uri.EscapeDataString(branch)}", cancellationToken);
         return json.Object.Sha;
     }
 
