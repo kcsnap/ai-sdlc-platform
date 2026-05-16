@@ -1,5 +1,6 @@
 using System.Text;
 using AiSdlc.Agents;
+using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.RepoIndex;
 using AiSdlc.Shared;
@@ -15,6 +16,7 @@ public sealed class AgentActivityFunctions
     private readonly IGitHubService _gitHub;
     private readonly IRepoIndexer _repoIndexer;
     private readonly IAutoMergeEligibilityService _autoMergeEligibility;
+    private readonly IContextStore _contextStore;
     private readonly ILogger<AgentActivityFunctions> _logger;
 
     public AgentActivityFunctions(
@@ -22,12 +24,14 @@ public sealed class AgentActivityFunctions
         IGitHubService gitHub,
         IRepoIndexer repoIndexer,
         IAutoMergeEligibilityService autoMergeEligibility,
+        IContextStore contextStore,
         ILogger<AgentActivityFunctions> logger)
     {
         _agentRunner          = agentRunner;
         _gitHub               = gitHub;
         _repoIndexer          = repoIndexer;
         _autoMergeEligibility = autoMergeEligibility;
+        _contextStore         = contextStore;
         _logger               = logger;
     }
 
@@ -275,6 +279,13 @@ public sealed class AgentActivityFunctions
 
     private async Task<AgentResult> ExecuteAsync(string agentName, AgentContext context, CancellationToken cancellationToken)
     {
+        // Resolve blob references so the agent receives full content
+        foreach (var key in context.Metadata.Keys.ToList())
+        {
+            if (context.Metadata[key] is string v && _contextStore.IsReference(v))
+                context.Metadata[key] = await _contextStore.ResolveAsync(v, cancellationToken);
+        }
+
         var executionResult = await _agentRunner.ExecuteAsync(
             new AgentExecutionRequest { AgentName = agentName, Context = context },
             cancellationToken);
@@ -282,7 +293,28 @@ public sealed class AgentActivityFunctions
         if (!executionResult.Succeeded || executionResult.Result is null)
             throw new InvalidOperationException(executionResult.ErrorMessage ?? $"Agent execution failed for '{agentName}'.");
 
-        return executionResult.Result;
+        var result = executionResult.Result;
+
+        // Offload outputs larger than 1 KB to blob to keep orchestration history slim
+        if (result.OutputMarkdown?.Length > 1024)
+        {
+            var reference = await _contextStore.OffloadAsync(context.RunId, agentName, result.OutputMarkdown, cancellationToken);
+            result = new AgentResult
+            {
+                AgentName         = result.AgentName,
+                Status            = result.Status,
+                Summary           = result.Summary,
+                OutputMarkdown    = result.OutputMarkdown,
+                ContextRef        = reference,
+                Decision          = result.Decision,
+                RiskLevel         = result.RiskLevel,
+                ArtefactsCreated  = result.ArtefactsCreated,
+                FollowUpQuestions = result.FollowUpQuestions,
+                BlockingIssues    = result.BlockingIssues
+            };
+        }
+
+        return result;
     }
 }
 

@@ -1,5 +1,6 @@
 using AiSdlc.Agents;
 using AiSdlc.Agents.Personas;
+using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
 using AiSdlc.Orchestrator.Functions;
@@ -43,6 +44,7 @@ public sealed class OrchestratorSkeletonTests
             new NoOpGitHubService(),
             new NoOpRepoIndexer(),
             new AutoMergeEligibilityService(),
+            new NoOpContextStore(),
             NullLogger<AgentActivityFunctions>.Instance);
     }
 
@@ -239,6 +241,15 @@ public sealed class OrchestratorSkeletonTests
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.GetPullRequestContextAsync)));
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.EvaluateAutoMergeAsync)));
         Assert.NotNull(typeof(AgentActivityFunctions).GetMethod(nameof(AgentActivityFunctions.MergePullRequestActivityAsync)));
+    }
+
+    private sealed class NoOpContextStore : IContextStore
+    {
+        public Task<string> OffloadAsync(string runId, string key, string content, CancellationToken ct) =>
+            Task.FromResult(content);
+        public Task<string> ResolveAsync(string reference, CancellationToken ct) =>
+            Task.FromResult(reference);
+        public bool IsReference(string? value) => false;
     }
 
     private sealed class NoOpRepoIndexer : AiSdlc.RepoIndex.IRepoIndexer

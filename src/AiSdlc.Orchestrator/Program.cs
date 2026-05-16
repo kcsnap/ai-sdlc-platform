@@ -65,14 +65,15 @@ var host = new HostBuilder()
             return new TableClient(uri, "AuditEvents", credential);
         });
 
-        services.AddSingleton(_ =>
-        {
-            var uri = new Uri($"https://{auditAccountName}.blob.core.windows.net/prompts");
-            return new BlobContainerClient(uri, credential);
-        });
-
         services.AddSingleton<IAuditService, AzureTableAuditService>();
-        services.AddSingleton<IBlobPromptStore, BlobPromptStore>();
+
+        services.AddSingleton<IBlobPromptStore>(_ =>
+            new BlobPromptStore(new BlobContainerClient(
+                new Uri($"https://{auditAccountName}.blob.core.windows.net/prompts"), credential)));
+
+        services.AddSingleton<IContextStore>(_ =>
+            new BlobContextStore(new BlobContainerClient(
+                new Uri($"https://{auditAccountName}.blob.core.windows.net/context"), credential)));
 
         services.AddHttpClient<IGitHubService, GitHubApiClient>(client =>
         {

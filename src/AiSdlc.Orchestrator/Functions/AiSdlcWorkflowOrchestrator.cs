@@ -44,7 +44,7 @@ public static class AiSdlcWorkflowOrchestrator
         // ── Step 1: Product Strategist ─────────────────────────────────────────
         var strategistResult = await context.CallActivityAsync<AgentResult>(
             nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext, AgentRetryOptions);
-        agentContext.Metadata["strategistOutput"] = strategistResult.OutputMarkdown ?? strategistResult.Summary;
+        agentContext.Metadata["strategistOutput"] = strategistResult.ContextRef ?? strategistResult.OutputMarkdown ?? strategistResult.Summary;
 
         // ── Step 2: Product Owner — brief, auto-approved when allowAutoMerge ────
         AgentResult ownerResult;
@@ -96,7 +96,7 @@ public static class AiSdlcWorkflowOrchestrator
             }
         }
 
-        agentContext.Metadata["ownerBrief"] = ownerResult.OutputMarkdown ?? ownerResult.Summary;
+        agentContext.Metadata["ownerBrief"] = ownerResult.ContextRef ?? ownerResult.OutputMarkdown ?? ownerResult.Summary;
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.AddGitHubLabelAsync),
@@ -105,7 +105,7 @@ public static class AiSdlcWorkflowOrchestrator
         // ── Step 3: Business Analyst ───────────────────────────────────────────
         var analystResult = await context.CallActivityAsync<AgentResult>(
             nameof(AgentActivityFunctions.RunBusinessAnalystAsync), agentContext, AgentRetryOptions);
-        agentContext.Metadata["analystOutput"] = analystResult.OutputMarkdown ?? analystResult.Summary;
+        agentContext.Metadata["analystOutput"] = analystResult.ContextRef ?? analystResult.OutputMarkdown ?? analystResult.Summary;
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -115,7 +115,7 @@ public static class AiSdlcWorkflowOrchestrator
         // ── Step 4: Architect ──────────────────────────────────────────────────
         var architectResult = await context.CallActivityAsync<AgentResult>(
             nameof(AgentActivityFunctions.RunArchitectAsync), agentContext, AgentRetryOptions);
-        agentContext.Metadata["architectOutput"] = architectResult.OutputMarkdown ?? architectResult.Summary;
+        agentContext.Metadata["architectOutput"] = architectResult.ContextRef ?? architectResult.OutputMarkdown ?? architectResult.Summary;
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -142,14 +142,12 @@ public static class AiSdlcWorkflowOrchestrator
         var complianceResult = reviewResults[4];
         var analyticsResult  = reviewResults[5];
 
-        agentContext.Metadata["securityOutput"]   = securityResult.OutputMarkdown   ?? securityResult.Summary;
-        agentContext.Metadata["uxOutput"]         = uxResult.OutputMarkdown         ?? uxResult.Summary;
-        agentContext.Metadata["devopsOutput"]     = devopsResult.OutputMarkdown     ?? devopsResult.Summary;
-        agentContext.Metadata["contentOutput"]    = contentResult.OutputMarkdown    ?? contentResult.Summary;
-        agentContext.Metadata["complianceOutput"] = complianceResult.OutputMarkdown ?? complianceResult.Summary;
-        agentContext.Metadata["analyticsOutput"]  = analyticsResult.OutputMarkdown  ?? analyticsResult.Summary;
-        agentContext.Metadata["specialistReviews"] = BuildSpecialistReviewsText(
-            securityResult, uxResult, devopsResult, contentResult, complianceResult, analyticsResult);
+        agentContext.Metadata["securityOutput"]   = securityResult.ContextRef   ?? securityResult.OutputMarkdown   ?? securityResult.Summary;
+        agentContext.Metadata["uxOutput"]         = uxResult.ContextRef         ?? uxResult.OutputMarkdown         ?? uxResult.Summary;
+        agentContext.Metadata["devopsOutput"]     = devopsResult.ContextRef     ?? devopsResult.OutputMarkdown     ?? devopsResult.Summary;
+        agentContext.Metadata["contentOutput"]    = contentResult.ContextRef    ?? contentResult.OutputMarkdown    ?? contentResult.Summary;
+        agentContext.Metadata["complianceOutput"] = complianceResult.ContextRef ?? complianceResult.OutputMarkdown ?? complianceResult.Summary;
+        agentContext.Metadata["analyticsOutput"]  = analyticsResult.ContextRef  ?? analyticsResult.OutputMarkdown  ?? analyticsResult.Summary;
 
         // Post all specialist reviews as a single consolidated comment
         await context.CallActivityAsync(
@@ -164,8 +162,8 @@ public static class AiSdlcWorkflowOrchestrator
         var qaResult    = await qaTask;
         var coderResult = await coderTask;
 
-        agentContext.Metadata["testPlan"] = qaResult.OutputMarkdown    ?? qaResult.Summary;
-        agentContext.Metadata["implSpec"] = coderResult.OutputMarkdown ?? coderResult.Summary;
+        agentContext.Metadata["testPlan"] = qaResult.ContextRef    ?? qaResult.OutputMarkdown    ?? qaResult.Summary;
+        agentContext.Metadata["implSpec"] = coderResult.ContextRef ?? coderResult.OutputMarkdown ?? coderResult.Summary;
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -175,7 +173,7 @@ public static class AiSdlcWorkflowOrchestrator
         // ── Step 7: Risk Assessor ──────────────────────────────────────────────
         var riskResult = await context.CallActivityAsync<AgentResult>(
             nameof(AgentActivityFunctions.RunRiskAssessorAsync), agentContext, AgentRetryOptions);
-        agentContext.Metadata["riskAssessment"] = riskResult.OutputMarkdown ?? riskResult.Summary;
+        agentContext.Metadata["riskAssessment"] = riskResult.ContextRef ?? riskResult.OutputMarkdown ?? riskResult.Summary;
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -503,28 +501,6 @@ public static class AiSdlcWorkflowOrchestrator
         return sb.ToString();
     }
 
-    private static string BuildSpecialistReviewsText(
-        AgentResult security, AgentResult ux, AgentResult devops,
-        AgentResult content, AgentResult compliance, AgentResult analytics)
-    {
-        var sb = new StringBuilder();
-        AppendReviewSection(sb, "Security & Privacy",  security);
-        AppendReviewSection(sb, "UX & Accessibility",  ux);
-        AppendReviewSection(sb, "DevOps & Platform",   devops);
-        AppendReviewSection(sb, "Content & SEO",       content);
-        AppendReviewSection(sb, "Compliance & Legal",  compliance);
-        AppendReviewSection(sb, "Data & Analytics",    analytics);
-        return sb.ToString();
-    }
-
-    private static void AppendReviewSection(StringBuilder sb, string title, AgentResult result)
-    {
-        sb.AppendLine($"### {title}");
-        sb.AppendLine();
-        sb.AppendLine(GetContent(result));
-        sb.AppendLine();
-    }
-
     private static string BuildSpecialistReviewsComment(
         AgentResult security, AgentResult ux, AgentResult devops,
         AgentResult content, AgentResult compliance, AgentResult analytics)
@@ -613,7 +589,7 @@ public static class AiSdlcWorkflowOrchestrator
     }
 
     private static string GetContent(AgentResult result) =>
-        GetContent(result);
+        !string.IsNullOrWhiteSpace(result.OutputMarkdown) ? result.OutputMarkdown : result.Summary;
 
     private static void AppendCollapsible(StringBuilder sb, string title, AgentResult result)
     {

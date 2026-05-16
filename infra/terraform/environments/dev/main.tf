@@ -73,7 +73,7 @@ module "audit_storage" {
   resource_group_name = azurerm_resource_group.this.name
   location            = var.location
   tags                = local.tags
-  containers          = ["prompts"]
+  containers          = ["prompts", "context"]
   tables              = ["AuditEvents"]
 }
 

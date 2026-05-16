@@ -75,11 +75,16 @@ public sealed class QaTestEngineerAgent : IAgent
     private static Dictionary<string, string> BuildContextDocs(AgentContext ctx)
     {
         var docs = new Dictionary<string, string>();
-        AddIfPresent(docs, ctx, "repoContext",       "Repository Context");
-        AddIfPresent(docs, ctx, "ownerBrief",        "Approved Product Brief");
-        AddIfPresent(docs, ctx, "analystOutput",     "Business Analysis");
-        AddIfPresent(docs, ctx, "architectOutput",   "Architecture Review");
-        AddIfPresent(docs, ctx, "specialistReviews", "Specialist Reviews");
+        AddIfPresent(docs, ctx, "repoContext",      "Repository Context");
+        AddIfPresent(docs, ctx, "ownerBrief",       "Approved Product Brief");
+        AddIfPresent(docs, ctx, "analystOutput",    "Business Analysis");
+        AddIfPresent(docs, ctx, "architectOutput",  "Architecture Review");
+        AddIfPresent(docs, ctx, "securityOutput",   "Security & Privacy Review");
+        AddIfPresent(docs, ctx, "uxOutput",         "UX & Accessibility Review");
+        AddIfPresent(docs, ctx, "devopsOutput",     "DevOps & Platform Review");
+        AddIfPresent(docs, ctx, "contentOutput",    "Content & SEO Review");
+        AddIfPresent(docs, ctx, "complianceOutput", "Compliance & Legal Review");
+        AddIfPresent(docs, ctx, "analyticsOutput",  "Data & Analytics Review");
         return docs;
     }
 
