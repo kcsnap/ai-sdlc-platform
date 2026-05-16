@@ -194,7 +194,7 @@ public sealed class OrchestratorSkeletonTests
     public async Task CreatePrActivityAsync_ReturnsPullRequestReference()
     {
         var functions = BuildActivityFunctions();
-        var input = new CreatePrActivityInput("kcsnap/launchcart", "create readme", "Closes #12", "ai/12-create-readme");
+        var input = new CreatePrActivityInput("kcsnap/launchcart", "create readme", "Closes #12", "ai/12-create-readme", "main");
 
         var result = await functions.CreatePrActivityAsync(input, CancellationToken.None);
 
@@ -280,6 +280,9 @@ public sealed class OrchestratorSkeletonTests
 
         public Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken ct) =>
             Task.CompletedTask;
+
+        public Task<string> GetDefaultBranchAsync(string repository, CancellationToken ct) =>
+            Task.FromResult("main");
 
         public Task<string> GetDefaultBranchShaAsync(string repository, string branch, CancellationToken ct) =>
             Task.FromResult("0000000000000000000000000000000000000000");

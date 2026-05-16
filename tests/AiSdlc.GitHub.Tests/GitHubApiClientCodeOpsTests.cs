@@ -10,6 +10,23 @@ public sealed class GitHubApiClientCodeOpsTests
         new(handler) { BaseAddress = new Uri("https://api.github.com") };
 
     [Fact]
+    public async Task GetDefaultBranchAsync_ReturnsDefaultBranch()
+    {
+        var handler = new FakeHandler(HttpStatusCode.OK, """
+            {
+                "id": 1,
+                "name": "launchcart",
+                "default_branch": "master"
+            }
+            """);
+
+        var client = new GitHubApiClient(MakeClient(handler));
+        var branch = await client.GetDefaultBranchAsync("org/repo", CancellationToken.None);
+
+        Assert.Equal("master", branch);
+    }
+
+    [Fact]
     public async Task GetDefaultBranchShaAsync_ReturnsSha()
     {
         var handler = new FakeHandler(HttpStatusCode.OK, """

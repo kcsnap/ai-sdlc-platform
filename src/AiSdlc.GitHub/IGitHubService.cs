@@ -20,6 +20,7 @@ public interface IGitHubService
 
     Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken cancellationToken);
 
+    Task<string> GetDefaultBranchAsync(string repository, CancellationToken cancellationToken);
     Task<string> GetDefaultBranchShaAsync(string repository, string branch, CancellationToken cancellationToken);
     Task CreateBranchAsync(string repository, string branchName, string sha, CancellationToken cancellationToken);
     Task CreateOrUpdateFileAsync(string repository, string path, string content, string commitMessage, string branch, CancellationToken cancellationToken);

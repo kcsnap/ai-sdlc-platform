@@ -178,6 +178,13 @@ public sealed class AgentActivityFunctions
     public Task<AgentResult> RunCodeImplementerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
         ExecuteAsync(AgentNames.CodeImplementer, context, cancellationToken);
 
+    [Function(nameof(GetDefaultBranchNameActivityAsync))]
+    public async Task<string> GetDefaultBranchNameActivityAsync([ActivityTrigger] string repository, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Getting default branch name for {Repository}", repository);
+        return await _gitHub.GetDefaultBranchAsync(repository, cancellationToken);
+    }
+
     [Function(nameof(GetDefaultBranchShaActivityAsync))]
     public async Task<string> GetDefaultBranchShaActivityAsync([ActivityTrigger] GetHeadShaInput input, CancellationToken cancellationToken)
     {
@@ -210,7 +217,7 @@ public sealed class AgentActivityFunctions
                 Title        = input.Title,
                 BodyMarkdown = input.Body,
                 HeadBranch   = input.BranchName,
-                BaseBranch   = "main"
+                BaseBranch   = input.BaseBranch
             },
             cancellationToken);
     }
@@ -233,4 +240,4 @@ public sealed record CreateBranchInput(string Repository, string BranchName, str
 public sealed record CommitFileInput(string Repository, string Path, string Content,
                                      string CommitMessage, string Branch);
 public sealed record CreatePrActivityInput(string Repository, string Title,
-                                           string Body, string BranchName);
+                                           string Body, string BranchName, string BaseBranch);

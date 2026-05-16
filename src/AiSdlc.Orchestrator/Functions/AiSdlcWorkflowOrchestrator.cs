@@ -237,12 +237,16 @@ public static class AiSdlcWorkflowOrchestrator
             var fileChanges = CodeChangeParser.Parse(implResult.OutputMarkdown);
 
             // ── Step 11: Create branch and commit files ────────────────────────
-            var slug       = GenerateBranchSlug(issueTitle);
-            var branchName = $"ai/{agentContext.IssueNumber}-{slug}";
+            var slug          = GenerateBranchSlug(issueTitle);
+            var branchName    = $"ai/{agentContext.IssueNumber}-{slug}";
+
+            var defaultBranch = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.GetDefaultBranchNameActivityAsync),
+                agentContext.Repository);
 
             var headSha = await context.CallActivityAsync<string>(
                 nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
-                new GetHeadShaInput(agentContext.Repository, "main"));
+                new GetHeadShaInput(agentContext.Repository, defaultBranch));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.CreateBranchActivityAsync),
@@ -265,7 +269,7 @@ public static class AiSdlcWorkflowOrchestrator
             var prBody = $"Closes #{agentContext.IssueNumber}\n\n{implResult.Summary}";
             prRef = await context.CallActivityAsync<GitHubPullRequestReference>(
                 nameof(AgentActivityFunctions.CreatePrActivityAsync),
-                new CreatePrActivityInput(agentContext.Repository, issueTitle, prBody, branchName));
+                new CreatePrActivityInput(agentContext.Repository, issueTitle, prBody, branchName, defaultBranch));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),

@@ -140,6 +140,12 @@ public sealed class GitHubApiClient : IGitHubService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task<string> GetDefaultBranchAsync(string repository, CancellationToken cancellationToken)
+    {
+        var json = await GetAsync<RepositoryJson>($"/repos/{repository}", cancellationToken);
+        return json.DefaultBranch;
+    }
+
     public async Task<string> GetDefaultBranchShaAsync(string repository, string branch, CancellationToken cancellationToken)
     {
         var json = await GetAsync<GitRefJson>($"/repos/{repository}/git/refs/heads/{Uri.EscapeDataString(branch)}", cancellationToken);
@@ -283,4 +289,5 @@ public sealed class GitHubApiClient : IGitHubService
     private sealed record FileContentJson(string Encoding, string Content, string? Sha);
     private sealed record GitRefJson(GitRefObjectJson Object);
     private sealed record GitRefObjectJson(string Sha);
+    private sealed record RepositoryJson(string DefaultBranch);
 }

@@ -329,6 +329,7 @@ public sealed class GitHubRepoIndexerTests
         public Task<IReadOnlyList<ChangedFile>> GetChangedFilesAsync(string r, int n, CancellationToken c) => throw new NotImplementedException();
         public Task<IReadOnlyList<CheckRunResult>> GetCheckRunResultsAsync(string r, string re, CancellationToken c) => throw new NotImplementedException();
         public Task MergePullRequestAsync(string r, int n, string m, CancellationToken c) => throw new NotImplementedException();
+        public Task<string> GetDefaultBranchAsync(string r, CancellationToken c) => throw new NotImplementedException();
         public Task<string> GetDefaultBranchShaAsync(string r, string b, CancellationToken c) => throw new NotImplementedException();
         public Task CreateBranchAsync(string r, string b, string s, CancellationToken c) => throw new NotImplementedException();
         public Task CreateOrUpdateFileAsync(string r, string p, string c2, string m, string b, CancellationToken c) => throw new NotImplementedException();
