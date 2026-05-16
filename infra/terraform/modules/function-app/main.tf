@@ -7,6 +7,8 @@ terraform {
 }
 
 locals {
+  # keyVaultReferenceIdentity is set on the app, so references use the simple URI-only form.
+  # Including ManagedIdentityClientId in the reference string causes InvalidSyntax.
   kv_ref = "@Microsoft.KeyVault(SecretUri=${var.key_vault_uri}secrets"
 
   app_settings_list = [
@@ -21,9 +23,9 @@ locals {
         AzureWebJobsStorage__credential       = "managedidentity"
         AzureWebJobsStorage__clientId         = var.managed_identity_client_id
         AnthropicModel                        = "claude-haiku-4-5-20251001"
-        AnthropicApiKey                       = "${local.kv_ref}/AnthropicApiKey;ManagedIdentityClientId=${var.managed_identity_client_id})"
-        GitHubPat                             = "${local.kv_ref}/GitHubPat;ManagedIdentityClientId=${var.managed_identity_client_id})"
-        GitHubWebhookSecret                   = "${local.kv_ref}/GitHubWebhookSecret;ManagedIdentityClientId=${var.managed_identity_client_id})"
+        AnthropicApiKey                       = "${local.kv_ref}/AnthropicApiKey)"
+        GitHubPat                             = "${local.kv_ref}/GitHubPat)"
+        GitHubWebhookSecret                   = "${local.kv_ref}/GitHubWebhookSecret)"
       },
       var.app_settings
     ) : { name = k, value = v }
