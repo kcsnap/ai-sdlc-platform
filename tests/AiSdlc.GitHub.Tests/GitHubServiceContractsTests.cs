@@ -154,6 +154,18 @@ public sealed class GitHubServiceContractsTests
         public Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken cancellationToken) =>
             Task.CompletedTask;
 
+        public Task<string> GetDefaultBranchAsync(string repository, CancellationToken cancellationToken) =>
+            Task.FromResult("main");
+
+        public Task<string> GetDefaultBranchShaAsync(string repository, string branch, CancellationToken cancellationToken) =>
+            Task.FromResult("0000000000000000000000000000000000000000");
+
+        public Task CreateBranchAsync(string repository, string branchName, string sha, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task CreateOrUpdateFileAsync(string repository, string path, string content, string commitMessage, string branch, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
         private static IssueComment CreateComment(string repository, int issueOrPullRequestNumber, string markdown) =>
             new()
             {

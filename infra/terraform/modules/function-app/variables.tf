@@ -15,10 +15,9 @@ variable "storage_account_name" {
   type        = string
 }
 
-variable "storage_account_access_key" {
-  description = "Access key for the host storage account"
+variable "storage_account_blob_endpoint" {
+  description = "Primary blob endpoint of the host storage account (used for FC1 deployment container URL)"
   type        = string
-  sensitive   = true
 }
 
 variable "app_insights_connection_string" {

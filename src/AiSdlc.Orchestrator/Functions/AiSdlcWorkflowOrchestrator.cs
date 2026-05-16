@@ -1,5 +1,7 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using AiSdlc.Agents;
+using AiSdlc.GitHub;
 using AiSdlc.GitHub.Webhooks;
 using AiSdlc.RepoIndex;
 using AiSdlc.Shared;
@@ -16,6 +18,12 @@ public static class AiSdlcWorkflowOrchestrator
     private static readonly TimeSpan HumanReviewTimeout    = TimeSpan.FromDays(14);
     private static readonly TimeSpan PrReadyTimeout        = TimeSpan.FromDays(30);
     private static readonly TimeSpan MergeApprovalTimeout  = TimeSpan.FromDays(14);
+
+    // Retry agent activities up to 3× (Durable-level) when Anthropic rate-limits us.
+    // AnthropicModelProvider already does 2 HTTP retries (≈1 min); these Durable retries
+    // add wider spacing so concurrent fan-out calls don't all hit the API together.
+    private static readonly TaskOptions AgentRetryOptions = TaskOptions.FromRetryPolicy(
+        new RetryPolicy(maxNumberOfAttempts: 3, firstRetryInterval: TimeSpan.FromMinutes(3), backoffCoefficient: 2.0));
 
     [Function(nameof(AiSdlcWorkflowOrchestrator))]
     public static async Task<WorkflowRun> RunAsync([OrchestrationTrigger] TaskOrchestrationContext context)
@@ -35,39 +43,57 @@ public static class AiSdlcWorkflowOrchestrator
 
         // ── Step 1: Product Strategist ─────────────────────────────────────────
         var strategistResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext);
+            nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext, AgentRetryOptions);
         agentContext.Metadata["strategistOutput"] = strategistResult.OutputMarkdown ?? strategistResult.Summary;
 
-        // ── Step 2: Product Owner — brief with human approval loop ─────────────
-        AgentResult ownerResult   = strategistResult;
-        var briefApproved         = false;
+        // ── Step 2: Product Owner — brief, auto-approved when allowAutoMerge ────
+        AgentResult ownerResult;
+        bool briefApproved;
 
-        for (var attempt = 0; attempt < MaxBriefAttempts && !briefApproved; attempt++)
+        if (allowAutoMerge)
         {
             ownerResult = await context.CallActivityAsync<AgentResult>(
-                nameof(AgentActivityFunctions.RunProductOwnerAsync), agentContext);
+                nameof(AgentActivityFunctions.RunProductOwnerAsync), agentContext, AgentRetryOptions);
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    BuildBriefComment(ownerResult, attempt)));
+                    BuildBriefComment(ownerResult, 0)));
 
-            await context.CallActivityAsync(
-                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
-                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
-                    "ai-sdlc:awaiting-brief-approval"));
+            briefApproved = true;
+        }
+        else
+        {
+            ownerResult   = strategistResult;
+            briefApproved = false;
 
-            using var cts = new CancellationTokenSource();
-            var approveTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveBrief,  cts.Token);
-            var changesTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.RequestChanges, cts.Token);
-            var timeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(BriefApprovalTimeout), cts.Token);
+            for (var attempt = 0; attempt < MaxBriefAttempts && !briefApproved; attempt++)
+            {
+                ownerResult = await context.CallActivityAsync<AgentResult>(
+                    nameof(AgentActivityFunctions.RunProductOwnerAsync), agentContext);
 
-            var winner = await Task.WhenAny(approveTask, changesTask, timeoutTask);
-            cts.Cancel();
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                    new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                        BuildBriefComment(ownerResult, attempt)));
 
-            if (winner == approveTask)       { briefApproved = true; break; }
-            if (winner == timeoutTask)       return Stopped(agentContext.RunId, issue, createdAt, context);
-            if (attempt == MaxBriefAttempts - 1) return Stopped(agentContext.RunId, issue, createdAt, context);
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                    new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
+                        "ai-sdlc:awaiting-brief-approval"));
+
+                using var cts = new CancellationTokenSource();
+                var approveTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveBrief,  cts.Token);
+                var changesTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.RequestChanges, cts.Token);
+                var timeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(BriefApprovalTimeout), cts.Token);
+
+                var winner = await Task.WhenAny(approveTask, changesTask, timeoutTask);
+                cts.Cancel();
+
+                if (winner == approveTask)           { briefApproved = true; break; }
+                if (winner == timeoutTask)           return Stopped(agentContext.RunId, issue, createdAt, context);
+                if (attempt == MaxBriefAttempts - 1) return Stopped(agentContext.RunId, issue, createdAt, context);
+            }
         }
 
         agentContext.Metadata["ownerBrief"] = ownerResult.OutputMarkdown ?? ownerResult.Summary;
@@ -78,7 +104,7 @@ public static class AiSdlcWorkflowOrchestrator
 
         // ── Step 3: Business Analyst ───────────────────────────────────────────
         var analystResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunBusinessAnalystAsync), agentContext);
+            nameof(AgentActivityFunctions.RunBusinessAnalystAsync), agentContext, AgentRetryOptions);
         agentContext.Metadata["analystOutput"] = analystResult.OutputMarkdown ?? analystResult.Summary;
 
         await context.CallActivityAsync(
@@ -88,7 +114,7 @@ public static class AiSdlcWorkflowOrchestrator
 
         // ── Step 4: Architect ──────────────────────────────────────────────────
         var architectResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunArchitectAsync), agentContext);
+            nameof(AgentActivityFunctions.RunArchitectAsync), agentContext, AgentRetryOptions);
         agentContext.Metadata["architectOutput"] = architectResult.OutputMarkdown ?? architectResult.Summary;
 
         await context.CallActivityAsync(
@@ -99,12 +125,12 @@ public static class AiSdlcWorkflowOrchestrator
         // ── Step 5: Parallel specialist reviews (fan-out) ─────────────────────
         var reviewTasks = new List<Task<AgentResult>>
         {
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSecurityPrivacyReviewerAsync), agentContext),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunUxAccessibilityReviewerAsync), agentContext),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDevOpsPlatformEngineerAsync),  agentContext),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunContentSeoReviewerAsync),      agentContext),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunComplianceLegalReviewerAsync), agentContext),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDataAnalyticsReviewerAsync),   agentContext),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSecurityPrivacyReviewerAsync), agentContext, AgentRetryOptions),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunUxAccessibilityReviewerAsync), agentContext, AgentRetryOptions),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDevOpsPlatformEngineerAsync),  agentContext, AgentRetryOptions),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunContentSeoReviewerAsync),      agentContext, AgentRetryOptions),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunComplianceLegalReviewerAsync), agentContext, AgentRetryOptions),
+            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDataAnalyticsReviewerAsync),   agentContext, AgentRetryOptions),
         };
 
         var reviewResults = await Task.WhenAll(reviewTasks);
@@ -130,8 +156,8 @@ public static class AiSdlcWorkflowOrchestrator
                 BuildSpecialistReviewsComment(securityResult, uxResult, devopsResult, contentResult, complianceResult, analyticsResult)));
 
         // ── Step 6: QA + Senior Coder (parallel) ──────────────────────────────
-        var qaTask     = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunQaTestEngineerAsync), agentContext);
-        var coderTask  = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSeniorCoderAsync),    agentContext);
+        var qaTask     = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunQaTestEngineerAsync), agentContext, AgentRetryOptions);
+        var coderTask  = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSeniorCoderAsync),    agentContext, AgentRetryOptions);
 
         var qaResult    = await qaTask;
         var coderResult = await coderTask;
@@ -146,7 +172,7 @@ public static class AiSdlcWorkflowOrchestrator
 
         // ── Step 7: Risk Assessor ──────────────────────────────────────────────
         var riskResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunRiskAssessorAsync), agentContext);
+            nameof(AgentActivityFunctions.RunRiskAssessorAsync), agentContext, AgentRetryOptions);
         agentContext.Metadata["riskAssessment"] = riskResult.OutputMarkdown ?? riskResult.Summary;
 
         await context.CallActivityAsync(
@@ -178,7 +204,7 @@ public static class AiSdlcWorkflowOrchestrator
 
         // ── Step 9: Release Manager ────────────────────────────────────────────
         var releaseResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunReleaseManagerAsync), agentContext);
+            nameof(AgentActivityFunctions.RunReleaseManagerAsync), agentContext, AgentRetryOptions);
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -189,28 +215,92 @@ public static class AiSdlcWorkflowOrchestrator
             nameof(AgentActivityFunctions.AddGitHubLabelAsync),
             new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:analysis-ready"));
 
-        // ── Phase 2: Wait for PR, evaluate gates, merge ────────────────────────
+        // ── Phase 2: Code implementation → PR → evaluate gates → merge ─────────
 
-        // Step 10: Wait for a PR to be opened referencing this issue
-        using var prCts     = new CancellationTokenSource();
-        var prReadyTask     = context.WaitForExternalEvent<PrReadyPayload>(WorkflowEventNames.PullRequestReady, prCts.Token);
-        var prTimeoutTask   = context.CreateTimer(context.CurrentUtcDateTime.Add(PrReadyTimeout), prCts.Token);
-        var prWinner        = await Task.WhenAny(prReadyTask, prTimeoutTask);
-        prCts.Cancel();
+        var issueTitle = agentContext.Metadata.TryGetValue("issueTitle", out var titleMeta)
+            ? titleMeta?.ToString() ?? "change" : "change";
 
-        if (prWinner == prTimeoutTask)
-            return Stopped(agentContext.RunId, issue, createdAt, context);
+        GitHubPullRequestReference prRef    = null!;
+        PrMergeContext             prContext = null!;
 
-        var prPayload = await prReadyTask;
+        if (allowAutoMerge)
+        {
+            // ── Step 10: Generate code implementation ─────────────────────────
+            var implResult = await context.CallActivityAsync<AgentResult>(
+                nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions);
 
-        var prRef = new GitHubPullRequestReference(
-            agentContext.Repository, prPayload.PullRequestNumber, string.Empty,
-            $"https://github.com/{agentContext.Repository}/pull/{prPayload.PullRequestNumber}");
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                    BuildSectionComment("AI SDLC — Implementation", implResult)));
 
-        // Step 11: Fetch PR details, changed files, and check run results
-        var prContext = await context.CallActivityAsync<PrMergeContext>(
-            nameof(AgentActivityFunctions.GetPullRequestContextAsync),
-            new GetPrContextInput(agentContext.Repository, prPayload.PullRequestNumber, prPayload.HeadSha));
+            var fileChanges = CodeChangeParser.Parse(implResult.OutputMarkdown);
+
+            // ── Step 11: Create branch and commit files ────────────────────────
+            var slug          = GenerateBranchSlug(issueTitle);
+            var branchName    = $"ai/{agentContext.IssueNumber}-{slug}";
+
+            var defaultBranch = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.GetDefaultBranchNameActivityAsync),
+                agentContext.Repository);
+
+            var headSha = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                new GetHeadShaInput(agentContext.Repository, defaultBranch));
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.CreateBranchActivityAsync),
+                new CreateBranchInput(agentContext.Repository, branchName, headSha));
+
+            var commitMsg = $"feat: {issueTitle} (closes #{agentContext.IssueNumber}) [ai-sdlc]";
+            foreach (var file in fileChanges)
+            {
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.CommitFileAsync),
+                    new CommitFileInput(agentContext.Repository, file.Path, file.Content, commitMsg, branchName));
+            }
+
+            // Get branch HEAD SHA after all commits
+            var prHeadSha = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                new GetHeadShaInput(agentContext.Repository, branchName));
+
+            // ── Step 12: Open PR ───────────────────────────────────────────────
+            var prBody = $"Closes #{agentContext.IssueNumber}\n\n{implResult.Summary}";
+            prRef = await context.CallActivityAsync<GitHubPullRequestReference>(
+                nameof(AgentActivityFunctions.CreatePrActivityAsync),
+                new CreatePrActivityInput(agentContext.Repository, issueTitle, prBody, branchName, defaultBranch));
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:pr-opened"));
+
+            prContext = await context.CallActivityAsync<PrMergeContext>(
+                nameof(AgentActivityFunctions.GetPullRequestContextAsync),
+                new GetPrContextInput(agentContext.Repository, prRef.PullRequestNumber, prHeadSha));
+        }
+        else
+        {
+            // ── Step 10: Wait for a human-created PR ──────────────────────────
+            using var prCts   = new CancellationTokenSource();
+            var prReadyTask   = context.WaitForExternalEvent<PrReadyPayload>(WorkflowEventNames.PullRequestReady, prCts.Token);
+            var prTimeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(PrReadyTimeout), prCts.Token);
+            var prWinner      = await Task.WhenAny(prReadyTask, prTimeoutTask);
+            prCts.Cancel();
+
+            if (prWinner == prTimeoutTask)
+                return Stopped(agentContext.RunId, issue, createdAt, context);
+
+            var prPayload = await prReadyTask;
+
+            prRef = new GitHubPullRequestReference(
+                agentContext.Repository, prPayload.PullRequestNumber, string.Empty,
+                $"https://github.com/{agentContext.Repository}/pull/{prPayload.PullRequestNumber}");
+
+            prContext = await context.CallActivityAsync<PrMergeContext>(
+                nameof(AgentActivityFunctions.GetPullRequestContextAsync),
+                new GetPrContextInput(agentContext.Repository, prRef.PullRequestNumber, prPayload.HeadSha));
+        }
 
         // Step 12: Evaluate all 10 auto-merge gates
         var noBlockingIssues = reviewResults.All(r => r.BlockingIssues.Count == 0)
@@ -237,20 +327,19 @@ public static class AiSdlcWorkflowOrchestrator
                 ReleaseNotesGenerated:   releaseNotesGenerated,
                 PostDeploymentChecksDefined: postDeployDefined));
 
-        var issueTitle    = agentContext.Metadata.TryGetValue("issueTitle", out var t) ? t?.ToString() ?? "AI SDLC" : "AI SDLC";
-        var commitMessage  = $"feat: {issueTitle} (closes #{agentContext.IssueNumber})";
+        var commitMessage = $"feat: {issueTitle} (closes #{agentContext.IssueNumber})";
 
         if (riskDecision == "AUTO_MERGE_ELIGIBLE" && eligibility.IsEligible && allowAutoMerge)
         {
             // All gates pass and repo has opted in — merge automatically
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.MergePullRequestActivityAsync),
-                new MergePrInput(agentContext.Repository, prPayload.PullRequestNumber, commitMessage));
+                new MergePrInput(agentContext.Repository, prRef.PullRequestNumber, commitMessage));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    BuildAutoMergedComment(prPayload.PullRequestNumber, eligibility)));
+                    BuildAutoMergedComment(prRef.PullRequestNumber, eligibility)));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
@@ -262,7 +351,7 @@ public static class AiSdlcWorkflowOrchestrator
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    BuildGateResultsComment(prPayload.PullRequestNumber, eligibility, riskDecision, allowAutoMerge)));
+                    BuildGateResultsComment(prRef.PullRequestNumber, eligibility, riskDecision, allowAutoMerge)));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
@@ -279,12 +368,12 @@ public static class AiSdlcWorkflowOrchestrator
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.MergePullRequestActivityAsync),
-                new MergePrInput(agentContext.Repository, prPayload.PullRequestNumber, commitMessage));
+                new MergePrInput(agentContext.Repository, prRef.PullRequestNumber, commitMessage));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    $"## AI SDLC — Merged\n\nPR #{prPayload.PullRequestNumber} merged after human approval. " +
+                    $"## AI SDLC — Merged\n\nPR #{prRef.PullRequestNumber} merged after human approval. " +
                     "Launchcart CI/CD pipeline will deploy to test and production."));
 
             await context.CallActivityAsync(
@@ -350,6 +439,12 @@ public static class AiSdlcWorkflowOrchestrator
         "BLOCKED"             => RiskLevel.High,
         _                     => RiskLevel.Medium
     };
+
+    private static string GenerateBranchSlug(string issueTitle)
+    {
+        var slug = Regex.Replace(issueTitle.ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
+        return slug.Length > 40 ? slug[..40].TrimEnd('-') : slug;
+    }
 
     private static string BuildBriefComment(AgentResult result, int attempt)
     {

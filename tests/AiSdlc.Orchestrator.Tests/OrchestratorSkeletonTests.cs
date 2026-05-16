@@ -26,6 +26,7 @@ public sealed class OrchestratorSkeletonTests
                 new ProductStrategistAgent(fakeModel),
                 new ProductOwnerAgent(fakeModel),
                 new BusinessAnalystAgent(fakeModel),
+                new CodeImplementerAgent(fakeModel),
                 new ArchitectAgent(fakeModel),
                 new UxAccessibilityReviewerAgent(fakeModel),
                 new ContentSeoReviewerAgent(fakeModel),
@@ -125,8 +126,8 @@ public sealed class OrchestratorSkeletonTests
 
         Assert.Equal(7, result.PullRequestNumber);
         Assert.Equal("abc123", result.HeadSha);
-        // NoOpGitHubService returns empty check runs — AllChecksPass is false, HasTestCoverage is false
-        Assert.False(result.AllChecksPass);
+        // NoOpGitHubService returns empty check runs → 0 checks = pass (no CI configured)
+        Assert.True(result.AllChecksPass);
     }
 
     [Fact]
@@ -170,6 +171,35 @@ public sealed class OrchestratorSkeletonTests
         var input = new MergePrInput("kcsnap/launchcart", 7, "feat: my feature (closes #42)");
 
         await functions.MergePullRequestActivityAsync(input, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RunCodeImplementerAsync_ReturnsCompletedResult()
+    {
+        var functions = BuildActivityFunctions();
+        var context = new AgentContext
+        {
+            RunId = "run-789", Repository = "kcsnap/launchcart",
+            IssueNumber = 12, CurrentState = WorkflowRunStatus.Started.ToString(),
+            RequestedAgent = AgentNames.CodeImplementer
+        };
+
+        var result = await functions.RunCodeImplementerAsync(context, CancellationToken.None);
+
+        Assert.Equal(AgentNames.CodeImplementer, result.AgentName);
+        Assert.Equal("Completed", result.Status);
+    }
+
+    [Fact]
+    public async Task CreatePrActivityAsync_ReturnsPullRequestReference()
+    {
+        var functions = BuildActivityFunctions();
+        var input = new CreatePrActivityInput("kcsnap/launchcart", "create readme", "Closes #12", "ai/12-create-readme", "main");
+
+        var result = await functions.CreatePrActivityAsync(input, CancellationToken.None);
+
+        Assert.Equal("kcsnap/launchcart", result.Repository);
+        Assert.Equal(1, result.PullRequestNumber);
     }
 
     [Fact]
@@ -249,6 +279,18 @@ public sealed class OrchestratorSkeletonTests
             Task.FromResult<string?>(null);
 
         public Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken ct) =>
+            Task.CompletedTask;
+
+        public Task<string> GetDefaultBranchAsync(string repository, CancellationToken ct) =>
+            Task.FromResult("main");
+
+        public Task<string> GetDefaultBranchShaAsync(string repository, string branch, CancellationToken ct) =>
+            Task.FromResult("0000000000000000000000000000000000000000");
+
+        public Task CreateBranchAsync(string repository, string branchName, string sha, CancellationToken ct) =>
+            Task.CompletedTask;
+
+        public Task CreateOrUpdateFileAsync(string repository, string path, string content, string commitMessage, string branch, CancellationToken ct) =>
             Task.CompletedTask;
 
         private static IssueComment StubComment(string repository, int number) => new()

@@ -141,4 +141,13 @@ public sealed class PersonaAgentTests
         Assert.NotNull(result.OutputMarkdown);
         Assert.NotEmpty(result.ArtefactsCreated);
     }
+
+    [Fact]
+    public async Task CodeImplementerAgent_Completes()
+    {
+        var result = await new CodeImplementerAgent(FakeModel())
+            .ExecuteAsync(MakeRequest(AgentNames.CodeImplementer), CancellationToken.None);
+        Assert.Equal("Completed", result.Status);
+        Assert.NotNull(result.OutputMarkdown);
+    }
 }

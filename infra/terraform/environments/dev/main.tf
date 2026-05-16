@@ -4,7 +4,11 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.100"
+      version = "~> 4.0"
+    }
+    azapi = {
+      source  = "azure/azapi"
+      version = "~> 2.0"
     }
   }
 }
@@ -60,6 +64,7 @@ module "host_storage" {
   resource_group_name = azurerm_resource_group.this.name
   location            = var.location
   tags                = local.tags
+  containers          = ["deployments"]
 }
 
 module "audit_storage" {
@@ -97,6 +102,25 @@ resource "azurerm_role_assignment" "audit_storage_table" {
   principal_id         = module.managed_identity.principal_id
 }
 
+# Storage roles for function app host storage (Durable Functions needs blob, queue, and table)
+resource "azurerm_role_assignment" "host_storage_blob" {
+  scope                = module.host_storage.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = module.managed_identity.principal_id
+}
+
+resource "azurerm_role_assignment" "host_storage_queue" {
+  scope                = module.host_storage.id
+  role_definition_name = "Storage Queue Data Contributor"
+  principal_id         = module.managed_identity.principal_id
+}
+
+resource "azurerm_role_assignment" "host_storage_table" {
+  scope                = module.host_storage.id
+  role_definition_name = "Storage Table Data Contributor"
+  principal_id         = module.managed_identity.principal_id
+}
+
 module "function_app" {
   source              = "../../modules/function-app"
   name                = "func-aisdlc-${var.environment}-${var.suffix}"
@@ -104,8 +128,8 @@ module "function_app" {
   location            = var.function_app_location
   tags                = local.tags
 
-  storage_account_name       = module.host_storage.name
-  storage_account_access_key = module.host_storage.primary_connection_string
+  storage_account_name          = module.host_storage.name
+  storage_account_blob_endpoint = module.host_storage.primary_blob_endpoint
 
   app_insights_connection_string = module.app_insights.connection_string
   user_assigned_identity_id      = module.managed_identity.id
