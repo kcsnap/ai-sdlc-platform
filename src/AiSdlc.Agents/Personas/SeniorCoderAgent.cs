@@ -33,6 +33,9 @@ public sealed class SeniorCoderAgent : IAgent
         ## Definition of Done — Implementation
         A numbered checklist. The PR is not ready for review until all items are checked off.
 
+        ## Answers to Open Questions
+        If any context documents contain an "## Open Questions" section raised by another agent, resolve every question related to implementation choices, exact dependency versions, library selection, code structure, or technical specifics — be definitive, not vague. Omit this section if there are no open questions to answer.
+
         Reference actual component names, file paths, and APIs from the context provided.
         Write clean GitHub-flavoured markdown.
         """;
@@ -74,11 +77,12 @@ public sealed class SeniorCoderAgent : IAgent
     private static Dictionary<string, string> BuildContextDocs(AgentContext ctx)
     {
         var docs = new Dictionary<string, string>();
-        AddIfPresent(docs, ctx, "repoContext",     "Repository Context");
-        AddIfPresent(docs, ctx, "ownerBrief",      "Approved Product Brief");
-        AddIfPresent(docs, ctx, "analystOutput",   "Business Analysis");
-        AddIfPresent(docs, ctx, "architectOutput", "Architecture Review");
-        AddIfPresent(docs, ctx, "testPlan",        "Test Plan");
+        AddIfPresent(docs, ctx, "repoContext",       "Repository Context");
+        AddIfPresent(docs, ctx, "ownerBrief",        "Approved Product Brief");
+        AddIfPresent(docs, ctx, "analystOutput",     "Business Analysis");
+        AddIfPresent(docs, ctx, "architectOutput",   "Architecture Review");
+        AddIfPresent(docs, ctx, "specialistReviews", "Specialist Reviews");
+        AddIfPresent(docs, ctx, "testPlan",          "Test Plan");
         return docs;
     }
 

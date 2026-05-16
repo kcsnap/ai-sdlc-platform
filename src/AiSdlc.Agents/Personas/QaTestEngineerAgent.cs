@@ -31,6 +31,9 @@ public sealed class QaTestEngineerAgent : IAgent
         ## Definition of Done — Testing
         A numbered checklist. The PR must not merge until all items are checked off.
 
+        ## Answers to Open Questions
+        If any context documents contain an "## Open Questions" section raised by another agent, answer every question related to test coverage, validation criteria, quality requirements, or testability. Omit this section if there are no open questions to answer.
+
         Be specific to the stack and the change. Reference actual component names and file paths where known from the context.
         Write clean GitHub-flavoured markdown.
         """;
@@ -72,10 +75,11 @@ public sealed class QaTestEngineerAgent : IAgent
     private static Dictionary<string, string> BuildContextDocs(AgentContext ctx)
     {
         var docs = new Dictionary<string, string>();
-        AddIfPresent(docs, ctx, "repoContext",     "Repository Context");
-        AddIfPresent(docs, ctx, "ownerBrief",      "Approved Product Brief");
-        AddIfPresent(docs, ctx, "analystOutput",   "Business Analysis");
-        AddIfPresent(docs, ctx, "architectOutput", "Architecture Review");
+        AddIfPresent(docs, ctx, "repoContext",       "Repository Context");
+        AddIfPresent(docs, ctx, "ownerBrief",        "Approved Product Brief");
+        AddIfPresent(docs, ctx, "analystOutput",     "Business Analysis");
+        AddIfPresent(docs, ctx, "architectOutput",   "Architecture Review");
+        AddIfPresent(docs, ctx, "specialistReviews", "Specialist Reviews");
         return docs;
     }
 

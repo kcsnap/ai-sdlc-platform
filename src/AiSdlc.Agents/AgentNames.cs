@@ -16,6 +16,7 @@ public static class AgentNames
     public const string SecurityPrivacyReviewer = "Security & Privacy Reviewer";
     public const string DevOpsPlatformEngineer = "DevOps / Platform Engineer";
     public const string RiskAssessor = "Risk Assessor";
-    public const string ReleaseManager  = "Release Manager";
-    public const string CodeImplementer = "Code Implementer";
+    public const string ReleaseManager               = "Release Manager";
+    public const string CodeImplementer              = "Code Implementer";
+    public const string ProductOwnerBranchReview     = "Product Owner Branch Reviewer";
 }

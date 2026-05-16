@@ -49,6 +49,7 @@ var host = new HostBuilder()
         services.AddSingleton<IAgent, SeniorCoderAgent>();
         services.AddSingleton<IAgent, SecurityPrivacyReviewerAgent>();
         services.AddSingleton<IAgent, DevOpsPlatformEngineerAgent>();
+        services.AddSingleton<IAgent, ProductOwnerBranchReviewAgent>();
         services.AddSingleton<IAgent, RiskAssessorAgent>();
         services.AddSingleton<IAgent, ReleaseManagerAgent>();
         services.AddSingleton<IAgentRunner, AgentRunner>();

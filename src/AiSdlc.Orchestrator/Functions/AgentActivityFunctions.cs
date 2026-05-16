@@ -1,3 +1,4 @@
+using System.Text;
 using AiSdlc.Agents;
 using AiSdlc.GitHub;
 using AiSdlc.RepoIndex;
@@ -115,9 +116,15 @@ public sealed class AgentActivityFunctions
     {
         _logger.LogInformation("Fetching PR context for {Repository}#{Pr}", input.Repository, input.PullRequestNumber);
 
-        var pr       = await _gitHub.GetPullRequestAsync(input.Repository, input.PullRequestNumber, cancellationToken);
-        var files    = await _gitHub.GetChangedFilesAsync(input.Repository, input.PullRequestNumber, cancellationToken);
-        var checks   = await _gitHub.GetCheckRunResultsAsync(input.Repository, input.HeadSha, cancellationToken);
+        var prTask     = _gitHub.GetPullRequestAsync(input.Repository, input.PullRequestNumber, cancellationToken);
+        var filesTask  = _gitHub.GetChangedFilesAsync(input.Repository, input.PullRequestNumber, cancellationToken);
+        var checksTask = _gitHub.GetCheckRunResultsAsync(input.Repository, input.HeadSha, cancellationToken);
+
+        await Task.WhenAll(prTask, filesTask, checksTask);
+
+        var pr     = await prTask;
+        var files  = await filesTask;
+        var checks = await checksTask;
 
         var allChecksPass = checks.Count == 0
             || checks.All(c => c.Status == "completed" && c.Conclusion == "success");
@@ -222,6 +229,50 @@ public sealed class AgentActivityFunctions
             cancellationToken);
     }
 
+    [Function(nameof(ReviewBranchContentAsync))]
+    public async Task<AgentResult> ReviewBranchContentAsync([ActivityTrigger] ReviewBranchInput input, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Product Owner reviewing {FileCount} file(s) on branch {Branch} in {Repository}",
+            input.FilePaths.Count, input.BranchName, input.Repository);
+
+        var fetchTasks = input.FilePaths
+            .Select(async path => (path, content: await _gitHub.GetBranchFileContentAsync(input.Repository, path, input.BranchName, cancellationToken)))
+            .ToArray();
+        var fetched = await Task.WhenAll(fetchTasks);
+
+        var sb = new StringBuilder();
+        foreach (var (path, content) in fetched)
+        {
+            if (content is not null)
+            {
+                sb.AppendLine($"### {path}");
+                sb.AppendLine();
+                sb.AppendLine("```");
+                sb.AppendLine(content);
+                sb.AppendLine("```");
+                sb.AppendLine();
+            }
+        }
+
+        var context = new AgentContext
+        {
+            RunId          = input.RunId,
+            Repository     = input.Repository,
+            IssueNumber    = input.IssueNumber,
+            CurrentState   = "Reviewing",
+            RequestedAgent = AgentNames.ProductOwnerBranchReview,
+            Metadata       =
+            {
+                ["branchContent"] = sb.ToString(),
+                ["branchName"]    = input.BranchName,
+                ["ownerBrief"]    = input.OwnerBrief,
+                ["analystOutput"] = input.AnalystOutput
+            }
+        };
+
+        return await ExecuteAsync(AgentNames.ProductOwnerBranchReview, context, cancellationToken);
+    }
+
     private async Task<AgentResult> ExecuteAsync(string agentName, AgentContext context, CancellationToken cancellationToken)
     {
         var executionResult = await _agentRunner.ExecuteAsync(
@@ -241,3 +292,11 @@ public sealed record CommitFileInput(string Repository, string Path, string Cont
                                      string CommitMessage, string Branch);
 public sealed record CreatePrActivityInput(string Repository, string Title,
                                            string Body, string BranchName, string BaseBranch);
+public sealed record ReviewBranchInput(
+    string RunId,
+    string Repository,
+    int IssueNumber,
+    string BranchName,
+    IReadOnlyList<string> FilePaths,
+    string OwnerBrief,
+    string AnalystOutput);

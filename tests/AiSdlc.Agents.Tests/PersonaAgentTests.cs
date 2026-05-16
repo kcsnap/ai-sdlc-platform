@@ -150,4 +150,34 @@ public sealed class PersonaAgentTests
         Assert.Equal("Completed", result.Status);
         Assert.NotNull(result.OutputMarkdown);
     }
+
+    [Fact]
+    public async Task ProductOwnerBranchReviewAgent_Completes()
+    {
+        var request = new AgentExecutionRequest
+        {
+            AgentName = AgentNames.ProductOwnerBranchReview,
+            Context   = new AgentContext
+            {
+                RunId          = "run-test",
+                Repository     = "owner/repo",
+                IssueNumber    = 1,
+                CurrentState   = "Reviewing",
+                RequestedAgent = AgentNames.ProductOwnerBranchReview,
+                Metadata       =
+                {
+                    ["branchName"]    = "ai/1-add-readme",
+                    ["branchContent"] = "### README.md\n\n```\n# My Project\n```\n",
+                    ["ownerBrief"]    = "Brief: add README."
+                }
+            }
+        };
+
+        var result = await new ProductOwnerBranchReviewAgent(FakeModel())
+            .ExecuteAsync(request, CancellationToken.None);
+
+        Assert.Equal("Completed", result.Status);
+        Assert.NotNull(result.OutputMarkdown);
+        Assert.True(result.Decision == "APPROVED" || result.Decision == "CHANGES_REQUIRED");
+    }
 }

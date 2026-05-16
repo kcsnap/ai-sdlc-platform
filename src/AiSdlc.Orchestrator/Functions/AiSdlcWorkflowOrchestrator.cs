@@ -148,6 +148,8 @@ public static class AiSdlcWorkflowOrchestrator
         agentContext.Metadata["contentOutput"]    = contentResult.OutputMarkdown    ?? contentResult.Summary;
         agentContext.Metadata["complianceOutput"] = complianceResult.OutputMarkdown ?? complianceResult.Summary;
         agentContext.Metadata["analyticsOutput"]  = analyticsResult.OutputMarkdown  ?? analyticsResult.Summary;
+        agentContext.Metadata["specialistReviews"] = BuildSpecialistReviewsText(
+            securityResult, uxResult, devopsResult, contentResult, complianceResult, analyticsResult);
 
         // Post all specialist reviews as a single consolidated comment
         await context.CallActivityAsync(
@@ -264,6 +266,33 @@ public static class AiSdlcWorkflowOrchestrator
             var prHeadSha = await context.CallActivityAsync<string>(
                 nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
                 new GetHeadShaInput(agentContext.Repository, branchName));
+
+            // ── Step 11b: Product Owner reviews committed content ──────────────
+            if (fileChanges.Count > 0)
+            {
+                var branchReviewResult = await context.CallActivityAsync<AgentResult>(
+                    nameof(AgentActivityFunctions.ReviewBranchContentAsync),
+                    new ReviewBranchInput(
+                        agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
+                        branchName, fileChanges.Select(f => f.Path).ToArray(),
+                        agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
+                        agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty),
+                    AgentRetryOptions);
+
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                    new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                        BuildSectionComment("AI SDLC — Implementation Review", branchReviewResult)));
+
+                if (branchReviewResult.Decision == "CHANGES_REQUIRED")
+                {
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                        new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
+                            "ai-sdlc:implementation-review-failed"));
+                    return Stopped(agentContext.RunId, issue, createdAt, context);
+                }
+            }
 
             // ── Step 12: Open PR ───────────────────────────────────────────────
             var prBody = $"Closes #{agentContext.IssueNumber}\n\n{implResult.Summary}";
@@ -456,7 +485,7 @@ public static class AiSdlcWorkflowOrchestrator
         }
         sb.AppendLine("## AI SDLC — Refined Brief");
         sb.AppendLine();
-        sb.AppendLine(!string.IsNullOrWhiteSpace(result.OutputMarkdown) ? result.OutputMarkdown : result.Summary);
+        sb.AppendLine(GetContent(result));
         AppendLists(sb, result);
         sb.AppendLine();
         sb.AppendLine("---");
@@ -469,9 +498,31 @@ public static class AiSdlcWorkflowOrchestrator
         var sb = new StringBuilder();
         sb.AppendLine($"## {heading}");
         sb.AppendLine();
-        sb.AppendLine(!string.IsNullOrWhiteSpace(result.OutputMarkdown) ? result.OutputMarkdown : result.Summary);
+        sb.AppendLine(GetContent(result));
         AppendLists(sb, result);
         return sb.ToString();
+    }
+
+    private static string BuildSpecialistReviewsText(
+        AgentResult security, AgentResult ux, AgentResult devops,
+        AgentResult content, AgentResult compliance, AgentResult analytics)
+    {
+        var sb = new StringBuilder();
+        AppendReviewSection(sb, "Security & Privacy",  security);
+        AppendReviewSection(sb, "UX & Accessibility",  ux);
+        AppendReviewSection(sb, "DevOps & Platform",   devops);
+        AppendReviewSection(sb, "Content & SEO",       content);
+        AppendReviewSection(sb, "Compliance & Legal",  compliance);
+        AppendReviewSection(sb, "Data & Analytics",    analytics);
+        return sb.ToString();
+    }
+
+    private static void AppendReviewSection(StringBuilder sb, string title, AgentResult result)
+    {
+        sb.AppendLine($"### {title}");
+        sb.AppendLine();
+        sb.AppendLine(GetContent(result));
+        sb.AppendLine();
     }
 
     private static string BuildSpecialistReviewsComment(
@@ -557,15 +608,18 @@ public static class AiSdlcWorkflowOrchestrator
         sb.AppendLine();
         sb.AppendLine("### Release Documentation");
         sb.AppendLine();
-        sb.AppendLine(!string.IsNullOrWhiteSpace(release.OutputMarkdown) ? release.OutputMarkdown : release.Summary);
+        sb.AppendLine(GetContent(release));
         return sb.ToString();
     }
+
+    private static string GetContent(AgentResult result) =>
+        GetContent(result);
 
     private static void AppendCollapsible(StringBuilder sb, string title, AgentResult result)
     {
         sb.AppendLine($"<details><summary><strong>{title}</strong></summary>");
         sb.AppendLine();
-        sb.AppendLine(!string.IsNullOrWhiteSpace(result.OutputMarkdown) ? result.OutputMarkdown : result.Summary);
+        sb.AppendLine(GetContent(result));
         sb.AppendLine();
         sb.AppendLine("</details>");
         sb.AppendLine();
