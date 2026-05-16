@@ -28,6 +28,9 @@ public sealed class ArchitectAgent : IAgent
         ## Open Questions
         Unresolved technical questions that must be answered before or during implementation. Omit if none.
 
+        ## Answers to Open Questions
+        If any context documents contain an "## Open Questions" section raised by another agent, answer every question that requires an architectural or technical decision — exact versions, dependency rationale, patterns to adopt, infrastructure choices. Omit this section if there are no open questions to answer.
+
         Be precise and reference the actual stack (frameworks, languages, patterns) from the context you are given.
         Write clean GitHub-flavoured markdown.
         """;

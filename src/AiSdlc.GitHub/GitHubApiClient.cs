@@ -191,9 +191,19 @@ public sealed class GitHubApiClient : IGitHubService
         putResponse.EnsureSuccessStatusCode();
     }
 
-    public async Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken)
+    public Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken) =>
+        GetFileContentAtRefAsync(repository, path, null, cancellationToken);
+
+    public Task<string?> GetBranchFileContentAsync(string repository, string path, string branch, CancellationToken cancellationToken) =>
+        GetFileContentAtRefAsync(repository, path, branch, cancellationToken);
+
+    private async Task<string?> GetFileContentAtRefAsync(string repository, string path, string? gitRef, CancellationToken cancellationToken)
     {
-        using var response = await _http.GetAsync($"/repos/{repository}/contents/{path}", cancellationToken);
+        var url = gitRef is null
+            ? $"/repos/{repository}/contents/{path}"
+            : $"/repos/{repository}/contents/{path}?ref={Uri.EscapeDataString(gitRef)}";
+
+        using var response = await _http.GetAsync(url, cancellationToken);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
 

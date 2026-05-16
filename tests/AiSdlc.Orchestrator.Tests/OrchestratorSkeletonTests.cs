@@ -25,6 +25,7 @@ public sealed class OrchestratorSkeletonTests
             new AgentRunner([
                 new ProductStrategistAgent(fakeModel),
                 new ProductOwnerAgent(fakeModel),
+                new ProductOwnerBranchReviewAgent(fakeModel),
                 new BusinessAnalystAgent(fakeModel),
                 new CodeImplementerAgent(fakeModel),
                 new ArchitectAgent(fakeModel),
@@ -203,6 +204,26 @@ public sealed class OrchestratorSkeletonTests
     }
 
     [Fact]
+    public async Task ReviewBranchContentAsync_ReturnsCompletedResult()
+    {
+        var functions = BuildActivityFunctions();
+        var input = new ReviewBranchInput(
+            RunId: "run-review",
+            Repository: "kcsnap/launchcart",
+            IssueNumber: 18,
+            BranchName: "ai/18-add-readme",
+            FilePaths: ["README.md"],
+            OwnerBrief: "Add a README file.",
+            AnalystOutput: "No complex analysis needed.");
+
+        var result = await functions.ReviewBranchContentAsync(input, CancellationToken.None);
+
+        Assert.Equal(AgentNames.ProductOwnerBranchReview, result.AgentName);
+        Assert.Equal("Completed", result.Status);
+        Assert.True(result.Decision == "APPROVED" || result.Decision == "CHANGES_REQUIRED");
+    }
+
+    [Fact]
     public void FunctionTypes_ShouldExposeExpectedSkeletonClasses()
     {
         Assert.NotNull(typeof(AiSdlcWorkflowOrchestrator));
@@ -276,6 +297,9 @@ public sealed class OrchestratorSkeletonTests
             Task.FromResult<IReadOnlyList<CheckRunResult>>([]);
 
         public Task<string?> GetFileContentAsync(string repository, string path, CancellationToken ct) =>
+            Task.FromResult<string?>(null);
+
+        public Task<string?> GetBranchFileContentAsync(string repository, string path, string branch, CancellationToken ct) =>
             Task.FromResult<string?>(null);
 
         public Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken ct) =>

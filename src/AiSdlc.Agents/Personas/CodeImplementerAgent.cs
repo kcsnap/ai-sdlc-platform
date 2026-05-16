@@ -12,16 +12,17 @@ public sealed class CodeImplementerAgent : IAgent
         business analysis, architecture review, and implementation specification provided.
 
         Rules:
-        - Output ONLY fenced code blocks — no prose, no explanation, no text outside blocks.
+        - Output ONLY file blocks — no prose, no explanation, no text outside blocks.
         - For every file to create or modify, use EXACTLY this format:
 
-          ```path:relative/path/from/repo/root
+          <file path="relative/path/from/repo/root">
           (file content here)
-          ```
+          </file>
 
         - Paths are relative to the repository root (e.g. README.md, src/api/Controllers/Foo.cs).
         - Output all files required to fully implement the feature.
-        - Do not output anything outside the fenced code blocks.
+        - Do not output anything outside the file blocks.
+        - The literal text </file> must never appear inside file content.
         """;
 
     private readonly IModelProvider _model;

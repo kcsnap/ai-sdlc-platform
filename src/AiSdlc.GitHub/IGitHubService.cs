@@ -18,6 +18,9 @@ public interface IGitHubService
     /// <summary>Returns the decoded text content of a file, or null if not found.</summary>
     Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken);
 
+    /// <summary>Returns the decoded text content of a file from a specific branch, or null if not found.</summary>
+    Task<string?> GetBranchFileContentAsync(string repository, string path, string branch, CancellationToken cancellationToken);
+
     Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken cancellationToken);
 
     Task<string> GetDefaultBranchAsync(string repository, CancellationToken cancellationToken);

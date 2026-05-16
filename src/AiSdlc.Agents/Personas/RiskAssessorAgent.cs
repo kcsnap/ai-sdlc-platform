@@ -32,6 +32,8 @@ public sealed class RiskAssessorAgent : IAgent
         2–3 sentences explaining the overall risk posture of this change.
 
         Be conservative: if any review raises a blocking issue, escalate to HUMAN_REVIEW_REQUIRED. Only mark AUTO_MERGE_ELIGIBLE if ALL reviews are clear, the change is low complexity, and no security or compliance concerns exist.
+
+        Open questions policy: If earlier agents raised open questions (in an "## Open Questions" section) and those questions have been answered by downstream agents (Architect, Senior Coder, QA, or specialist reviewers), treat them as resolved — do NOT escalate risk on the basis of questions that have already been answered. Only treat unanswered open questions as a risk signal if they appear unresolved across all the context documents you receive.
         Write clean GitHub-flavoured markdown.
         """;
 
@@ -55,7 +57,7 @@ public sealed class RiskAssessorAgent : IAgent
             SystemPrompt     = SystemPrompt,
             UserPrompt       = userPrompt,
             ContextDocuments = contextDocs,
-            MaxTokens        = 1500
+            MaxTokens        = 2500
         }, cancellationToken);
 
         var riskLevel  = ExtractRiskLevel(response.ResponseText);
@@ -108,6 +110,10 @@ public sealed class RiskAssessorAgent : IAgent
         AddIfPresent(docs, ctx, "uxOutput",             "UX & Accessibility Review");
         AddIfPresent(docs, ctx, "devopsOutput",         "DevOps Review");
         AddIfPresent(docs, ctx, "complianceOutput",     "Compliance & Legal Review");
+        AddIfPresent(docs, ctx, "contentOutput",        "Content & SEO Review");
+        AddIfPresent(docs, ctx, "analyticsOutput",      "Data & Analytics Review");
+        AddIfPresent(docs, ctx, "testPlan",             "Test Plan");
+        AddIfPresent(docs, ctx, "implSpec",             "Implementation Spec");
         return docs;
     }
 
