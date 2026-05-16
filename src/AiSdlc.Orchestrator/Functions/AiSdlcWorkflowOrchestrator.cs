@@ -260,19 +260,15 @@ public static class AiSdlcWorkflowOrchestrator
                     new CommitFileInput(agentContext.Repository, file.Path, file.Content, commitMsg, branchName));
             }
 
-            // Get branch HEAD SHA after all commits
-            var prHeadSha = await context.CallActivityAsync<string>(
-                nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
-                new GetHeadShaInput(agentContext.Repository, branchName));
-
             // ── Step 11b: Product Owner reviews committed content ──────────────
             if (fileChanges.Count > 0)
             {
+                var reviewFilePaths = fileChanges.Select(f => f.Path).ToArray();
                 var branchReviewResult = await context.CallActivityAsync<AgentResult>(
                     nameof(AgentActivityFunctions.ReviewBranchContentAsync),
                     new ReviewBranchInput(
                         agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
-                        branchName, fileChanges.Select(f => f.Path).ToArray(),
+                        branchName, reviewFilePaths,
                         agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
                         agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty),
                     AgentRetryOptions);
@@ -284,13 +280,60 @@ public static class AiSdlcWorkflowOrchestrator
 
                 if (branchReviewResult.Decision == "CHANGES_REQUIRED")
                 {
+                    // Critical issues found — run CodeImplementer with PO feedback and recommit
+                    agentContext.Metadata["poReviewFeedback"] = branchReviewResult.ContextRef
+                        ?? branchReviewResult.OutputMarkdown ?? branchReviewResult.Summary;
+
+                    var fixResult = await context.CallActivityAsync<AgentResult>(
+                        nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions);
+
                     await context.CallActivityAsync(
-                        nameof(AgentActivityFunctions.AddGitHubLabelAsync),
-                        new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
-                            "ai-sdlc:implementation-review-failed"));
-                    return Stopped(agentContext.RunId, issue, createdAt, context);
+                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                            BuildSectionComment("AI SDLC — Implementation Fix", fixResult)));
+
+                    var fixedChanges = CodeChangeParser.Parse(fixResult.OutputMarkdown);
+                    var fixCommitMsg = $"fix: address PO review feedback (closes #{agentContext.IssueNumber}) [ai-sdlc]";
+                    foreach (var file in fixedChanges)
+                    {
+                        await context.CallActivityAsync(
+                            nameof(AgentActivityFunctions.CommitFileAsync),
+                            new CommitFileInput(agentContext.Repository, file.Path, file.Content, fixCommitMsg, branchName));
+                    }
+
+                    // Re-review the fixed content (once — no infinite loop)
+                    if (fixedChanges.Count > 0)
+                    {
+                        var rereviewResult = await context.CallActivityAsync<AgentResult>(
+                            nameof(AgentActivityFunctions.ReviewBranchContentAsync),
+                            new ReviewBranchInput(
+                                agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
+                                branchName, fixedChanges.Select(f => f.Path).ToArray(),
+                                agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
+                                agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty),
+                            AgentRetryOptions);
+
+                        await context.CallActivityAsync(
+                            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                                BuildSectionComment("AI SDLC — Implementation Re-Review", rereviewResult)));
+
+                        if (rereviewResult.Decision == "CHANGES_REQUIRED")
+                        {
+                            await context.CallActivityAsync(
+                                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
+                                    "ai-sdlc:implementation-review-failed"));
+                            return Stopped(agentContext.RunId, issue, createdAt, context);
+                        }
+                    }
                 }
             }
+
+            // Get branch HEAD SHA after all commits (including any fix cycle commits)
+            var prHeadSha = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                new GetHeadShaInput(agentContext.Repository, branchName));
 
             // ── Step 12: Open PR ───────────────────────────────────────────────
             var prBody = $"Closes #{agentContext.IssueNumber}\n\n{implResult.Summary}";

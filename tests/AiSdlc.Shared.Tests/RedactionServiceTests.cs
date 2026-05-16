@@ -78,4 +78,25 @@ public sealed class RedactionServiceTests
         Assert.Equal(string.Empty, result.RedactedText);
         Assert.Equal(0, result.RedactionCount);
     }
+
+    [Theory]
+    [InlineData("Sort code: 20-12-34")]
+    [InlineData("Sort code: 20 12 34")]
+    [InlineData("Sort code: 201234")]
+    public void Redact_UkSortCode_IsRedacted(string input)
+    {
+        var result = _svc.Redact(input);
+        Assert.Contains("[REDACTED:SORT_CODE]", result.RedactedText);
+        Assert.Contains("UK sort code", result.RedactedPatterns);
+    }
+
+    [Theory]
+    [InlineData("\"createdAt\": \"2024-01-15T00:00:00Z\"")]
+    [InlineData("Date: 2026-05-16")]
+    [InlineData("Timestamp: 2024-01-01T00:00:00Z")]
+    public void Redact_IsoDate_IsNotRedacted(string input)
+    {
+        var result = _svc.Redact(input);
+        Assert.DoesNotContain("[REDACTED:SORT_CODE]", result.RedactedText);
+    }
 }

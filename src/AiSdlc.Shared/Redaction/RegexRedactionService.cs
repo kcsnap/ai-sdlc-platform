@@ -25,7 +25,10 @@ public sealed class RegexRedactionService : IRedactionService
         // PII
         new("Email address",         @"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b", "[REDACTED:EMAIL]"),
         new("UK National Insurance", @"\b[A-CEGHJ-PR-TW-Z]{1}[A-CEGHJ-NPR-TW-Z]{1}[0-9]{6}[A-DFM]{1}\b", "[REDACTED:NINO]"),
-        new("UK sort code",          @"\b\d{2}[-\s]?\d{2}[-\s]?\d{2}\b",            "[REDACTED:SORT_CODE]"),
+        // Sort code: exactly 6 consecutive digits OR two-digit groups with hyphen/space separators.
+        // The optional-separator form (\d{2}[-\s]?\d{2}[-\s]?\d{2}) matches ISO dates like 2024-01-15
+        // because it greedily treats '20'+'24'+'-01' as three groups — this explicit alternation avoids that.
+        new("UK sort code",          @"(?<!\d)(?:\d{6}|\d{2}-\d{2}-\d{2}|\d{2}\s\d{2}\s\d{2})(?!\d)", "[REDACTED:SORT_CODE]"),
         new("Credit card number",    @"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b", "[REDACTED:CARD_NUMBER]"),
         new("IPv4 address (private)",@"\b(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.[0-9]{1,3}\.[0-9]{1,3}\b", "[REDACTED:PRIVATE_IP]"),
     ];

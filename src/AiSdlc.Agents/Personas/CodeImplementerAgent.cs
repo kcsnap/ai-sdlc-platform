@@ -60,11 +60,12 @@ public sealed class CodeImplementerAgent : IAgent
     private static Dictionary<string, string> BuildContextDocs(AgentContext ctx)
     {
         var docs = new Dictionary<string, string>();
-        AddIfPresent(docs, ctx, "repoContext",     "Repository Context");
-        AddIfPresent(docs, ctx, "ownerBrief",      "Approved Product Brief");
-        AddIfPresent(docs, ctx, "analystOutput",   "Business Analysis");
-        AddIfPresent(docs, ctx, "architectOutput", "Architecture Review");
-        AddIfPresent(docs, ctx, "implSpec",        "Implementation Specification");
+        AddIfPresent(docs, ctx, "repoContext",       "Repository Context");
+        AddIfPresent(docs, ctx, "ownerBrief",       "Approved Product Brief");
+        AddIfPresent(docs, ctx, "analystOutput",    "Business Analysis");
+        AddIfPresent(docs, ctx, "architectOutput",  "Architecture Review");
+        AddIfPresent(docs, ctx, "implSpec",         "Implementation Specification");
+        AddIfPresent(docs, ctx, "poReviewFeedback", "Product Owner Review Feedback (fix these issues)");
         return docs;
     }
 
