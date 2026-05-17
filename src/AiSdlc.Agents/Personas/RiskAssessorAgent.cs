@@ -31,9 +31,20 @@ public sealed class RiskAssessorAgent : IAgent
         ## Rationale
         2–3 sentences explaining the overall risk posture of this change.
 
-        Be conservative: if any review raises a blocking issue, escalate to HUMAN_REVIEW_REQUIRED. Only mark AUTO_MERGE_ELIGIBLE if ALL reviews are clear, the change is low complexity, and no security or compliance concerns exist.
+        Decision mapping — follow this exactly:
+        - Final Risk Level = LOW  → AUTO_MERGE_ELIGIBLE, UNLESS a review explicitly raises a CRITICAL blocking issue
+        - Final Risk Level = MEDIUM → HUMAN_REVIEW_REQUIRED
+        - Final Risk Level = HIGH  → HUMAN_REVIEW_REQUIRED or BLOCKED
 
-        Open questions policy: If earlier agents raised open questions (in an "## Open Questions" section) and those questions have been answered by downstream agents (Architect, Senior Coder, QA, or specialist reviewers), treat them as resolved — do NOT escalate risk on the basis of questions that have already been answered. Only treat unanswered open questions as a risk signal if they appear unresolved across all the context documents you receive.
+        What does NOT prevent AUTO_MERGE_ELIGIBLE on a LOW risk change:
+        - Advisory suggestions, recommendations, or "nice to have" improvements
+        - Open questions or items listed as "follow-up" or "out of scope"
+        - Unvalidated assumptions that have no bearing on whether this specific change is safe to ship
+        - Success metrics, audience definitions, or BA pain-point details (these are planning artefacts, not ship blockers)
+
+        Blocking issues are ONLY: security vulnerabilities, data loss risks, compliance violations, or changes that would break existing functionality. If no such issues exist, LOW risk means AUTO_MERGE_ELIGIBLE — do not escalate.
+
+        Open questions policy: questions raised by earlier agents and not explicitly flagged as blocking by ALL specialist reviewers are advisory. Do not treat unresolved advisory questions as blockers.
         Write clean GitHub-flavoured markdown.
         """;
 
