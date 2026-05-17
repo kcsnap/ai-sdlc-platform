@@ -194,6 +194,11 @@ public static class AiSdlcWorkflowOrchestrator
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
                 new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:awaiting-human-review"));
 
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                    BuildHumanReviewRequiredComment(riskResult)));
+
             using var cts = new CancellationTokenSource();
             var approveTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveRelease, cts.Token);
             var timeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(HumanReviewTimeout),  cts.Token);
@@ -594,6 +599,22 @@ public static class AiSdlcWorkflowOrchestrator
         sb.AppendLine();
         AppendCollapsible(sb, "Test Plan",                    qa,    "{C_QA}",    contentRefs);
         AppendCollapsible(sb, "Implementation Specification", coder, "{C_CODER}", contentRefs);
+        return sb.ToString();
+    }
+
+    private static string BuildHumanReviewRequiredComment(AgentResult riskResult)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## AI SDLC — Human Review Required");
+        sb.AppendLine();
+        sb.AppendLine("> ⚠️ The Risk Assessor has determined this change requires human review before code implementation proceeds.");
+        sb.AppendLine();
+        if (!string.IsNullOrWhiteSpace(riskResult.Summary))
+        {
+            sb.AppendLine($"**Risk Assessment Summary:** {riskResult.Summary}");
+            sb.AppendLine();
+        }
+        sb.AppendLine("Review the Risk Assessment comment above, then reply `/approve-release` to continue the pipeline.");
         return sb.ToString();
     }
 
