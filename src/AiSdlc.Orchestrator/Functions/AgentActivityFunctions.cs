@@ -12,11 +12,17 @@ namespace AiSdlc.Orchestrator.Functions;
 
 public sealed class AgentActivityFunctions
 {
+    // Truncation guards keep individual audit-event properties under Azure Table Storage's
+    // 64 KB-per-property cap (chosen well below to leave headroom for UTF-16 expansion).
+    private const int MaxSummaryLength    = 256;
+    private const int MaxStackTraceLength = 30_000;
+
     private readonly IAgentRunner _agentRunner;
     private readonly IGitHubService _gitHub;
     private readonly IRepoIndexer _repoIndexer;
     private readonly IAutoMergeEligibilityService _autoMergeEligibility;
     private readonly IContextStore _contextStore;
+    private readonly IAuditService _audit;
     private readonly ILogger<AgentActivityFunctions> _logger;
 
     public AgentActivityFunctions(
@@ -25,6 +31,7 @@ public sealed class AgentActivityFunctions
         IRepoIndexer repoIndexer,
         IAutoMergeEligibilityService autoMergeEligibility,
         IContextStore contextStore,
+        IAuditService audit,
         ILogger<AgentActivityFunctions> logger)
     {
         _agentRunner          = agentRunner;
@@ -32,6 +39,7 @@ public sealed class AgentActivityFunctions
         _repoIndexer          = repoIndexer;
         _autoMergeEligibility = autoMergeEligibility;
         _contextStore         = contextStore;
+        _audit                = audit;
         _logger               = logger;
     }
 
@@ -95,8 +103,22 @@ public sealed class AgentActivityFunctions
     public async Task PostGitHubCommentAsync([ActivityTrigger] PostCommentInput input, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Posting comment to {Repository}#{Issue}", input.Repository, input.IssueNumber);
-        await _gitHub.AddIssueCommentAsync(input.Repository, input.IssueNumber, input.Markdown, cancellationToken);
+
+        var markdown = input.Markdown;
+        if (input.ContentRefs is { Count: > 0 })
+        {
+            var resolved = await Task.WhenAll(input.ContentRefs.Select(async kv =>
+                (Sentinel: kv.Key, Content: await _contextStore.ResolveAsync(kv.Value, cancellationToken))));
+            foreach (var (sentinel, content) in resolved)
+                markdown = markdown.Replace(sentinel, content, StringComparison.Ordinal);
+        }
+
+        await _gitHub.AddIssueCommentAsync(input.Repository, input.IssueNumber, markdown, cancellationToken);
     }
+
+    [Function(nameof(ResolveContextAsync))]
+    public Task<string> ResolveContextAsync([ActivityTrigger] string contextRef, CancellationToken cancellationToken)
+        => _contextStore.ResolveAsync(contextRef, cancellationToken);
 
     [Function(nameof(FetchRepoIndexAsync))]
     public async Task<AiSdlc.RepoIndex.RepoIndex?> FetchRepoIndexAsync([ActivityTrigger] string repository, CancellationToken cancellationToken)
@@ -279,43 +301,110 @@ public sealed class AgentActivityFunctions
 
     private async Task<AgentResult> ExecuteAsync(string agentName, AgentContext context, CancellationToken cancellationToken)
     {
-        // Resolve blob references so the agent receives full content
-        foreach (var key in context.Metadata.Keys.ToList())
+        await WriteAgentAuditAsync(agentName, context, action: "Started", summary: $"{agentName} started", cancellationToken: cancellationToken);
+
+        AgentResult result;
+        try
         {
-            if (context.Metadata[key] is string v && _contextStore.IsReference(v))
-                context.Metadata[key] = await _contextStore.ResolveAsync(v, cancellationToken);
-        }
-
-        var executionResult = await _agentRunner.ExecuteAsync(
-            new AgentExecutionRequest { AgentName = agentName, Context = context },
-            cancellationToken);
-
-        if (!executionResult.Succeeded || executionResult.Result is null)
-            throw new InvalidOperationException(executionResult.ErrorMessage ?? $"Agent execution failed for '{agentName}'.");
-
-        var result = executionResult.Result;
-
-        // Offload outputs larger than 1 KB to blob to keep orchestration history slim
-        if (result.OutputMarkdown?.Length > 1024)
-        {
-            var reference = await _contextStore.OffloadAsync(context.RunId, agentName, result.OutputMarkdown, cancellationToken);
-            result = new AgentResult
+            // Resolve blob references so the agent receives full content
+            foreach (var key in context.Metadata.Keys.ToList())
             {
-                AgentName         = result.AgentName,
-                Status            = result.Status,
-                Summary           = result.Summary,
-                OutputMarkdown    = result.OutputMarkdown,
-                ContextRef        = reference,
-                Decision          = result.Decision,
-                RiskLevel         = result.RiskLevel,
-                ArtefactsCreated  = result.ArtefactsCreated,
-                FollowUpQuestions = result.FollowUpQuestions,
-                BlockingIssues    = result.BlockingIssues
-            };
+                if (context.Metadata[key] is string v && _contextStore.IsReference(v))
+                    context.Metadata[key] = await _contextStore.ResolveAsync(v, cancellationToken);
+            }
+
+            var executionResult = await _agentRunner.ExecuteAsync(
+                new AgentExecutionRequest { AgentName = agentName, Context = context },
+                cancellationToken);
+
+            if (!executionResult.Succeeded || executionResult.Result is null)
+                throw new InvalidOperationException(executionResult.ErrorMessage ?? $"Agent execution failed for '{agentName}'.");
+
+            result = executionResult.Result;
+
+            // Offload outputs larger than 1 KB to blob; null OutputMarkdown so Durable history stays slim
+            if (result.OutputMarkdown?.Length > 1024)
+            {
+                var reference = await _contextStore.OffloadAsync(context.RunId, agentName, result.OutputMarkdown, cancellationToken);
+                result = new AgentResult
+                {
+                    AgentName         = result.AgentName,
+                    Status            = result.Status,
+                    Summary           = result.Summary,
+                    OutputMarkdown    = null,
+                    ContextRef        = reference,
+                    Decision          = result.Decision,
+                    RiskLevel         = result.RiskLevel,
+                    ArtefactsCreated  = result.ArtefactsCreated,
+                    FollowUpQuestions = result.FollowUpQuestions,
+                    BlockingIssues    = result.BlockingIssues
+                };
+            }
         }
+        catch (Exception ex)
+        {
+            await WriteAgentAuditAsync(
+                agentName,
+                context,
+                action: "Failed",
+                summary: Truncate(ex.Message, MaxSummaryLength),
+                references: new Dictionary<string, string>
+                {
+                    ["exceptionType"] = ex.GetType().FullName ?? ex.GetType().Name,
+                    ["stackTrace"]    = Truncate(ex.ToString(), MaxStackTraceLength)
+                },
+                cancellationToken: CancellationToken.None);  // audit must still write even if the activity was cancelled
+            throw;
+        }
+
+        await WriteAgentAuditAsync(
+            agentName,
+            context,
+            action: "Completed",
+            summary: result.Summary,
+            decision: result.Decision,
+            riskLevel: result.RiskLevel,
+            cancellationToken: cancellationToken);
 
         return result;
     }
+
+    private async Task WriteAgentAuditAsync(
+        string agentName,
+        AgentContext context,
+        string action,
+        string summary,
+        string? decision = null,
+        string? riskLevel = null,
+        Dictionary<string, string>? references = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _audit.WriteAsync(new AuditEvent
+            {
+                RunId       = context.RunId,
+                Repository  = context.Repository,
+                IssueNumber = context.IssueNumber,
+                PullRequestNumber = context.PullRequestNumber,
+                ActorType   = "Agent",
+                ActorName   = agentName,
+                Action      = action,
+                Summary     = summary,
+                Decision    = decision,
+                RiskLevel   = riskLevel,
+                References  = references ?? new Dictionary<string, string>()
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Audit writes must never break agent execution — match the webhook handler's behaviour.
+            _logger.LogWarning(ex, "Failed to write agent audit event {Action} for {Agent}.", action, agentName);
+        }
+    }
+
+    private static string Truncate(string value, int max) =>
+        string.IsNullOrEmpty(value) || value.Length <= max ? value : value[..max];
 }
 
 public sealed record GetHeadShaInput(string Repository, string Branch);

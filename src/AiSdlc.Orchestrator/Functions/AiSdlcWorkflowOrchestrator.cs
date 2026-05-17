@@ -57,8 +57,7 @@ public static class AiSdlcWorkflowOrchestrator
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    BuildBriefComment(ownerResult, 0)));
+                MakeBriefComment(agentContext.Repository, agentContext.IssueNumber, ownerResult, 0));
 
             briefApproved = true;
         }
@@ -74,8 +73,7 @@ public static class AiSdlcWorkflowOrchestrator
 
                 await context.CallActivityAsync(
                     nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                    new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                        BuildBriefComment(ownerResult, attempt)));
+                    MakeBriefComment(agentContext.Repository, agentContext.IssueNumber, ownerResult, attempt));
 
                 await context.CallActivityAsync(
                     nameof(AgentActivityFunctions.AddGitHubLabelAsync),
@@ -109,8 +107,8 @@ public static class AiSdlcWorkflowOrchestrator
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                BuildSectionComment("AI SDLC — Business Analysis", analystResult)));
+            MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
+                "AI SDLC — Business Analysis", analystResult));
 
         // ── Step 4: Architect ──────────────────────────────────────────────────
         var architectResult = await context.CallActivityAsync<AgentResult>(
@@ -119,8 +117,8 @@ public static class AiSdlcWorkflowOrchestrator
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                BuildSectionComment("AI SDLC — Architecture Review", architectResult)));
+            MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
+                "AI SDLC — Architecture Review", architectResult));
 
         // ── Step 5: Parallel specialist reviews (fan-out) ─────────────────────
         var reviewTasks = new List<Task<AgentResult>>
@@ -150,10 +148,13 @@ public static class AiSdlcWorkflowOrchestrator
         agentContext.Metadata["analyticsOutput"]  = analyticsResult.ContextRef  ?? analyticsResult.OutputMarkdown  ?? analyticsResult.Summary;
 
         // Post all specialist reviews as a single consolidated comment
+        var specialistMarkdown = BuildSpecialistReviewsComment(
+            securityResult, uxResult, devopsResult, contentResult, complianceResult, analyticsResult,
+            out var specialistRefs);
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
             new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                BuildSpecialistReviewsComment(securityResult, uxResult, devopsResult, contentResult, complianceResult, analyticsResult)));
+                specialistMarkdown, specialistRefs.Count > 0 ? specialistRefs : null));
 
         // ── Step 6: QA + Senior Coder (parallel) ──────────────────────────────
         var qaTask     = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunQaTestEngineerAsync), agentContext, AgentRetryOptions);
@@ -165,10 +166,11 @@ public static class AiSdlcWorkflowOrchestrator
         agentContext.Metadata["testPlan"] = qaResult.ContextRef    ?? qaResult.OutputMarkdown    ?? qaResult.Summary;
         agentContext.Metadata["implSpec"] = coderResult.ContextRef ?? coderResult.OutputMarkdown ?? coderResult.Summary;
 
+        var implGuidanceMarkdown = BuildImplementationComment(qaResult, coderResult, out var implGuidanceRefs);
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
             new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                BuildImplementationComment(qaResult, coderResult)));
+                implGuidanceMarkdown, implGuidanceRefs.Count > 0 ? implGuidanceRefs : null));
 
         // ── Step 7: Risk Assessor ──────────────────────────────────────────────
         var riskResult = await context.CallActivityAsync<AgentResult>(
@@ -177,8 +179,8 @@ public static class AiSdlcWorkflowOrchestrator
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                BuildSectionComment("AI SDLC — Risk Assessment", riskResult)));
+            MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
+                "AI SDLC — Risk Assessment", riskResult));
 
         // ── Step 8: Route on risk decision ────────────────────────────────────
         var riskDecision = riskResult.Decision ?? "HUMAN_REVIEW_REQUIRED";
@@ -208,8 +210,7 @@ public static class AiSdlcWorkflowOrchestrator
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                BuildDevReadyComment(releaseResult, riskDecision)));
+            MakeDevReadyComment(agentContext.Repository, agentContext.IssueNumber, releaseResult, riskDecision));
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.AddGitHubLabelAsync),
@@ -231,10 +232,24 @@ public static class AiSdlcWorkflowOrchestrator
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    BuildSectionComment("AI SDLC — Implementation", implResult)));
+                MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
+                    "AI SDLC — Implementation", implResult));
 
-            var fileChanges = CodeChangeParser.Parse(implResult.OutputMarkdown);
+            // Resolve code content from blob when offloaded so CodeChangeParser can extract file blocks
+            var implContent = implResult.OutputMarkdown;
+            if (implContent is null && implResult.ContextRef is not null)
+                implContent = await context.CallActivityAsync<string>(
+                    nameof(AgentActivityFunctions.ResolveContextAsync), implResult.ContextRef);
+
+            var fileChanges = CodeChangeParser.Parse(implContent);
+            if (fileChanges.Count == 0)
+            {
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                    new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                        "## AI SDLC — Implementation Failed\n\nThe code implementer did not produce any file changes. The pipeline cannot proceed automatically."));
+                return Stopped(agentContext.RunId, issue, createdAt, context);
+            }
 
             // ── Step 11: Create branch and commit files ────────────────────────
             var slug          = GenerateBranchSlug(issueTitle);
@@ -261,38 +276,43 @@ public static class AiSdlcWorkflowOrchestrator
             }
 
             // ── Step 11b: Product Owner reviews committed content ──────────────
-            if (fileChanges.Count > 0)
+            var reviewFilePaths = fileChanges.Select(f => f.Path).ToArray();
+            var branchReviewResult = await context.CallActivityAsync<AgentResult>(
+                nameof(AgentActivityFunctions.ReviewBranchContentAsync),
+                new ReviewBranchInput(
+                    agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
+                    branchName, reviewFilePaths,
+                    agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
+                    agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty),
+                AgentRetryOptions);
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
+                    "AI SDLC — Implementation Review", branchReviewResult));
+
+            if (branchReviewResult.Decision == "CHANGES_REQUIRED")
             {
-                var reviewFilePaths = fileChanges.Select(f => f.Path).ToArray();
-                var branchReviewResult = await context.CallActivityAsync<AgentResult>(
-                    nameof(AgentActivityFunctions.ReviewBranchContentAsync),
-                    new ReviewBranchInput(
-                        agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
-                        branchName, reviewFilePaths,
-                        agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
-                        agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty),
-                    AgentRetryOptions);
+                // Critical issues found — run CodeImplementer with PO feedback and recommit
+                agentContext.Metadata["poReviewFeedback"] = branchReviewResult.ContextRef
+                    ?? branchReviewResult.OutputMarkdown ?? branchReviewResult.Summary;
+
+                var fixResult = await context.CallActivityAsync<AgentResult>(
+                    nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions);
 
                 await context.CallActivityAsync(
                     nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                    new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                        BuildSectionComment("AI SDLC — Implementation Review", branchReviewResult)));
+                    MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
+                        "AI SDLC — Implementation Fix", fixResult));
 
-                if (branchReviewResult.Decision == "CHANGES_REQUIRED")
+                var fixContent = fixResult.OutputMarkdown;
+                if (fixContent is null && fixResult.ContextRef is not null)
+                    fixContent = await context.CallActivityAsync<string>(
+                        nameof(AgentActivityFunctions.ResolveContextAsync), fixResult.ContextRef);
+
+                var fixedChanges = CodeChangeParser.Parse(fixContent);
+                if (fixedChanges.Count > 0)
                 {
-                    // Critical issues found — run CodeImplementer with PO feedback and recommit
-                    agentContext.Metadata["poReviewFeedback"] = branchReviewResult.ContextRef
-                        ?? branchReviewResult.OutputMarkdown ?? branchReviewResult.Summary;
-
-                    var fixResult = await context.CallActivityAsync<AgentResult>(
-                        nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions);
-
-                    await context.CallActivityAsync(
-                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                            BuildSectionComment("AI SDLC — Implementation Fix", fixResult)));
-
-                    var fixedChanges = CodeChangeParser.Parse(fixResult.OutputMarkdown);
                     var fixCommitMsg = $"fix: address PO review feedback (closes #{agentContext.IssueNumber}) [ai-sdlc]";
                     foreach (var file in fixedChanges)
                     {
@@ -302,30 +322,27 @@ public static class AiSdlcWorkflowOrchestrator
                     }
 
                     // Re-review the fixed content (once — no infinite loop)
-                    if (fixedChanges.Count > 0)
+                    var rereviewResult = await context.CallActivityAsync<AgentResult>(
+                        nameof(AgentActivityFunctions.ReviewBranchContentAsync),
+                        new ReviewBranchInput(
+                            agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
+                            branchName, fixedChanges.Select(f => f.Path).ToArray(),
+                            agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
+                            agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty),
+                        AgentRetryOptions);
+
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                        MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
+                            "AI SDLC — Implementation Re-Review", rereviewResult));
+
+                    if (rereviewResult.Decision == "CHANGES_REQUIRED")
                     {
-                        var rereviewResult = await context.CallActivityAsync<AgentResult>(
-                            nameof(AgentActivityFunctions.ReviewBranchContentAsync),
-                            new ReviewBranchInput(
-                                agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
-                                branchName, fixedChanges.Select(f => f.Path).ToArray(),
-                                agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
-                                agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty),
-                            AgentRetryOptions);
-
                         await context.CallActivityAsync(
-                            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                                BuildSectionComment("AI SDLC — Implementation Re-Review", rereviewResult)));
-
-                        if (rereviewResult.Decision == "CHANGES_REQUIRED")
-                        {
-                            await context.CallActivityAsync(
-                                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
-                                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
-                                    "ai-sdlc:implementation-review-failed"));
-                            return Stopped(agentContext.RunId, issue, createdAt, context);
-                        }
+                            nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                            new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
+                                "ai-sdlc:implementation-review-failed"));
+                        return Stopped(agentContext.RunId, issue, createdAt, context);
                     }
                 }
             }
@@ -377,9 +394,15 @@ public static class AiSdlcWorkflowOrchestrator
                                && qaResult.BlockingIssues.Count == 0
                                && coderResult.BlockingIssues.Count == 0;
 
-        var rollbackDocumented  = releaseResult.OutputMarkdown?.Contains("rollback", StringComparison.OrdinalIgnoreCase) ?? false;
-        var releaseNotesGenerated = !string.IsNullOrWhiteSpace(releaseResult.OutputMarkdown);
-        var postDeployDefined   = releaseResult.OutputMarkdown?.Contains("post-deploy", StringComparison.OrdinalIgnoreCase) ?? false;
+        // Resolve release content to check for required documentation sections
+        var releaseContent = releaseResult.OutputMarkdown;
+        if (releaseContent is null && releaseResult.ContextRef is not null)
+            releaseContent = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.ResolveContextAsync), releaseResult.ContextRef);
+
+        var rollbackDocumented    = releaseContent?.Contains("rollback",    StringComparison.OrdinalIgnoreCase) ?? false;
+        var releaseNotesGenerated = !string.IsNullOrWhiteSpace(releaseContent);
+        var postDeployDefined     = releaseContent?.Contains("post-deploy", StringComparison.OrdinalIgnoreCase) ?? false;
 
         var eligibility = await context.CallActivityAsync<AutoMergeEligibilityResult>(
             nameof(AgentActivityFunctions.EvaluateAutoMergeAsync),
@@ -526,7 +549,7 @@ public static class AiSdlcWorkflowOrchestrator
         }
         sb.AppendLine("## AI SDLC — Refined Brief");
         sb.AppendLine();
-        sb.AppendLine(GetContent(result));
+        sb.AppendLine(ContentOrSentinel(result, "{C_BRIEF}"));
         AppendLists(sb, result);
         sb.AppendLine();
         sb.AppendLine("---");
@@ -534,39 +557,43 @@ public static class AiSdlcWorkflowOrchestrator
         return sb.ToString();
     }
 
-    private static string BuildSectionComment(string heading, AgentResult result)
+    private static string BuildSectionComment(string heading, AgentResult result, string sentinel = "{C_BODY}")
     {
         var sb = new StringBuilder();
         sb.AppendLine($"## {heading}");
         sb.AppendLine();
-        sb.AppendLine(GetContent(result));
+        sb.AppendLine(ContentOrSentinel(result, sentinel));
         AppendLists(sb, result);
         return sb.ToString();
     }
 
     private static string BuildSpecialistReviewsComment(
         AgentResult security, AgentResult ux, AgentResult devops,
-        AgentResult content, AgentResult compliance, AgentResult analytics)
+        AgentResult content, AgentResult compliance, AgentResult analytics,
+        out Dictionary<string, string> contentRefs)
     {
+        contentRefs = new();
         var sb = new StringBuilder();
         sb.AppendLine("## AI SDLC — Specialist Reviews");
         sb.AppendLine();
-        AppendCollapsible(sb, "Security & Privacy Review",   security);
-        AppendCollapsible(sb, "UX & Accessibility Review",   ux);
-        AppendCollapsible(sb, "DevOps & Platform Review",    devops);
-        AppendCollapsible(sb, "Content & SEO Review",        content);
-        AppendCollapsible(sb, "Compliance & Legal Review",   compliance);
-        AppendCollapsible(sb, "Data & Analytics Review",     analytics);
+        AppendCollapsible(sb, "Security & Privacy Review", security,    "{C_SEC}",        contentRefs);
+        AppendCollapsible(sb, "UX & Accessibility Review", ux,          "{C_UX}",         contentRefs);
+        AppendCollapsible(sb, "DevOps & Platform Review",  devops,      "{C_DEVOPS}",     contentRefs);
+        AppendCollapsible(sb, "Content & SEO Review",       content,     "{C_CONTENT}",    contentRefs);
+        AppendCollapsible(sb, "Compliance & Legal Review",  compliance,  "{C_COMPLIANCE}", contentRefs);
+        AppendCollapsible(sb, "Data & Analytics Review",    analytics,   "{C_ANALYTICS}",  contentRefs);
         return sb.ToString();
     }
 
-    private static string BuildImplementationComment(AgentResult qa, AgentResult coder)
+    private static string BuildImplementationComment(AgentResult qa, AgentResult coder,
+        out Dictionary<string, string> contentRefs)
     {
+        contentRefs = new();
         var sb = new StringBuilder();
         sb.AppendLine("## AI SDLC — Implementation Guidance");
         sb.AppendLine();
-        AppendCollapsible(sb, "Test Plan",                   qa);
-        AppendCollapsible(sb, "Implementation Specification", coder);
+        AppendCollapsible(sb, "Test Plan",                    qa,    "{C_QA}",    contentRefs);
+        AppendCollapsible(sb, "Implementation Specification", coder, "{C_CODER}", contentRefs);
         return sb.ToString();
     }
 
@@ -627,18 +654,47 @@ public static class AiSdlcWorkflowOrchestrator
         sb.AppendLine();
         sb.AppendLine("### Release Documentation");
         sb.AppendLine();
-        sb.AppendLine(GetContent(release));
+        sb.AppendLine(ContentOrSentinel(release, "{C_RELEASE}"));
         return sb.ToString();
     }
 
-    private static string GetContent(AgentResult result) =>
-        !string.IsNullOrWhiteSpace(result.OutputMarkdown) ? result.OutputMarkdown : result.Summary;
-
-    private static void AppendCollapsible(StringBuilder sb, string title, AgentResult result)
+    private static PostCommentInput MakeSectionComment(string repo, int issue, string heading, AgentResult result)
     {
+        const string Sentinel = "{C_BODY}";
+        var refs = result.ContextRef is not null
+            ? new Dictionary<string, string> { [Sentinel] = result.ContextRef }
+            : null;
+        return new PostCommentInput(repo, issue, BuildSectionComment(heading, result, Sentinel), refs);
+    }
+
+    private static PostCommentInput MakeBriefComment(string repo, int issue, AgentResult result, int attempt)
+    {
+        const string Sentinel = "{C_BRIEF}";
+        var refs = result.ContextRef is not null
+            ? new Dictionary<string, string> { [Sentinel] = result.ContextRef }
+            : null;
+        return new PostCommentInput(repo, issue, BuildBriefComment(result, attempt), refs);
+    }
+
+    private static PostCommentInput MakeDevReadyComment(string repo, int issue, AgentResult release, string riskDecision)
+    {
+        const string Sentinel = "{C_RELEASE}";
+        var refs = release.ContextRef is not null
+            ? new Dictionary<string, string> { [Sentinel] = release.ContextRef }
+            : null;
+        return new PostCommentInput(repo, issue, BuildDevReadyComment(release, riskDecision), refs);
+    }
+
+    private static string ContentOrSentinel(AgentResult result, string sentinel) =>
+        result.OutputMarkdown ?? (result.ContextRef is not null ? sentinel : result.Summary);
+
+    private static void AppendCollapsible(StringBuilder sb, string title, AgentResult result,
+        string sentinel, Dictionary<string, string> contentRefs)
+    {
+        if (result.ContextRef is not null) contentRefs[sentinel] = result.ContextRef;
         sb.AppendLine($"<details><summary><strong>{title}</strong></summary>");
         sb.AppendLine();
-        sb.AppendLine(GetContent(result));
+        sb.AppendLine(ContentOrSentinel(result, sentinel));
         sb.AppendLine();
         sb.AppendLine("</details>");
         sb.AppendLine();

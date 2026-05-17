@@ -31,6 +31,11 @@ public sealed class CodeImplementerAgent : IAgent
 
     public string Name => AgentNames.CodeImplementer;
 
+    private const string RetryPrompt =
+        "Your previous response contained no `<file path=\"...\">` blocks. " +
+        "You MUST wrap every file in `<file path=\"...\">` tags. " +
+        "Output ONLY file blocks — nothing else.";
+
     public async Task<AgentResult> ExecuteAsync(AgentExecutionRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -38,7 +43,7 @@ public sealed class CodeImplementerAgent : IAgent
         var contextDocs = BuildContextDocs(request.Context);
         var userPrompt  = BuildUserPrompt(request.Context);
 
-        var response = await _model.CompleteAsync(new ModelRequest
+        var modelRequest = new ModelRequest
         {
             AgentName        = Name,
             TaskType         = "CodeImplementation",
@@ -46,7 +51,18 @@ public sealed class CodeImplementerAgent : IAgent
             UserPrompt       = userPrompt,
             ContextDocuments = contextDocs,
             MaxTokens        = 8000
-        }, cancellationToken);
+        };
+
+        var response = await _model.CompleteAsync(modelRequest, cancellationToken);
+
+        // Retry once if the model didn't produce any <file> blocks
+        if (!response.ResponseText.Contains("<file ", StringComparison.Ordinal))
+        {
+            response = await _model.CompleteAsync(modelRequest with
+            {
+                UserPrompt = $"{userPrompt}\n\n{RetryPrompt}"
+            }, cancellationToken);
+        }
 
         return new AgentResult
         {
