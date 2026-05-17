@@ -21,6 +21,8 @@ public sealed record DashboardEvent(
     string? ErrorType,
     string? StackTrace,
     string? IssueTitle,
+    string? IssueState,
+    string? IssueStateReason,
     string? CommentUrl)
 {
     public string Id => $"{RunId}|{TimestampUtc.UtcTicks:D20}|{ActorName}|{Action}";
@@ -53,7 +55,9 @@ public sealed record DashboardEvent(
             e.References.TryGetValue("stackTrace",    out stackTrace);
         }
 
-        e.References.TryGetValue("commentUrl", out var commentUrl);
+        e.References.TryGetValue("commentUrl",       out var commentUrl);
+        e.References.TryGetValue("issueState",       out var issueState);
+        e.References.TryGetValue("issueStateReason", out var issueStateReason);
 
         return new DashboardEvent(
             TimestampUtc:      e.TimestampUtc,
@@ -73,6 +77,8 @@ public sealed record DashboardEvent(
             ErrorType:         errorType,
             StackTrace:        stackTrace,
             IssueTitle:        ExtractIssueTitle(e),
+            IssueState:        issueState,
+            IssueStateReason:  issueStateReason,
             CommentUrl:        commentUrl);
     }
 

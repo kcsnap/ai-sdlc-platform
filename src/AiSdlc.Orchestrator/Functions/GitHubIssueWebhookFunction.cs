@@ -67,6 +67,12 @@ public sealed class GitHubWebhookFunction
         if (payload is null)
             return Accepted(request);
 
+        var issueRefs = new Dictionary<string, string> { ["issueTitle"] = payload.Issue.Title };
+        if (!string.IsNullOrWhiteSpace(payload.Issue.State))
+            issueRefs["issueState"] = payload.Issue.State!;
+        if (!string.IsNullOrWhiteSpace(payload.Issue.StateReason))
+            issueRefs["issueStateReason"] = payload.Issue.StateReason!;
+
         await WriteWebhookAuditAsync(
             repository:  payload.Repository.FullName,
             issueNumber: payload.Issue.Number,
@@ -74,7 +80,7 @@ public sealed class GitHubWebhookFunction
             actionLabel: $"issues.{payload.Action}",
             summary:     $"Issue #{payload.Issue.Number} {payload.Action}: {payload.Issue.Title}",
             cancellationToken: cancellationToken,
-            references:  new Dictionary<string, string> { ["issueTitle"] = payload.Issue.Title });
+            references:  issueRefs);
 
         if (payload.Action != "opened")
             return Accepted(request);

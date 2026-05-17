@@ -16,6 +16,8 @@ public sealed record RunSummary(
     int IssueNumber,
     int? PullRequestNumber,
     string? IssueTitle,
+    string? IssueState,        // "open" or "closed" from GitHub, when available
+    string? IssueStateReason,  // "completed" | "not_planned" | "duplicate" | "reopened" | null
     DateTimeOffset FirstActivityUtc,
     DateTimeOffset LatestActivityUtc,
     int EventCount,
@@ -31,4 +33,41 @@ public sealed record RunSummary(
     public string? PullRequestUrl => PullRequestNumber is int pr
         ? $"https://github.com/{Repository}/pull/{pr}"
         : null;
+
+    // Display-friendly state label e.g. "Open", "Closed", "Closed as not planned".
+    // Returns null when we have no signal yet (don't assume "Open" since the issue could be closed).
+    public string? IssueStateLabel
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(IssueState)) return null;
+
+            var state = IssueState.Trim().ToLowerInvariant();
+            if (state != "closed")
+            {
+                return char.ToUpperInvariant(state[0]) + state[1..];
+            }
+
+            return IssueStateReason?.Trim().ToLowerInvariant() switch
+            {
+                "completed"   => "Closed as completed",
+                "not_planned" => "Closed as not planned",
+                "duplicate"   => "Closed as duplicate",
+                "reopened"    => "Reopened",
+                _             => "Closed"
+            };
+        }
+    }
+
+    // CSS modifier slug for the GitHub-state chip.
+    public string IssueStateSlug => IssueStateLabel switch
+    {
+        null                            => "none",
+        "Open"                          => "open",
+        "Reopened"                      => "open",
+        "Closed as not planned"         => "closed-not-planned",
+        "Closed as duplicate"           => "closed-not-planned",
+        _ when IssueStateLabel!.StartsWith("Closed", StringComparison.Ordinal) => "closed",
+        _                               => "none"
+    };
 }

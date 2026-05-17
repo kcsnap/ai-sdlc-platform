@@ -148,6 +148,60 @@ public sealed class RunSummariserTests
     }
 
     [Fact]
+    public void IssueState_PicksLatestWebhookEventSoCloseFollowsOpen()
+    {
+        var events = new[]
+        {
+            MakeWebhookWithState(7, action: "opened", title: "t", state: "open", reason: null, offset: 0),
+            MakeWebhookWithState(7, action: "closed", title: "t", state: "closed", reason: "not_planned", offset: 100)
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        Assert.Equal("closed",       summary.IssueState);
+        Assert.Equal("not_planned",  summary.IssueStateReason);
+        Assert.Equal("Closed as not planned", summary.IssueStateLabel);
+    }
+
+    [Fact]
+    public void IssueState_ReopenAfterCloseReflectsOpenAgain()
+    {
+        var events = new[]
+        {
+            MakeWebhookWithState(7, action: "opened",   title: "t", state: "open",   reason: null,        offset: 0),
+            MakeWebhookWithState(7, action: "closed",   title: "t", state: "closed", reason: "completed", offset: 100),
+            MakeWebhookWithState(7, action: "reopened", title: "t", state: "open",   reason: "reopened",  offset: 200)
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        // After reopen GitHub sets state back to "open" — chip shows "Open" again, not "Closed".
+        Assert.Equal("open", summary.IssueState);
+        Assert.Equal("Open", summary.IssueStateLabel);
+    }
+
+    [Fact]
+    public void IssueStateLabel_FormatsKnownReasons()
+    {
+        Assert.Equal("Closed as completed",
+            RunSummariser.Summarise(new[] { MakeWebhookWithState(1, "closed", "t", "closed", "completed") }).Single().IssueStateLabel);
+        Assert.Equal("Closed as duplicate",
+            RunSummariser.Summarise(new[] { MakeWebhookWithState(2, "closed", "t", "closed", "duplicate") }).Single().IssueStateLabel);
+        Assert.Equal("Closed",
+            RunSummariser.Summarise(new[] { MakeWebhookWithState(3, "closed", "t", "closed", null) }).Single().IssueStateLabel);
+        Assert.Equal("Open",
+            RunSummariser.Summarise(new[] { MakeWebhookWithState(4, "opened", "t", "open", null) }).Single().IssueStateLabel);
+    }
+
+    [Fact]
+    public void IssueState_NullWhenNoWebhookCarriedIt()
+    {
+        // Legacy data without state/state_reason in References.
+        var legacy = MakeWebhookOpenedLegacySummary(99, title: "legacy");
+        var summary = RunSummariser.Summarise(new[] { legacy }).Single();
+        Assert.Null(summary.IssueState);
+        Assert.Null(summary.IssueStateLabel);
+    }
+
+    [Fact]
     public void RetryCount_CountsFailedEventsLaterRecovered()
     {
         var events = new[]
@@ -219,6 +273,30 @@ public sealed class RunSummariserTests
             Action       = "issues.edited",
             Summary      = $"Issue #{issue} edited: {title}",
             References   = new Dictionary<string, string> { ["issueTitle"] = title }
+        });
+    }
+
+    private static DashboardEvent MakeWebhookWithState(int issue, string action, string title, string state, string? reason, int offset = 0)
+    {
+        var baseTs = new DateTimeOffset(2026, 5, 17, 14, 0, 0, TimeSpan.Zero);
+        var refs = new Dictionary<string, string>
+        {
+            ["issueTitle"] = title,
+            ["issueState"] = state
+        };
+        if (!string.IsNullOrWhiteSpace(reason)) refs["issueStateReason"] = reason!;
+
+        return DashboardEvent.FromAuditEvent(new AuditEvent
+        {
+            RunId        = $"org_repo_{issue}",
+            TimestampUtc = baseTs.AddSeconds(offset),
+            Repository   = "org/repo",
+            IssueNumber  = issue,
+            ActorType    = "Webhook",
+            ActorName    = "/github/webhook",
+            Action       = $"issues.{action}",
+            Summary      = $"Issue #{issue} {action}: {title}",
+            References   = refs
         });
     }
 

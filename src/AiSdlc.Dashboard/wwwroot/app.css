@@ -160,6 +160,44 @@ tr.row-error:hover { background: rgba(248, 81, 73, 0.10); }
 .chip.status-pending  { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
 .chip.status-unknown  { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
 
+.chip.gh-state { font-size: 11px; padding: 2px 10px; }
+.chip.gh-state-open               { background: rgba(46, 160, 67, 0.18); color: var(--risk-low); }
+.chip.gh-state-closed             { background: rgba(163, 113, 247, 0.18); color: #a371f7; }
+.chip.gh-state-closed-not-planned { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+.chip.gh-state-none               { display: none; }
+
+/* Application health chip */
+.chip.health-released { background: rgba(46, 160, 67, 0.18); color: var(--risk-low); }
+.chip.health-running  { background: rgba(88, 166, 255, 0.18); color: var(--accent); }
+.chip.health-failed   { background: rgba(248, 81, 73, 0.18); color: var(--risk-high); }
+.chip.health-pending  { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+
+/* Applications page */
+table.feed.applications tr.app-row { cursor: pointer; }
+table.feed.applications td.app-name strong { color: var(--text); font-size: 14px; }
+table.feed.applications td.app-name .gh-link-inline {
+    margin-left: 8px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 12px;
+}
+table.feed.applications td.app-name .gh-link-inline:hover { color: var(--accent); }
+table.feed.applications td.counts strong { color: var(--text); font-size: 14px; }
+table.feed.applications td.breakdown .chip { margin-right: 4px; }
+table.feed.applications td.latest .title-text { font-weight: 400; color: var(--text); }
+
+/* Issues page header: clear-filter link */
+.clear-filter {
+    margin-left: 12px;
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+.clear-filter:hover { color: var(--text); border-color: var(--accent); }
+
 /* Issues page */
 table.feed.issues tr.row { cursor: pointer; }
 table.feed.issues td.issue-num strong { color: var(--text); font-size: 14px; }
@@ -209,6 +247,95 @@ tr.row-running  { box-shadow: inset 3px 0 0 var(--accent); }
 .breadcrumbs a { color: var(--muted); text-decoration: none; }
 .breadcrumbs a:hover { color: var(--accent); }
 .run-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; font-size: 12px; }
+
+/* Workflow diagram (RunDetail page) */
+.workflow-diagram {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    padding: 14px;
+    margin-bottom: 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow-x: auto;
+}
+.wf-stage {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 140px;
+}
+.wf-stage-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    padding-left: 2px;
+}
+.wf-stage-nodes {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+}
+.wf-node {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+    background: var(--panel-2);
+}
+.wf-icon { font-size: 14px; line-height: 1; width: 14px; text-align: center; }
+.wf-name { color: var(--text); }
+.wf-attempts {
+    margin-left: auto;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 8px;
+    background: rgba(210, 153, 34, 0.18);
+    color: var(--risk-medium);
+}
+.wf-connector {
+    align-self: center;
+    color: var(--muted);
+    font-size: 20px;
+    padding: 0 2px;
+}
+
+.wf-notstarted {
+    border-style: dashed;
+    color: var(--muted);
+}
+.wf-notstarted .wf-name  { color: var(--muted); }
+.wf-notstarted .wf-icon  { color: var(--muted); }
+
+.wf-inprogress {
+    border-color: var(--accent);
+    background: rgba(88, 166, 255, 0.10);
+}
+.wf-inprogress .wf-icon { color: var(--accent); animation: wf-pulse 1.4s ease-in-out infinite; }
+
+.wf-complete {
+    border-color: var(--risk-low);
+    background: rgba(46, 160, 67, 0.10);
+}
+.wf-complete .wf-icon { color: var(--risk-low); }
+
+.wf-failed {
+    border-color: var(--risk-high);
+    background: rgba(248, 81, 73, 0.10);
+}
+.wf-failed .wf-icon { color: var(--risk-high); }
+
+@keyframes wf-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.5; transform: scale(0.85); }
+}
 
 .detail-row td { background: var(--panel-2); padding: 12px 20px; }
 .detail { display: flex; flex-direction: column; gap: 8px; }

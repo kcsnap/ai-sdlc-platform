@@ -30,11 +30,17 @@ public sealed record PullRequestWebhookPayload
 
 public sealed record WebhookIssue
 {
-    [JsonPropertyName("number")]   public int Number    { get; init; }
-    [JsonPropertyName("title")]    public string Title  { get; init; } = string.Empty;
-    [JsonPropertyName("body")]     public string? Body  { get; init; }
-    [JsonPropertyName("html_url")] public string Url    { get; init; } = string.Empty;
-    [JsonPropertyName("user")]     public WebhookUser User { get; init; } = new();
+    [JsonPropertyName("number")]       public int Number    { get; init; }
+    [JsonPropertyName("title")]        public string Title  { get; init; } = string.Empty;
+    [JsonPropertyName("body")]         public string? Body  { get; init; }
+    [JsonPropertyName("html_url")]     public string Url    { get; init; } = string.Empty;
+    [JsonPropertyName("user")]         public WebhookUser User { get; init; } = new();
+
+    // "open" or "closed"
+    [JsonPropertyName("state")]        public string? State { get; init; }
+
+    // GitHub close reason: "completed", "not_planned", "duplicate", "reopened", or null
+    [JsonPropertyName("state_reason")] public string? StateReason { get; init; }
 }
 
 public sealed record WebhookComment

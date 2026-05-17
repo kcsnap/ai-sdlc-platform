@@ -87,12 +87,20 @@ public static class RunSummariser
                 .Select(e => e.IssueTitle)
                 .FirstOrDefault();
 
+            // Issue state from GitHub — latest webhook wins so reopens/closes are reflected accurately.
+            var latestStateEvent = ordered
+                .Where(e => !string.IsNullOrWhiteSpace(e.IssueState))
+                .OrderByDescending(e => e.TimestampUtc)
+                .FirstOrDefault();
+
             summaries.Add(new RunSummary(
                 RunId:               group.Key,
                 Repository:          latest.Repository,
                 IssueNumber:         ordered[0].IssueNumber,
                 PullRequestNumber:   pr,
                 IssueTitle:          issueTitle,
+                IssueState:          latestStateEvent?.IssueState,
+                IssueStateReason:    latestStateEvent?.IssueStateReason,
                 FirstActivityUtc:    ordered[0].TimestampUtc,
                 LatestActivityUtc:   latest.TimestampUtc,
                 EventCount:          ordered.Length,

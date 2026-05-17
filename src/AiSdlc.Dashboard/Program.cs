@@ -37,6 +37,23 @@ builder.Services.AddSingleton<IBlobPromptStore>(sp =>
 builder.Services.AddSingleton<PromptArtefactLoader>();
 builder.Services.AddHostedService<AuditFeedService>();
 
+// GitHub API fallback for issue title/state when audit data lacks it (e.g. runs created before
+// the orchestrator started writing webhook audit events).
+builder.Services.AddHttpClient<IGitHubIssueLookup, GitHubIssueLookup>(client =>
+{
+    client.BaseAddress = new Uri("https://api.github.com/");
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("ai-sdlc-dashboard/1.0");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+    client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+
+    var pat = Environment.GetEnvironmentVariable("GitHubPat");
+    if (!string.IsNullOrWhiteSpace(pat))
+    {
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", pat);
+    }
+});
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())

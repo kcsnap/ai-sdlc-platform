@@ -1,0 +1,73 @@
+@using AiSdlc.Dashboard.Services
+
+<section class="workflow-diagram" aria-label="Workflow progress">
+    @for (var i = 0; i < Stages.Count; i++)
+    {
+        var stage = Stages[i];
+        <div class="wf-stage">
+            <div class="wf-stage-label">@stage.Label</div>
+            <div class="wf-stage-nodes">
+                @foreach (var node in stage.Nodes)
+                {
+                    <div class="wf-node wf-@StateSlug(node.State)" title="@TitleFor(node)">
+                        <span class="wf-icon">@IconFor(node.State)</span>
+                        <span class="wf-name">@node.AgentName</span>
+                        @if (node.Attempts > 1)
+                        {
+                            <span class="wf-attempts" title="@node.Attempts attempt(s)">×@node.Attempts</span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+        @if (i < Stages.Count - 1)
+        {
+            <div class="wf-connector" aria-hidden="true">→</div>
+        }
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<StageState> Stages { get; set; } = Array.Empty<StageState>();
+
+    private static string StateSlug(AgentVisualState s) => s switch
+    {
+        AgentVisualState.NotStarted => "notstarted",
+        AgentVisualState.InProgress => "inprogress",
+        AgentVisualState.Complete   => "complete",
+        AgentVisualState.Failed     => "failed",
+        _                           => "notstarted"
+    };
+
+    private static string IconFor(AgentVisualState s) => s switch
+    {
+        AgentVisualState.NotStarted => "○",
+        AgentVisualState.InProgress => "●",
+        AgentVisualState.Complete   => "✓",
+        AgentVisualState.Failed     => "⚠",
+        _                           => "○"
+    };
+
+    private static string TitleFor(StageNodeState node)
+    {
+        var state = node.State switch
+        {
+            AgentVisualState.NotStarted => "Not started",
+            AgentVisualState.InProgress => "In progress",
+            AgentVisualState.Complete   => "Complete",
+            AgentVisualState.Failed     => "Failed",
+            _                           => "Unknown"
+        };
+
+        var label = $"{node.AgentName} — {state}";
+        if (node.Attempts > 0)
+        {
+            label += $" · {node.Attempts} attempt{(node.Attempts == 1 ? "" : "s")}";
+        }
+        if (node.LastUpdatedUtc is { } ts)
+        {
+            label += $" · last update {ts.UtcDateTime:HH:mm:ss} UTC";
+        }
+        return label;
+    }
+}
