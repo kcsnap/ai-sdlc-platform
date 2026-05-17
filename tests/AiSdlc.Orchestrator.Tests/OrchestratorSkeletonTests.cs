@@ -45,6 +45,7 @@ public sealed class OrchestratorSkeletonTests
             new NoOpRepoIndexer(),
             new AutoMergeEligibilityService(),
             new NoOpContextStore(),
+            new InMemoryAuditService(),
             NullLogger<AgentActivityFunctions>.Instance);
     }
 
