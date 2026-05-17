@@ -306,11 +306,20 @@ public sealed class AgentActivityFunctions
         AgentResult result;
         try
         {
-            // Resolve blob references so the agent receives full content
+            // Resolve blob references so the agent receives full content.
+            // Metadata values are deserialized as JsonElement (not string) after Durable checkpointing,
+            // so we must extract the string value from both types.
             foreach (var key in context.Metadata.Keys.ToList())
             {
-                if (context.Metadata[key] is string v && _contextStore.IsReference(v))
-                    context.Metadata[key] = await _contextStore.ResolveAsync(v, cancellationToken);
+                var strValue = context.Metadata[key] switch
+                {
+                    string s => s,
+                    System.Text.Json.JsonElement je when je.ValueKind == System.Text.Json.JsonValueKind.String
+                        => je.GetString(),
+                    _ => null
+                };
+                if (strValue is not null && _contextStore.IsReference(strValue))
+                    context.Metadata[key] = await _contextStore.ResolveAsync(strValue, cancellationToken);
             }
 
             var executionResult = await _agentRunner.ExecuteAsync(
