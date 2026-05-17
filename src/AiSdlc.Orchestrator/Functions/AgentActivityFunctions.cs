@@ -113,7 +113,47 @@ public sealed class AgentActivityFunctions
                 markdown = markdown.Replace(sentinel, content, StringComparison.Ordinal);
         }
 
-        await _gitHub.AddIssueCommentAsync(input.Repository, input.IssueNumber, markdown, cancellationToken);
+        var posted = await _gitHub.AddIssueCommentAsync(input.Repository, input.IssueNumber, markdown, cancellationToken);
+
+        // Surface the comment URL in audit so the dashboard can link directly to it from the live feed.
+        var summary = ExtractCommentHeading(markdown) ?? $"Comment posted on issue #{input.IssueNumber}";
+        try
+        {
+            await _audit.WriteAsync(new AuditEvent
+            {
+                RunId       = BuildAuditRunId(input.Repository, input.IssueNumber),
+                Repository  = input.Repository,
+                IssueNumber = input.IssueNumber,
+                ActorType   = "Comment",
+                ActorName   = "GitHubComment",
+                Action      = "Posted",
+                Summary     = summary,
+                References  = new Dictionary<string, string>
+                {
+                    ["commentUrl"] = posted.Url,
+                    ["commentId"]  = posted.CommentId.ToString()
+                }
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write Comment audit event for {Repository}#{Issue}.", input.Repository, input.IssueNumber);
+        }
+    }
+
+    private static string BuildAuditRunId(string repository, int issueNumber) =>
+        $"{repository.Replace('/', '_')}_{issueNumber}";
+
+    // The orchestrator builds markdown like "## AI SDLC — Specialist Reviews\n…" — return that
+    // heading so the audit row reads naturally in the live feed.
+    private static string? ExtractCommentHeading(string markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown)) return null;
+        var firstLine = markdown.AsSpan().Trim();
+        var newline = firstLine.IndexOf('\n');
+        if (newline >= 0) firstLine = firstLine[..newline];
+        var trimmed = firstLine.TrimStart('#').Trim();
+        return trimmed.Length == 0 ? null : trimmed.ToString();
     }
 
     [Function(nameof(ResolveContextAsync))]

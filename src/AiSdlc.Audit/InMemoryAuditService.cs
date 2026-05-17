@@ -23,6 +23,28 @@ public sealed class InMemoryAuditService : IAuditService
         }
     }
 
+    public Task<IReadOnlyList<AuditEvent>> GetSinceAsync(DateTimeOffset since, int maxResults, CancellationToken cancellationToken)
+    {
+        if (maxResults <= 0)
+        {
+            return Task.FromResult<IReadOnlyList<AuditEvent>>(Array.Empty<AuditEvent>());
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_syncRoot)
+        {
+            var matches = _eventsByRunId.Values
+                .SelectMany(list => list)
+                .Where(e => e.TimestampUtc > since)
+                .OrderBy(e => e.TimestampUtc)
+                .Take(maxResults)
+                .ToArray();
+
+            return Task.FromResult<IReadOnlyList<AuditEvent>>(matches);
+        }
+    }
+
     public Task<AuditWriteResult> WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(auditEvent);

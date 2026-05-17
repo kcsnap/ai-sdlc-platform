@@ -1,0 +1,126 @@
+@page "/runs/{RunIdParam}"
+@rendermode InteractiveServer
+@inject DashboardEventBus Bus
+@inject PromptArtefactLoader PromptLoader
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Run · @RunIdParam</PageTitle>
+
+@{
+    var runEvents = _events.Where(e => string.Equals(e.RunId, _decodedRunId, StringComparison.Ordinal)).ToArray();
+    var rows = FeedGrouper.Group(runEvents);
+    var summary = RunSummariser.Summarise(runEvents).FirstOrDefault();
+}
+
+<section class="controls">
+    <div class="breadcrumbs">
+        <a href="/issues">← Issues</a>
+    </div>
+    <h1>
+        @if (summary is not null)
+        {
+            <a class="issue-title-link" href="@summary.IssueUrl" target="_blank" rel="noopener" title="Open on GitHub">#@summary.IssueNumber</a>
+            @if (!string.IsNullOrWhiteSpace(summary.IssueTitle))
+            {
+                <span class="title-text"> @summary.IssueTitle</span>
+            }
+            <span class="muted"> · @summary.Repository</span>
+        }
+        else
+        {
+            <span class="muted">@_decodedRunId</span>
+        }
+    </h1>
+    @if (summary is not null)
+    {
+        <div class="run-meta">
+            <span class="chip status status-@summary.Status.ToString().ToLowerInvariant()">@summary.Status</span>
+            @if (summary.PullRequestNumber is int pr)
+            {
+                <span class="chip decision">PR #@pr</span>
+            }
+            <span class="muted">@summary.EventCount events · @summary.AgentCount agents · @rows.Count rows</span>
+            @if (summary.RetryCount > 0)
+            {
+                <span class="chip retry">@summary.RetryCount retr@(summary.RetryCount == 1 ? "y" : "ies")</span>
+            }
+            <span class="muted">First: @summary.FirstActivityUtc.UtcDateTime.ToString("MM-dd HH:mm:ss")</span>
+            <span class="muted">Latest: @summary.LatestActivityUtc.UtcDateTime.ToString("MM-dd HH:mm:ss")</span>
+        </div>
+    }
+</section>
+
+@if (rows.Count == 0)
+{
+    <p class="empty">No events found for this run yet. (RunId: <code>@_decodedRunId</code>)</p>
+}
+else
+{
+    <table class="feed">
+        <thead>
+            <tr>
+                <th>Time (UTC)</th>
+                <th>Repository</th>
+                <th>API</th>
+                <th>Agent</th>
+                <th>Action</th>
+                <th>Risk / Decision</th>
+                <th>Summary</th>
+                <th>GitHub</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in rows)
+            {
+                <EventRow Row="row"
+                          IsExpanded="_expandedId == row.Id"
+                          OnToggle="() => Toggle(row.Id)"
+                          PromptLoader="PromptLoader" />
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter] public string RunIdParam { get; set; } = string.Empty;
+
+    private string _decodedRunId = string.Empty;
+    private readonly List<DashboardEvent> _events = new();
+    private IDisposable? _subscription;
+    private string? _expandedId;
+
+    protected override void OnInitialized()
+    {
+        _decodedRunId = Uri.UnescapeDataString(RunIdParam);
+        _events.AddRange(Bus.Snapshot());
+        _subscription = Bus.Subscribe(OnBatch);
+    }
+
+    protected override void OnParametersSet() =>
+        _decodedRunId = Uri.UnescapeDataString(RunIdParam);
+
+    private Task OnBatch(IReadOnlyList<DashboardEvent> batch)
+    {
+        return InvokeAsync(() =>
+        {
+            foreach (var ev in batch)
+            {
+                _events.Insert(0, ev);
+            }
+
+            const int hardCap = 500;
+            if (_events.Count > hardCap)
+            {
+                _events.RemoveRange(hardCap, _events.Count - hardCap);
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private void Toggle(string id) => _expandedId = _expandedId == id ? null : id;
+
+    public void Dispose() => _subscription?.Dispose();
+}

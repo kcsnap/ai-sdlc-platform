@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AiSdlc.Agents;
+using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.GitHub.Webhooks;
 using AiSdlc.Shared;
@@ -21,10 +22,12 @@ public sealed class GitHubWebhookFunction
     };
 
     private readonly ILogger<GitHubWebhookFunction> _logger;
+    private readonly IAuditService _audit;
 
-    public GitHubWebhookFunction(ILogger<GitHubWebhookFunction> logger)
+    public GitHubWebhookFunction(ILogger<GitHubWebhookFunction> logger, IAuditService audit)
     {
         _logger = logger;
+        _audit = audit;
     }
 
     [Function(nameof(GitHubWebhookFunction))]
@@ -61,7 +64,19 @@ public sealed class GitHubWebhookFunction
         byte[] body, DurableTaskClient durableClient, CancellationToken cancellationToken, HttpRequestData request)
     {
         var payload = JsonSerializer.Deserialize<IssueWebhookPayload>(body, JsonOptions);
-        if (payload is null || payload.Action != "opened")
+        if (payload is null)
+            return Accepted(request);
+
+        await WriteWebhookAuditAsync(
+            repository:  payload.Repository.FullName,
+            issueNumber: payload.Issue.Number,
+            prNumber:    null,
+            actionLabel: $"issues.{payload.Action}",
+            summary:     $"Issue #{payload.Issue.Number} {payload.Action}: {payload.Issue.Title}",
+            cancellationToken: cancellationToken,
+            references:  new Dictionary<string, string> { ["issueTitle"] = payload.Issue.Title });
+
+        if (payload.Action != "opened")
             return Accepted(request);
 
         var repository  = payload.Repository.FullName;
@@ -105,7 +120,18 @@ public sealed class GitHubWebhookFunction
         byte[] body, DurableTaskClient durableClient, CancellationToken cancellationToken, HttpRequestData request)
     {
         var payload = JsonSerializer.Deserialize<IssueCommentWebhookPayload>(body, JsonOptions);
-        if (payload is null || payload.Action != "created")
+        if (payload is null)
+            return Accepted(request);
+
+        await WriteWebhookAuditAsync(
+            repository:  payload.Repository.FullName,
+            issueNumber: payload.Issue.Number,
+            prNumber:    null,
+            actionLabel: $"issue_comment.{payload.Action}",
+            summary:     $"Comment {payload.Action} on issue #{payload.Issue.Number} by {payload.Comment.User.Login}",
+            cancellationToken: cancellationToken);
+
+        if (payload.Action != "created")
             return Accepted(request);
 
         var command = WorkflowCommandParser.Parse(payload.Comment.Body);
@@ -144,6 +170,15 @@ public sealed class GitHubWebhookFunction
         var payload = JsonSerializer.Deserialize<PullRequestWebhookPayload>(body, JsonOptions);
         if (payload is null)
             return Accepted(request);
+
+        var prIssueGuess = ExtractIssueNumber(payload.PullRequest.Head.Ref, payload.PullRequest.Body) ?? 0;
+        await WriteWebhookAuditAsync(
+            repository:  payload.Repository.FullName,
+            issueNumber: prIssueGuess,
+            prNumber:    payload.PullRequest.Number,
+            actionLabel: $"pull_request.{payload.Action}",
+            summary:     $"PR #{payload.PullRequest.Number} {payload.Action} on branch {payload.PullRequest.Head.Ref}",
+            cancellationToken: cancellationToken);
 
         if (payload.Action is not ("opened" or "synchronize"))
             return Accepted(request);
@@ -194,6 +229,32 @@ public sealed class GitHubWebhookFunction
         }
 
         return null;
+    }
+
+    private async Task WriteWebhookAuditAsync(
+        string repository, int issueNumber, int? prNumber, string actionLabel, string summary, CancellationToken cancellationToken,
+        Dictionary<string, string>? references = null)
+    {
+        try
+        {
+            await _audit.WriteAsync(new AuditEvent
+            {
+                RunId             = BuildInstanceId(repository, issueNumber),
+                Repository        = repository,
+                IssueNumber       = issueNumber,
+                PullRequestNumber = prNumber,
+                ActorType         = "Webhook",
+                ActorName         = "/github/webhook",
+                Action            = actionLabel,
+                Summary           = summary,
+                References        = references ?? new Dictionary<string, string>()
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Audit writes must never break webhook processing.
+            _logger.LogWarning(ex, "Failed to write webhook audit event for {Action}.", actionLabel);
+        }
     }
 
     private bool ValidateSignature(HttpRequestData request, byte[] bodyBytes)

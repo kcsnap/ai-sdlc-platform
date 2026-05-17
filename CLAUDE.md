@@ -16,6 +16,11 @@ dotnet test tests/AiSdlc.Shared.Tests
 
 # Run the Functions host locally (requires local.settings.json)
 cd src/AiSdlc.Orchestrator && func start
+
+# Run the live-activity dashboard (Blazor Server, http://localhost:5080)
+# Reads from the same audit storage the orchestrator writes to.
+# Default config uses Azurite (UseDevelopmentStorage=true) — see appsettings.json.
+cd src/AiSdlc.Dashboard && dotnet run
 ```
 
 CI runs on .NET 8, Ubuntu, Release configuration. `TreatWarningsAsErrors` is enabled globally — the build will fail on any warning.
@@ -51,6 +56,7 @@ GitHub Issue Opened
 | `AiSdlc.Audit` | `IAuditService` backed by Azure Table Storage + Blob |
 | `AiSdlc.GitHub` | `IGitHubService` / `GitHubApiClient` |
 | `AiSdlc.RepoIndex` | `IRepoIndexer` / `GitHubRepoIndexer` reads `.ai-sdlc.yml` |
+| `AiSdlc.Dashboard` | Blazor Server view-only dashboard; tails `AuditEvents` table and streams to browser via the built-in Blazor circuit |
 
 Dependency flow: Orchestrator → everything. Agents → Shared + ModelProviders. All others → Shared only.
 

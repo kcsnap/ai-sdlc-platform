@@ -1,0 +1,170 @@
+@page "/issues"
+@rendermode InteractiveServer
+@inject DashboardEventBus Bus
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Issues</PageTitle>
+
+@{
+    var allRuns  = RunSummariser.Summarise(_events);
+    var filtered = string.IsNullOrWhiteSpace(_filterText)
+        ? allRuns
+        : allRuns.Where(r =>
+            r.Repository.Contains(_filterText.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            r.IssueNumber.ToString().Contains(_filterText.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            r.LatestActor.Contains(_filterText.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            r.LatestSummary.Contains(_filterText.Trim(), StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+    var totalPages = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)PageSize));
+    if (_page >= totalPages) _page = totalPages - 1;
+    if (_page < 0) _page = 0;
+    var pageItems = filtered.Skip(_page * PageSize).Take(PageSize).ToArray();
+}
+
+<section class="controls">
+    <h1>Issues</h1>
+    <div class="meta">
+        <span class="counter">@filtered.Count issue@(filtered.Count == 1 ? "" : "s")</span>
+        <input class="filter" type="text" placeholder="filter (repo, issue #, agent…)" @bind="_filterText" @bind:event="oninput" />
+    </div>
+</section>
+
+@if (filtered.Count == 0)
+{
+    <p class="empty">No issues yet. Open a GitHub issue against a wired repo to start a workflow run.</p>
+}
+else
+{
+    <table class="feed issues">
+        <thead>
+            <tr>
+                <th>Issue</th>
+                <th>Title</th>
+                <th>Repository</th>
+                <th>Status</th>
+                <th>Latest activity</th>
+                <th>Events</th>
+                <th>Last seen (UTC)</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var run in pageItems)
+            {
+                <tr class="row issue-row @StatusRowClass(run.Status)" @onclick="() => OpenRun(run.RunId)">
+                    <td class="issue-num">
+                        <strong>#@run.IssueNumber</strong>
+                        @if (run.PullRequestNumber is int pr)
+                        {
+                            <span class="issue">→ PR #@pr</span>
+                        }
+                    </td>
+                    <td class="title">
+                        @if (!string.IsNullOrWhiteSpace(run.IssueTitle))
+                        {
+                            <a class="issue-title-link"
+                               href="@run.IssueUrl"
+                               target="_blank"
+                               rel="noopener"
+                               title="Open issue #@run.IssueNumber on GitHub"
+                               @onclick:stopPropagation="true">@run.IssueTitle</a>
+                        }
+                        else
+                        {
+                            <a class="issue-title-link muted"
+                               href="@run.IssueUrl"
+                               target="_blank"
+                               rel="noopener"
+                               title="Open issue #@run.IssueNumber on GitHub"
+                               @onclick:stopPropagation="true">(no title — open on GitHub)</a>
+                        }
+                    </td>
+                    <td class="repo">@run.Repository</td>
+                    <td class="status">
+                        <span class="chip status status-@run.Status.ToString().ToLowerInvariant()">@run.Status</span>
+                        @if (run.RetryCount > 0)
+                        {
+                            <span class="chip retry" title="@run.RetryCount agent retr@(run.RetryCount == 1 ? "y" : "ies") on this run">retried @run.RetryCount×</span>
+                        }
+                        @if (run.FailedEventCount > 0 && run.Status != RunStatus.Failed)
+                        {
+                            <span class="chip warn" title="@run.FailedEventCount transient failure(s) recovered">@run.FailedEventCount transient</span>
+                        }
+                    </td>
+                    <td class="latest">
+                        <span class="latest-actor">@run.LatestActor</span>
+                        <span class="muted">· @run.LatestAction</span>
+                        <div class="muted summary">@run.LatestSummary</div>
+                    </td>
+                    <td class="counts">
+                        @run.EventCount<span class="muted"> events · @run.AgentCount agents</span>
+                    </td>
+                    <td class="ts">@run.LatestActivityUtc.UtcDateTime.ToString("MM-dd HH:mm:ss")</td>
+                    <td class="expander">›</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (totalPages > 1)
+    {
+        <nav class="pagination" aria-label="pagination">
+            <button class="page-btn" disabled="@(_page == 0)" @onclick="() => GoTo(0)">«</button>
+            <button class="page-btn" disabled="@(_page == 0)" @onclick="() => GoTo(_page - 1)">‹ Prev</button>
+            <span class="page-info">Page @(_page + 1) of @totalPages</span>
+            <button class="page-btn" disabled="@(_page >= totalPages - 1)" @onclick="() => GoTo(_page + 1)">Next ›</button>
+            <button class="page-btn" disabled="@(_page >= totalPages - 1)" @onclick="() => GoTo(totalPages - 1)">»</button>
+        </nav>
+    }
+}
+
+@code {
+    private const int PageSize = 10;
+
+    private readonly List<DashboardEvent> _events = new();
+    private IDisposable? _subscription;
+    private string _filterText = string.Empty;
+    private int _page;
+
+    protected override void OnInitialized()
+    {
+        _events.AddRange(Bus.Snapshot());
+        _subscription = Bus.Subscribe(OnBatch);
+    }
+
+    private Task OnBatch(IReadOnlyList<DashboardEvent> batch)
+    {
+        return InvokeAsync(() =>
+        {
+            foreach (var ev in batch)
+            {
+                _events.Insert(0, ev);
+            }
+
+            const int hardCap = 500;
+            if (_events.Count > hardCap)
+            {
+                _events.RemoveRange(hardCap, _events.Count - hardCap);
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private void OpenRun(string runId) =>
+        Nav.NavigateTo($"/runs/{Uri.EscapeDataString(runId)}");
+
+    private void GoTo(int page) => _page = page;
+
+    private static string StatusRowClass(RunStatus s) => s switch
+    {
+        RunStatus.Failed   => "row-error",
+        RunStatus.Released => "row-released",
+        RunStatus.Running  => "row-running",
+        _                  => string.Empty
+    };
+
+    public void Dispose() => _subscription?.Dispose();
+}

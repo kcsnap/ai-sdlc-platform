@@ -1,0 +1,241 @@
+using AiSdlc.Dashboard.Services;
+using AiSdlc.Shared;
+using Xunit;
+
+namespace AiSdlc.Dashboard.Tests;
+
+public sealed class RunSummariserTests
+{
+    [Fact]
+    public void Empty_ReturnsEmpty()
+    {
+        Assert.Empty(RunSummariser.Summarise(Array.Empty<DashboardEvent>()));
+    }
+
+    [Fact]
+    public void GroupsEventsByRunId_AndCountsCorrectly()
+    {
+        var events = new[]
+        {
+            MakeEvent("run-a", 1, 0, "Webhook", "/github/webhook", "issues.opened",  "issue opened"),
+            MakeAgent("run-a", 1, 1, "ProductStrategist", "Started",   "starting"),
+            MakeAgent("run-a", 1, 2, "ProductStrategist", "Completed", "done"),
+            MakeAgent("run-b", 2, 3, "BusinessAnalyst",   "Started",   "starting b")
+        };
+
+        var summaries = RunSummariser.Summarise(events);
+
+        Assert.Equal(2, summaries.Count);
+        // Sorted newest-first by latest activity timestamp
+        Assert.Equal("run-b", summaries[0].RunId);
+        Assert.Equal("run-a", summaries[1].RunId);
+
+        var runA = summaries.Single(s => s.RunId == "run-a");
+        Assert.Equal(3, runA.EventCount);
+        Assert.Equal(1, runA.AgentCount);
+    }
+
+    [Fact]
+    public void Status_Released_WhenReleaseManagerCompleted()
+    {
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ProductStrategist", "Completed", "ok"),
+            MakeAgent("r", 1, 1, "ReleaseManager",     "Completed", "PR opened")
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        Assert.Equal(RunStatus.Released, summary.Status);
+    }
+
+    [Fact]
+    public void Status_Released_TolerantOfFriendlyNames()
+    {
+        // The deployed orchestrator writes friendly names like "Release Manager" with spaces.
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "Release Manager", "Completed", "PR opened")
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        Assert.Equal(RunStatus.Released, summary.Status);
+    }
+
+    [Fact]
+    public void Status_Failed_WhenLatestOutcomeForAnAgentIsFailed()
+    {
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ProductStrategist", "Started",   "starting"),
+            MakeAgent("r", 1, 1, "ProductStrategist", "Failed",    "boom")
+        };
+
+        Assert.Equal(RunStatus.Failed, RunSummariser.Summarise(events).Single().Status);
+    }
+
+    [Fact]
+    public void Status_Running_WhenFailedAttemptLaterRecovered()
+    {
+        // Transient failures that recovered via retry should not mark the run as Failed.
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "BusinessAnalyst", "Started",   "s1"),
+            MakeAgent("r", 1, 1, "BusinessAnalyst", "Failed",    "transient 429"),
+            MakeAgent("r", 1, 2, "BusinessAnalyst", "Started",   "s2"),
+            MakeAgent("r", 1, 3, "BusinessAnalyst", "Completed", "ok on retry")
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        Assert.Equal(RunStatus.Running, summary.Status);
+        Assert.Equal(1, summary.RetryCount);
+        Assert.Equal(1, summary.FailedEventCount);
+    }
+
+    [Fact]
+    public void Status_Pending_WhenOnlyWebhookEvents()
+    {
+        var events = new[]
+        {
+            MakeEvent("r", 7, 0, "Webhook", "/github/webhook", "issues.opened", "hi")
+        };
+
+        Assert.Equal(RunStatus.Pending, RunSummariser.Summarise(events).Single().Status);
+    }
+
+    [Fact]
+    public void PullRequestNumber_IsCapturedFromLatestEventWithOne()
+    {
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ProductStrategist", "Started",   "s"),
+            MakeAgent("r", 1, 1, "ReleaseManager",    "Completed", "pr opened", pr: 42)
+        };
+
+        Assert.Equal(42, RunSummariser.Summarise(events).Single().PullRequestNumber);
+    }
+
+    [Fact]
+    public void IssueTitle_PreferredFromReferences_FallsBackToSummaryParsing()
+    {
+        // Modern path: webhook writes structured References["issueTitle"]
+        var modern = MakeWebhookOpenedWithReferences(28, title: "Add dark mode toggle");
+        Assert.Equal("Add dark mode toggle", RunSummariser.Summarise(new[] { modern }).Single().IssueTitle);
+
+        // Legacy path: no References, fall back to parsing the formatted Summary string
+        var legacy = MakeWebhookOpenedLegacySummary(99, title: "Refactor auth middleware");
+        Assert.Equal("Refactor auth middleware", RunSummariser.Summarise(new[] { legacy }).Single().IssueTitle);
+    }
+
+    [Fact]
+    public void IssueTitle_PicksFromEarliestWebhookEvent()
+    {
+        // A later 'edited' webhook with a different title shouldn't overwrite the originally-opened title.
+        var events = new[]
+        {
+            MakeWebhookOpenedWithReferences(7, title: "Original title", offset: 0),
+            MakeWebhookEditedWithReferences(7, title: "Edited later",   offset: 100),
+            MakeAgent("org_repo_7", 7, 50, "ProductStrategist", "Completed", "ok")
+        };
+
+        Assert.Equal("Original title", RunSummariser.Summarise(events).Single().IssueTitle);
+    }
+
+    [Fact]
+    public void IssueUrl_BuildsCorrectGitHubUrl()
+    {
+        var summary = RunSummariser.Summarise(new[] { MakeWebhookOpenedWithReferences(28, "x") }).Single();
+        Assert.Equal("https://github.com/org/repo/issues/28", summary.IssueUrl);
+    }
+
+    [Fact]
+    public void RetryCount_CountsFailedEventsLaterRecovered()
+    {
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ContentSeoReviewer", "Started",   "s1"),
+            MakeAgent("r", 1, 1, "ContentSeoReviewer", "Failed",    "a"),
+            MakeAgent("r", 1, 2, "ContentSeoReviewer", "Started",   "s2"),
+            MakeAgent("r", 1, 3, "ContentSeoReviewer", "Failed",    "b"),
+            MakeAgent("r", 1, 4, "ContentSeoReviewer", "Started",   "s3"),
+            MakeAgent("r", 1, 5, "ContentSeoReviewer", "Completed", "ok"),
+            // Different agent with one unrecovered failure
+            MakeAgent("r", 1, 6, "QaTestEngineer",     "Failed",    "blocked")
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        Assert.Equal(2, summary.RetryCount);                    // CSR's two recovered failures
+        Assert.Equal(3, summary.FailedEventCount);              // CSR x2 + QA x1
+        Assert.Equal(RunStatus.Failed, summary.Status);         // QA's failure is unresolved
+    }
+
+    private static DashboardEvent MakeAgent(string runId, int issue, int offset, string agent, string action, string summary, int? pr = null) =>
+        MakeEvent(runId, issue, offset, "Agent", agent, action, summary, pr);
+
+    private static DashboardEvent MakeEvent(string runId, int issue, int offset, string actorType, string actor, string action, string summary, int? pr = null)
+    {
+        var baseTs = new DateTimeOffset(2026, 5, 17, 14, 0, 0, TimeSpan.Zero);
+        return DashboardEvent.FromAuditEvent(new AuditEvent
+        {
+            RunId             = runId,
+            TimestampUtc      = baseTs.AddSeconds(offset),
+            Repository        = "org/repo",
+            IssueNumber       = issue,
+            PullRequestNumber = pr,
+            ActorType         = actorType,
+            ActorName         = actor,
+            Action            = action,
+            Summary           = summary
+        });
+    }
+
+    private static DashboardEvent MakeWebhookOpenedWithReferences(int issue, string title, int offset = 0)
+    {
+        var baseTs = new DateTimeOffset(2026, 5, 17, 14, 0, 0, TimeSpan.Zero);
+        return DashboardEvent.FromAuditEvent(new AuditEvent
+        {
+            RunId        = $"org_repo_{issue}",
+            TimestampUtc = baseTs.AddSeconds(offset),
+            Repository   = "org/repo",
+            IssueNumber  = issue,
+            ActorType    = "Webhook",
+            ActorName    = "/github/webhook",
+            Action       = "issues.opened",
+            Summary      = $"Issue #{issue} opened: {title}",
+            References   = new Dictionary<string, string> { ["issueTitle"] = title }
+        });
+    }
+
+    private static DashboardEvent MakeWebhookEditedWithReferences(int issue, string title, int offset = 0)
+    {
+        var baseTs = new DateTimeOffset(2026, 5, 17, 14, 0, 0, TimeSpan.Zero);
+        return DashboardEvent.FromAuditEvent(new AuditEvent
+        {
+            RunId        = $"org_repo_{issue}",
+            TimestampUtc = baseTs.AddSeconds(offset),
+            Repository   = "org/repo",
+            IssueNumber  = issue,
+            ActorType    = "Webhook",
+            ActorName    = "/github/webhook",
+            Action       = "issues.edited",
+            Summary      = $"Issue #{issue} edited: {title}",
+            References   = new Dictionary<string, string> { ["issueTitle"] = title }
+        });
+    }
+
+    private static DashboardEvent MakeWebhookOpenedLegacySummary(int issue, string title, int offset = 0)
+    {
+        var baseTs = new DateTimeOffset(2026, 5, 17, 14, 0, 0, TimeSpan.Zero);
+        return DashboardEvent.FromAuditEvent(new AuditEvent
+        {
+            RunId        = $"org_repo_{issue}",
+            TimestampUtc = baseTs.AddSeconds(offset),
+            Repository   = "org/repo",
+            IssueNumber  = issue,
+            ActorType    = "Webhook",
+            ActorName    = "/github/webhook",
+            Action       = "issues.opened",
+            Summary      = $"Issue #{issue} opened: {title}"
+            // No References on purpose — exercises the legacy parse fallback.
+        });
+    }
+}

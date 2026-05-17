@@ -52,6 +52,30 @@ public sealed class AzureTableAuditService : IAuditService
         return events.AsReadOnly();
     }
 
+    public async Task<IReadOnlyList<AuditEvent>> GetSinceAsync(DateTimeOffset since, int maxResults, CancellationToken cancellationToken)
+    {
+        if (maxResults <= 0)
+        {
+            return Array.Empty<AuditEvent>();
+        }
+
+        var sinceUtc = since.UtcDateTime;
+        var filter   = TableClient.CreateQueryFilter($"EventTimestampUtc gt {sinceUtc}");
+
+        var events = new List<AuditEvent>();
+        await foreach (var entity in _table.QueryAsync<TableEntity>(filter: filter, maxPerPage: maxResults, cancellationToken: cancellationToken))
+        {
+            events.Add(FromTableEntity(entity));
+            if (events.Count >= maxResults)
+            {
+                break;
+            }
+        }
+
+        events.Sort(static (a, b) => a.TimestampUtc.CompareTo(b.TimestampUtc));
+        return events;
+    }
+
     internal static TableEntity ToTableEntity(AuditEvent e)
     {
         // RowKey is chronologically sortable; GUID suffix guarantees uniqueness within same tick

@@ -1,0 +1,180 @@
+@using AiSdlc.Audit
+
+<tr class="row @RowClass" @onclick="OnToggle">
+    <td class="ts">@Display.TimestampUtc.UtcDateTime.ToString("HH:mm:ss.fff")</td>
+    <td class="repo">
+        @Display.Repository
+        <span class="issue">#@Display.IssueNumber@(Display.PullRequestNumber is int pr ? $" → PR #{pr}" : "")</span>
+    </td>
+    <td class="api"><code>@Display.Api</code></td>
+    <td class="agent">
+        @if (Display.IsError)
+        {
+            <span class="error-icon" title="Agent threw an error — click to expand">⚠️</span>
+        }
+        @Display.ActorName
+    </td>
+    <td class="action">
+        @Display.Action
+        @if (Row.HasPriorAttempts)
+        {
+            <span class="chip retry"
+                  title="@Row.PriorAttempts.Count prior failed attempt(s) — expand to see details">
+                retried @Row.PriorAttempts.Count×
+            </span>
+        }
+    </td>
+    <td class="risk">
+        @if (!string.IsNullOrWhiteSpace(Display.RiskLevel))
+        {
+            <span class="chip risk-@Display.RiskLevel.ToLowerInvariant()">@Display.RiskLevel</span>
+        }
+        @if (!string.IsNullOrWhiteSpace(Display.Decision))
+        {
+            <span class="chip decision">@Display.Decision</span>
+        }
+    </td>
+    <td class="summary">@Display.Summary</td>
+    <td class="gh-link" @onclick:stopPropagation="true">
+        <a href="@Display.PreferredGitHubUrl"
+           target="_blank"
+           rel="noopener"
+           title="@(Display.CommentUrl is not null ? "Open this comment on GitHub" : "Open the issue on GitHub")">
+            @(Display.CommentUrl is not null ? "💬" : "↗")
+        </a>
+    </td>
+    <td class="expander">@(IsExpanded ? "▾" : "▸")</td>
+</tr>
+
+@if (IsExpanded)
+{
+    <tr class="detail-row">
+        <td colspan="9">
+            <div class="detail">
+                <div class="detail-meta">
+                    <span><strong>Run:</strong> <code>@Display.RunId</code></span>
+                    <span><strong>Actor type:</strong> @Display.ActorType</span>
+                    @if (Row.HasPriorAttempts)
+                    {
+                        <span><strong>Total attempts:</strong> @Row.AttemptCount</span>
+                    }
+                </div>
+
+                @if (Row.HasPriorAttempts)
+                {
+                    <div class="prior-attempts">
+                        <strong>Prior failed attempts (@Row.PriorAttempts.Count)</strong>
+                        @for (var i = 0; i < Row.PriorAttempts.Count; i++)
+                        {
+                            var attempt = Row.PriorAttempts[i];
+                            var index = i + 1;
+                            <details class="prior-attempt">
+                                <summary>
+                                    <span class="error-icon">⚠️</span>
+                                    Attempt @index — @attempt.TimestampUtc.UtcDateTime.ToString("HH:mm:ss.fff") —
+                                    <code>@(attempt.ErrorType ?? "Exception")</code>: @attempt.Summary
+                                </summary>
+                                @if (!string.IsNullOrWhiteSpace(attempt.StackTrace))
+                                {
+                                    <pre class="artefact stack-trace">@attempt.StackTrace</pre>
+                                }
+                            </details>
+                        }
+                    </div>
+                }
+
+                @if (Display.IsError)
+                {
+                    <div class="error-details">
+                        <div class="error-headline">
+                            <span class="error-icon">⚠️</span>
+                            <strong>@(Display.ErrorType ?? "Exception"):</strong>
+                            <span>@Display.Summary</span>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(Display.StackTrace))
+                        {
+                            <details>
+                                <summary>Stack trace</summary>
+                                <pre class="artefact stack-trace">@Display.StackTrace</pre>
+                            </details>
+                        }
+                    </div>
+                }
+                else if (Display.HasPromptArtefact)
+                {
+                    @if (_loading)
+                    {
+                        <p class="muted">Loading prompt &amp; response…</p>
+                    }
+                    else if (_record is null)
+                    {
+                        <p class="muted">No prompt/response artefact found in blob storage.</p>
+                    }
+                    else
+                    {
+                        <details open>
+                            <summary>Prompt</summary>
+                            <pre class="artefact">@_record.Prompt</pre>
+                        </details>
+                        <details open>
+                            <summary>Response</summary>
+                            <pre class="artefact">@_record.Response</pre>
+                        </details>
+                    }
+                }
+                else if (!Row.HasPriorAttempts)
+                {
+                    <p class="muted">No prompt artefact for this actor type.</p>
+                }
+            </div>
+        </td>
+    </tr>
+}
+
+@code {
+    [Parameter, EditorRequired] public FeedRow Row { get; set; } = default!;
+    [Parameter] public bool IsExpanded { get; set; }
+    [Parameter, EditorRequired] public EventCallback OnToggle { get; set; }
+    [Parameter, EditorRequired] public PromptArtefactLoader PromptLoader { get; set; } = default!;
+
+    private DashboardEvent Display => Row.Display;
+
+    private bool _loading;
+    private PromptRecord? _record;
+    private string? _loadedFor;
+
+    private string RowClass
+    {
+        get
+        {
+            if (Display.IsError) return "row-error";
+            return Display.RiskLevel?.ToLowerInvariant() switch
+            {
+                "high"   => "row-high",
+                "medium" => "row-medium",
+                _        => string.Empty
+            };
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!IsExpanded || !Display.HasPromptArtefact)
+        {
+            return;
+        }
+
+        if (_loadedFor == Display.Id)
+        {
+            return;
+        }
+
+        _loading = true;
+        _record = null;
+        _loadedFor = Display.Id;
+        StateHasChanged();
+
+        _record = await PromptLoader.LoadAsync(Display.RunId, Display.ActorName, CancellationToken.None);
+        _loading = false;
+    }
+}

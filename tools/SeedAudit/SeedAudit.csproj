@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AiSdlc.Audit\AiSdlc.Audit.csproj" />
+    <ProjectReference Include="..\..\src\AiSdlc.Shared\AiSdlc.Shared.csproj" />
+  </ItemGroup>
+</Project>

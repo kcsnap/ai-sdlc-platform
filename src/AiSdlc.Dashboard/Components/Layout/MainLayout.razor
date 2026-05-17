@@ -1,0 +1,15 @@
+@inherits LayoutComponentBase
+
+<div class="page">
+    <header class="topbar">
+        <div class="brand">AI SDLC Activity</div>
+        <nav class="topnav">
+            <NavLink class="nav-link" href="/issues">Issues</NavLink>
+            <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">Live activity</NavLink>
+        </nav>
+        <div class="env">dev</div>
+    </header>
+    <main>
+        @Body
+    </main>
+</div>

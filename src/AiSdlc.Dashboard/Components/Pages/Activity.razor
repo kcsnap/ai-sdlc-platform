@@ -1,0 +1,121 @@
+@page "/"
+@rendermode InteractiveServer
+@inject DashboardEventBus Bus
+@inject PromptArtefactLoader PromptLoader
+@implements IDisposable
+
+<PageTitle>Activity</PageTitle>
+
+@{
+    var rows = FilteredRows();
+}
+
+<section class="controls">
+    <h1>Live activity</h1>
+    <div class="meta">
+        <span class="counter">@_events.Count events · @rows.Count rows</span>
+        <label class="pause">
+            <input type="checkbox" @bind="_paused" /> Pause
+        </label>
+        <input class="filter" type="text" placeholder="filter (repo, agent, action…)" @bind="_filterText" @bind:event="oninput" />
+    </div>
+</section>
+
+@if (rows.Count == 0)
+{
+    <p class="empty">No activity yet. Trigger a webhook against the orchestrator to see events appear.</p>
+}
+else
+{
+    <table class="feed">
+        <thead>
+            <tr>
+                <th>Time (UTC)</th>
+                <th>Repository</th>
+                <th>API</th>
+                <th>Agent</th>
+                <th>Action</th>
+                <th>Risk / Decision</th>
+                <th>Summary</th>
+                <th>GitHub</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in rows)
+            {
+                <EventRow Row="row"
+                          IsExpanded="_expandedId == row.Id"
+                          OnToggle="() => Toggle(row.Id)"
+                          PromptLoader="PromptLoader" />
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private readonly List<DashboardEvent> _events = new();
+    private IDisposable? _subscription;
+    private bool _paused;
+    private string _filterText = string.Empty;
+    private string? _expandedId;
+
+    protected override void OnInitialized()
+    {
+        // Seed with whatever the bus has already collected so the page is useful immediately on load.
+        var seed = Bus.Snapshot();
+        _events.AddRange(seed);
+        _events.Sort(static (a, b) => b.TimestampUtc.CompareTo(a.TimestampUtc));
+
+        _subscription = Bus.Subscribe(OnBatch);
+    }
+
+    private Task OnBatch(IReadOnlyList<DashboardEvent> batch)
+    {
+        if (_paused)
+        {
+            return Task.CompletedTask;
+        }
+
+        return InvokeAsync(() =>
+        {
+            foreach (var ev in batch)
+            {
+                _events.Insert(0, ev);
+            }
+
+            const int hardCap = 500;
+            if (_events.Count > hardCap)
+            {
+                _events.RemoveRange(hardCap, _events.Count - hardCap);
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private IReadOnlyList<FeedRow> FilteredRows()
+    {
+        var grouped = FeedGrouper.Group(_events);
+
+        if (string.IsNullOrWhiteSpace(_filterText))
+        {
+            return grouped;
+        }
+
+        var q = _filterText.Trim();
+        return grouped.Where(r =>
+            r.Display.Repository.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+            r.Display.ActorName.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+            r.Display.Action.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+            r.Display.Summary.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+            r.Display.RunId.Contains(q, StringComparison.OrdinalIgnoreCase)).ToArray();
+    }
+
+    private void Toggle(string id)
+    {
+        _expandedId = _expandedId == id ? null : id;
+    }
+
+    public void Dispose() => _subscription?.Dispose();
+}
