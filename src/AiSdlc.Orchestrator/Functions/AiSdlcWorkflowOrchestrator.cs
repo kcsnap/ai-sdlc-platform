@@ -666,17 +666,36 @@ public static class AiSdlcWorkflowOrchestrator
 
     private static string BuildHumanReviewRequiredComment(AgentResult riskResult)
     {
+        var level = riskResult.Summary?.Contains("Level: HIGH",   StringComparison.OrdinalIgnoreCase) == true ? "HIGH"
+                  : riskResult.Summary?.Contains("Level: MEDIUM", StringComparison.OrdinalIgnoreCase) == true ? "MEDIUM"
+                  : "MEDIUM/HIGH";
+
         var sb = new StringBuilder();
-        sb.AppendLine("## AI SDLC — Human Review Required");
+        sb.AppendLine("## AI SDLC — Your Decision Required");
         sb.AppendLine();
-        sb.AppendLine("> ⚠️ The Risk Assessor has determined this change requires human review before code implementation proceeds.");
+        sb.AppendLine($"> ⚠️ **Risk level: {level}** — the AI needs your sign-off before writing any code.");
         sb.AppendLine();
-        if (!string.IsNullOrWhiteSpace(riskResult.Summary))
+        sb.AppendLine("### What to review");
+        sb.AppendLine("Scroll up through the comments and check:");
+        sb.AppendLine("- **Risk Assessment** — why this was flagged and what concerns were raised");
+        sb.AppendLine("- **Specialist Reviews** — security, compliance, DevOps details");
+        sb.AppendLine("- **Implementation Guidance** — what the AI plans to build");
+        sb.AppendLine();
+
+        if (riskResult.BlockingIssues is { Count: > 0 })
         {
-            sb.AppendLine($"**Risk Assessment Summary:** {riskResult.Summary}");
+            sb.AppendLine("### Blocking issues");
+            foreach (var issue in riskResult.BlockingIssues)
+                sb.AppendLine($"- {issue}");
             sb.AppendLine();
         }
-        sb.AppendLine("Review the Risk Assessment comment above, then reply `/approve-release` to continue the pipeline.");
+
+        sb.AppendLine("### Next steps");
+        sb.AppendLine();
+        sb.AppendLine("**To proceed →** reply `/approve-release`");
+        sb.AppendLine("The AI will write the code and open a PR. You will get a second prompt (`/approve-merge`) before anything merges to main.");
+        sb.AppendLine();
+        sb.AppendLine("**To stop →** close this issue or do nothing — the pipeline expires after 14 days.");
         return sb.ToString();
     }
 
@@ -719,7 +738,12 @@ public static class AiSdlcWorkflowOrchestrator
         }
 
         sb.AppendLine();
-        sb.AppendLine($"Reply `/approve-merge` on this issue to merge PR #{prNumber}.");
+        sb.AppendLine("### Next steps");
+        sb.AppendLine();
+        sb.AppendLine($"**To merge →** reply `/approve-merge`");
+        sb.AppendLine($"PR #{prNumber} will be merged to main and the issue closed.");
+        sb.AppendLine();
+        sb.AppendLine("**To stop →** close this issue or do nothing — the pipeline expires after 14 days.");
         return sb.ToString();
     }
 
