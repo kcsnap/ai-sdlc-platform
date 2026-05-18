@@ -209,7 +209,52 @@ Tasks:
 - [ ] Add agent execution metrics
 - [ ] Add risk assessment metrics
 - [ ] Add deployment outcome metrics
-- [ ] Add dashboards later
+- [x] Add dashboards (Blazor Server `AiSdlc.Dashboard` — see section 3.4)
+
+## 3.4 Live activity dashboard (`AiSdlc.Dashboard`)
+
+Goal: view-only Blazor Server app that tails the `AuditEvents` Azure Table and renders applications,
+issues, run detail (with workflow diagram) and a live activity feed. Reads from the same storage
+the orchestrator writes to via `DefaultAzureCredential`.
+
+### Shipped
+
+- [x] `AiSdlc.Dashboard` project scaffolded; added to `AiSdlc.sln` and CI
+- [x] `AuditFeedService` background poller — tails `AuditEvents`, 24h backfill, 2s tick
+- [x] `DashboardEventBus` — in-memory ring buffer + pub/sub fan-out to pages
+- [x] `IAuditService.GetSinceAsync(since, max, ct)` added to both implementations
+- [x] `/applications` (default landing page) — one row per repository, health chip, status breakdown, latest run, GitHub link; ready for additional repos
+- [x] `/issues` (or `/issues?repo=...`) — paginated 10/page, status + retry + GitHub-state chips, clickable issue title (linked to GitHub), clear-filter when scoped, free-text filter
+- [x] `/runs/{runId}` — left-to-right workflow diagram above table; 11 stages, parallel agents stacked top-to-bottom; 4-state visualisation (Not started / In progress / Complete / Failed) + Skipped (dashed amber + ⊘ for agents that would have run if workflow hadn't stopped upstream); chronological table ordering; clickable issue header
+- [x] `/activity` — newest-first live event feed; clickable rows expand to show prompt/response from blob; ⚠ icon + red bar + collapsible stack trace on failed agent rows; retry attempts folded into the drill-down via `FeedGrouper`
+- [x] Top-nav: `Applications | Issues | Live activity`
+- [x] GitHub linking: per-row `↗` to issue (or PR), `💬` linking directly to the orchestrator-posted comment when audit has its URL
+- [x] Issue title + state sourced from webhook audit `References`; GitHub REST API fallback (`GitHubIssueLookup`) for runs whose audit data predates the webhook instrumentation
+- [x] `RunStatus.Stopped` derived from new `Workflow`-actor audit events written by orchestrator's `RecordWorkflowExitAsync` activity (8 early-exit points instrumented)
+- [x] 53 dashboard unit tests covering grouping, projection, error detection, retry counts, run summarisation, status precedence (incl. Stopped), workflow-state derivation (incl. Skipped), application aggregation, issue-title extraction, GitHub-state formatting
+- [x] `tools/SeedAudit` console helper for seeding Azurite with sample audit data for local demos
+
+### Local run
+
+Requires `GitHubPat` env var (for the GitHub API fallback) and Azure CLI login (for `DefaultAzureCredential` to read the audit storage account). Defaults in `appsettings.Development.json` point at `staisdlcdev81c0`.
+
+```powershell
+$env:GitHubPat = (Get-Content src/AiSdlc.Orchestrator/local.settings.json | ConvertFrom-Json).Values.GitHubPat
+cd src/AiSdlc.Dashboard; dotnet run
+# → http://localhost:5080
+```
+
+### Next steps
+
+- [ ] **Deploy dashboard to Azure** (App Service or Container App) with managed-identity access to the audit storage account — Terraform module + CI deploy step
+- [ ] **Authentication** — Easy Auth (Azure AD) so it can be exposed beyond `localhost`; until then it stays a local-only tool
+- [ ] **Stopped health bucket on the Applications page** — currently a repo with only Stopped runs shows as "Idle" (misleading); add a "Halted" health label that wins over Running for the latest-status precedence
+- [ ] **Date-range filter** on `/issues` (e.g. last 24h / 7d / 30d / all)
+- [ ] **Push updates via SSE or SignalR** instead of 2s polling — would tighten the lag from ~2s to <100ms and reduce table-storage requests
+- [ ] **Skipped reason in tooltip** — currently says "Skipped (workflow stopped upstream)"; could include the specific stop reason (e.g. "Code implementer produced no file changes") by looking up the latest Workflow Stopped event's `Summary`
+- [ ] **Per-run "RunStarted" lifecycle event** so the Activity page can show a dedicated "Run started" row instead of inferring from the first agent's Started event
+- [ ] **Search by issue title across all runs** (currently filter only matches the visible page's events)
+- [ ] **Cost/token visualisation** once the orchestrator writes token-usage to audit (see section 6.2 model-provider observability)
 
 ## Codex CLI prompt
 

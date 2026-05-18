@@ -212,13 +212,24 @@ public static class AiSdlcWorkflowOrchestrator
 
             using var cts = new CancellationTokenSource();
             var approveTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveRelease, cts.Token);
-            var timeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(HumanReviewTimeout),  cts.Token);
-            var winner      = await Task.WhenAny(approveTask, timeoutTask);
+            var changesTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.RequestChanges,  cts.Token);
+            var timeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(HumanReviewTimeout),   cts.Token);
+            var winner      = await Task.WhenAny(approveTask, changesTask, timeoutTask);
             cts.Cancel();
 
             if (winner == timeoutTask)
             {
                 await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Human review timed out for risk approval");
+                return Stopped(agentContext.RunId, issue, createdAt, context);
+            }
+            if (winner == changesTask)
+            {
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                    new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                        "## AI SDLC — Changes Requested\n\nPipeline paused. " +
+                        "Amend the issue description with your changes, then close and reopen to restart the analysis from the beginning."));
+                await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Changes requested by reviewer at risk gate");
                 return Stopped(agentContext.RunId, issue, createdAt, context);
             }
         }
@@ -694,6 +705,8 @@ public static class AiSdlcWorkflowOrchestrator
         sb.AppendLine();
         sb.AppendLine("**To proceed →** reply `/approve-release`");
         sb.AppendLine("The AI will write the code and open a PR. You will get a second prompt (`/approve-merge`) before anything merges to main.");
+        sb.AppendLine();
+        sb.AppendLine("**To request changes →** reply `/request-changes` — the pipeline will pause so you can update the issue description with your amendments, then close and reopen to restart the analysis.");
         sb.AppendLine();
         sb.AppendLine("**To stop →** close this issue or do nothing — the pipeline expires after 14 days.");
         return sb.ToString();

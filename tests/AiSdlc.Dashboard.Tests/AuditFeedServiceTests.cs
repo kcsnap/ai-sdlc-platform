@@ -110,6 +110,30 @@ public sealed class AuditFeedServiceTests
     }
 
     [Fact]
+    public void DashboardEvent_FromAuditEvent_ExposesReferencesDictionary()
+    {
+        var ev = DashboardEvent.FromAuditEvent(new AuditEvent
+        {
+            RunId       = "r",
+            Repository  = "o/r",
+            IssueNumber = 1,
+            ActorType   = "Comment",
+            ActorName   = "GitHubComment",
+            Action      = "Posted",
+            Summary     = "Comment posted",
+            References  = new Dictionary<string, string>
+            {
+                ["commentUrl"] = "https://github.com/o/r/issues/1#issuecomment-99",
+                ["commentId"]  = "99"
+            }
+        });
+
+        Assert.Equal(2, ev.References.Count);
+        Assert.Equal("99", ev.References["commentId"]);
+        Assert.Equal("https://github.com/o/r/issues/1#issuecomment-99", ev.CommentUrl);
+    }
+
+    [Fact]
     public void DashboardEvent_FromAuditEvent_StartedAgent_HasNoPromptArtefact()
     {
         var started = DashboardEvent.FromAuditEvent(new AuditEvent

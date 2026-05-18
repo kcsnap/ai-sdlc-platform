@@ -12,7 +12,7 @@
                     <div class="wf-node wf-@StateSlug(node.State)" title="@TitleFor(node)">
                         <span class="wf-icon">@IconFor(node.State)</span>
                         <span class="wf-name">@node.AgentName</span>
-                        @if (node.Attempts > 1)
+                        @if (node.Attempts >= 1)
                         {
                             <span class="wf-attempts" title="@node.Attempts attempt(s)">×@node.Attempts</span>
                         }

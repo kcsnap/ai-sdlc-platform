@@ -23,6 +23,7 @@ public sealed class AgentActivityFunctions
     private readonly IAutoMergeEligibilityService _autoMergeEligibility;
     private readonly IContextStore _contextStore;
     private readonly IAuditService _audit;
+    private readonly IBlobPromptStore _promptStore;
     private readonly ILogger<AgentActivityFunctions> _logger;
 
     public AgentActivityFunctions(
@@ -32,6 +33,7 @@ public sealed class AgentActivityFunctions
         IAutoMergeEligibilityService autoMergeEligibility,
         IContextStore contextStore,
         IAuditService audit,
+        IBlobPromptStore promptStore,
         ILogger<AgentActivityFunctions> logger)
     {
         _agentRunner          = agentRunner;
@@ -40,6 +42,7 @@ public sealed class AgentActivityFunctions
         _autoMergeEligibility = autoMergeEligibility;
         _contextStore         = contextStore;
         _audit                = audit;
+        _promptStore          = promptStore;
         _logger               = logger;
     }
 
@@ -397,6 +400,11 @@ public sealed class AgentActivityFunctions
 
             result = executionResult.Result;
 
+            // Persist what the agent saw (input) and what it produced (output) to the prompts blob
+            // so the dashboard's drill-down can render them. Done BEFORE the context-store offload
+            // below so we capture the raw OutputMarkdown — the offload nulls it.
+            await StoreAgentArtefactAsync(agentName, context, result, cancellationToken);
+
             // Offload outputs larger than 1 KB to blob; null OutputMarkdown so Durable history stays slim
             if (result.OutputMarkdown?.Length > 1024)
             {
@@ -480,6 +488,79 @@ public sealed class AgentActivityFunctions
 
     private static string Truncate(string value, int max) =>
         string.IsNullOrEmpty(value) || value.Length <= max ? value : value[..max];
+
+    // Writes the agent's input (serialised metadata) + raw output to blob storage so the dashboard
+    // can show them on the drill-down. Failures are logged but never fail the agent execution.
+    private async Task StoreAgentArtefactAsync(
+        string agentName, AgentContext context, AgentResult result, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var input  = await SerialiseAgentInputAsync(context, cancellationToken);
+            var output = result.OutputMarkdown ?? string.Empty;
+            await _promptStore.StoreAsync(context.RunId, agentName, input, output, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to store agent artefact for {Agent} on run {RunId}.",
+                agentName, context.RunId);
+        }
+    }
+
+    // Renders AgentContext.Metadata as readable markdown — a heading per key, fenced code block for
+    // multi-line values. Resolves context-store references (ctx:...) so the dashboard sees actual
+    // content, not opaque blob references.
+    private async Task<string> SerialiseAgentInputAsync(AgentContext context, CancellationToken cancellationToken)
+    {
+        var sb = new StringBuilder();
+        sb.Append("# Agent input — ").AppendLine(context.RequestedAgent);
+        sb.AppendLine();
+        sb.Append("- **Run:** ").AppendLine(context.RunId);
+        sb.Append("- **Repository:** ").AppendLine(context.Repository);
+        sb.Append("- **Issue:** #").Append(context.IssueNumber).AppendLine();
+        if (context.PullRequestNumber is int pr)
+        {
+            sb.Append("- **PR:** #").Append(pr).AppendLine();
+        }
+        sb.Append("- **State:** ").AppendLine(context.CurrentState);
+        sb.AppendLine();
+
+        if (context.Metadata.Count == 0)
+        {
+            sb.AppendLine("_No metadata supplied._");
+            return sb.ToString();
+        }
+
+        sb.AppendLine("## Metadata");
+        foreach (var (key, rawValue) in context.Metadata.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            var value = rawValue?.ToString();
+            if (string.IsNullOrWhiteSpace(value)) continue;
+
+            // Resolve context-store references so the dashboard sees the actual offloaded text.
+            if (_contextStore.IsReference(value))
+            {
+                try { value = await _contextStore.ResolveAsync(value, cancellationToken); }
+                catch (Exception ex) { _logger.LogDebug(ex, "Could not resolve context ref for {Key}", key); }
+            }
+
+            sb.AppendLine();
+            sb.Append("### ").AppendLine(key);
+            if (value!.Contains('\n'))
+            {
+                sb.AppendLine("```");
+                sb.AppendLine(value);
+                sb.AppendLine("```");
+            }
+            else
+            {
+                sb.AppendLine(value);
+            }
+        }
+
+        return sb.ToString();
+    }
 }
 
 public sealed record GetHeadShaInput(string Repository, string Branch);

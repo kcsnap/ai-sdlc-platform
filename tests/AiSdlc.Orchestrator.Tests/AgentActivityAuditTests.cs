@@ -112,6 +112,81 @@ public sealed class AgentActivityAuditTests
     }
 
     [Fact]
+    public async Task SuccessPath_StoresAgentInputAndOutputToBlobPromptStore()
+    {
+        const string expectedOutput = "## Strategy\n\nGo to market via Q3 launch.";
+        var audit  = new InMemoryAuditService();
+        var store  = new RecordingBlobPromptStore();
+        var runner = new SucceedingRunner(new AgentResult
+        {
+            AgentName      = "ProductStrategist",
+            Status         = "Completed",
+            Summary        = "Strategy aligned",
+            OutputMarkdown = expectedOutput
+        });
+        var functions = BuildFunctions(audit, runner, store);
+
+        var ctx = new AgentContext
+        {
+            RunId          = "run-audit-1",
+            Repository     = "org/repo",
+            IssueNumber    = 42,
+            CurrentState   = "Started",
+            RequestedAgent = AgentNames.ProductStrategist,
+            Metadata       =
+            {
+                ["issueTitle"] = "Add dark mode",
+                ["issueBody"]  = "We want a dark mode toggle on the settings page."
+            }
+        };
+
+        await functions.RunProductStrategistAsync(ctx, CancellationToken.None);
+
+        var stored = Assert.Single(store.Stored);
+        Assert.Equal("run-audit-1",       stored.RunId);
+        Assert.Equal(AgentNames.ProductStrategist, stored.AgentName);
+        Assert.Contains("Add dark mode",  stored.Prompt);     // metadata serialised into input
+        Assert.Contains("dark mode toggle", stored.Prompt);   // value text included
+        Assert.Equal(expectedOutput, stored.Response);
+    }
+
+    [Fact]
+    public async Task FailurePath_DoesNotStoreBlobArtefact()
+    {
+        var audit  = new InMemoryAuditService();
+        var store  = new RecordingBlobPromptStore();
+        var runner = new ThrowingRunner(new InvalidOperationException("agent crashed"));
+        var functions = BuildFunctions(audit, runner, store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            functions.RunProductStrategistAsync(MakeContext(), CancellationToken.None));
+
+        Assert.Empty(store.Stored);
+    }
+
+    [Fact]
+    public async Task SuccessPath_BlobStoreFailureIsSwallowed()
+    {
+        var audit  = new InMemoryAuditService();
+        var runner = new SucceedingRunner(new AgentResult
+        {
+            AgentName      = "ProductStrategist",
+            Status         = "Completed",
+            Summary        = "ok",
+            OutputMarkdown = "result"
+        });
+        var functions = BuildFunctions(audit, runner, new ThrowingBlobPromptStore());
+
+        // Should complete normally even though the prompt-store write throws.
+        var result = await functions.RunProductStrategistAsync(MakeContext(), CancellationToken.None);
+        Assert.Equal("ProductStrategist", result.AgentName);
+
+        // And the regular Completed audit event still gets written.
+        var events = await audit.GetByRunIdAsync("run-audit-1", CancellationToken.None);
+        Assert.Contains(events, e => e.Action == "Completed");
+    }
+
+    [Fact]
     public async Task SuccessPath_LongOutputMarkdown_StillWritesCompletedAudit()
     {
         var audit  = new InMemoryAuditService();
@@ -140,14 +215,41 @@ public sealed class AgentActivityAuditTests
         RequestedAgent = AgentNames.ProductStrategist
     };
 
-    private static AgentActivityFunctions BuildFunctions(IAuditService audit, IAgentRunner runner) => new(
+    private static AgentActivityFunctions BuildFunctions(
+        IAuditService audit,
+        IAgentRunner runner,
+        IBlobPromptStore? promptStore = null) => new(
         runner,
         new StubGitHubService(),
         new StubRepoIndexer(),
         new AutoMergeEligibilityService(),
         new PassthroughContextStore(),
         audit,
+        promptStore ?? new RecordingBlobPromptStore(),
         NullLogger<AgentActivityFunctions>.Instance);
+
+    private sealed class RecordingBlobPromptStore : IBlobPromptStore
+    {
+        public List<(string RunId, string AgentName, string Prompt, string Response)> Stored { get; } = new();
+
+        public Task StoreAsync(string runId, string agentName, string prompt, string response, CancellationToken ct)
+        {
+            Stored.Add((runId, agentName, prompt, response));
+            return Task.CompletedTask;
+        }
+
+        public Task<PromptRecord?> GetAsync(string runId, string agentName, CancellationToken ct) =>
+            Task.FromResult<PromptRecord?>(null);
+    }
+
+    private sealed class ThrowingBlobPromptStore : IBlobPromptStore
+    {
+        public Task StoreAsync(string runId, string agentName, string prompt, string response, CancellationToken ct) =>
+            throw new InvalidOperationException("blob storage unavailable");
+
+        public Task<PromptRecord?> GetAsync(string runId, string agentName, CancellationToken ct) =>
+            Task.FromResult<PromptRecord?>(null);
+    }
 
     private sealed class SucceedingRunner : IAgentRunner
     {

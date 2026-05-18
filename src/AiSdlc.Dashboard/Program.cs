@@ -62,7 +62,13 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseStaticFiles();
+// Tell browsers to always revalidate static assets so CSS / SVG edits show up immediately
+// without needing a hard refresh. ETag still gives us cheap 304s when nothing has changed.
+app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+        ctx.Context.Response.Headers["Cache-Control"] = "no-cache, must-revalidate"
+});
 app.UseAntiforgery();
 
 app.MapRazorComponents<App>()

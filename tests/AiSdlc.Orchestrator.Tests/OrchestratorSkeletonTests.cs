@@ -46,6 +46,7 @@ public sealed class OrchestratorSkeletonTests
             new AutoMergeEligibilityService(),
             new NoOpContextStore(),
             new InMemoryAuditService(),
+            new NoOpBlobPromptStore(),
             NullLogger<AgentActivityFunctions>.Instance);
     }
 
@@ -251,6 +252,14 @@ public sealed class OrchestratorSkeletonTests
         public Task<string> ResolveAsync(string reference, CancellationToken ct) =>
             Task.FromResult(reference);
         public bool IsReference(string? value) => false;
+    }
+
+    private sealed class NoOpBlobPromptStore : IBlobPromptStore
+    {
+        public Task StoreAsync(string runId, string agentName, string prompt, string response, CancellationToken ct) =>
+            Task.CompletedTask;
+        public Task<PromptRecord?> GetAsync(string runId, string agentName, CancellationToken ct) =>
+            Task.FromResult<PromptRecord?>(null);
     }
 
     private sealed class NoOpRepoIndexer : AiSdlc.RepoIndex.IRepoIndexer

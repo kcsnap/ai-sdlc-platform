@@ -23,7 +23,8 @@ public sealed record DashboardEvent(
     string? IssueTitle,
     string? IssueState,
     string? IssueStateReason,
-    string? CommentUrl)
+    string? CommentUrl,
+    IReadOnlyDictionary<string, string> References)
 {
     public string Id => $"{RunId}|{TimestampUtc.UtcTicks:D20}|{ActorName}|{Action}";
 
@@ -79,7 +80,8 @@ public sealed record DashboardEvent(
             IssueTitle:        ExtractIssueTitle(e),
             IssueState:        issueState,
             IssueStateReason:  issueStateReason,
-            CommentUrl:        commentUrl);
+            CommentUrl:        commentUrl,
+            References:        e.References);
     }
 
     private static string DeriveApi(AuditEvent e) => e.ActorType switch

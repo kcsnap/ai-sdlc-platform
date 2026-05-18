@@ -1,11 +1,7 @@
 @using AiSdlc.Audit
 
 <tr class="row @RowClass" @onclick="OnToggle">
-    <td class="ts">@Display.TimestampUtc.UtcDateTime.ToString("HH:mm:ss.fff")</td>
-    <td class="repo">
-        @Display.Repository
-        <span class="issue">#@Display.IssueNumber@(Display.PullRequestNumber is int pr ? $" → PR #{pr}" : "")</span>
-    </td>
+    <td class="ts">@FormatRelativeUtc(Display.TimestampUtc)</td>
     <td class="api"><code>@Display.Api</code></td>
     <td class="agent">
         @if (Display.IsError)
@@ -31,7 +27,7 @@
         }
         @if (!string.IsNullOrWhiteSpace(Display.Decision))
         {
-            <span class="chip decision">@Display.Decision</span>
+            <span class="chip decision decision-@DecisionSlug(Display.Decision)">@Display.Decision</span>
         }
     </td>
     <td class="summary">@Display.Summary</td>
@@ -49,7 +45,7 @@
 @if (IsExpanded)
 {
     <tr class="detail-row">
-        <td colspan="9">
+        <td colspan="8">
             <div class="detail">
                 <div class="detail-meta">
                     <span><strong>Run:</strong> <code>@Display.RunId</code></span>
@@ -71,7 +67,7 @@
                             <details class="prior-attempt">
                                 <summary>
                                     <span class="error-icon">⚠️</span>
-                                    Attempt @index — @attempt.TimestampUtc.UtcDateTime.ToString("HH:mm:ss.fff") —
+                                    Attempt @index — @FormatRelativeUtc(attempt.TimestampUtc) —
                                     <code>@(attempt.ErrorType ?? "Exception")</code>: @attempt.Summary
                                 </summary>
                                 @if (!string.IsNullOrWhiteSpace(attempt.StackTrace))
@@ -100,31 +96,88 @@
                         }
                     </div>
                 }
-                else if (Display.HasPromptArtefact)
+                else if (IsAgent && IsAgentCompleted)
                 {
                     @if (_loading)
                     {
-                        <p class="muted">Loading prompt &amp; response…</p>
+                        <p class="muted">Loading agent input &amp; output…</p>
                     }
                     else if (_record is null)
                     {
-                        <p class="muted">No prompt/response artefact found in blob storage.</p>
+                        <p class="muted">Agent artefact not stored for this run. (Older runs predate input/output capture.)</p>
                     }
                     else
                     {
                         <details open>
-                            <summary>Prompt</summary>
+                            <summary>Input — what the agent received</summary>
                             <pre class="artefact">@_record.Prompt</pre>
                         </details>
                         <details open>
-                            <summary>Response</summary>
+                            <summary>Output — what the agent produced</summary>
                             <pre class="artefact">@_record.Response</pre>
                         </details>
                     }
                 }
-                else if (!Row.HasPriorAttempts)
+                else if (IsAgent && IsAgentStarted)
                 {
-                    <p class="muted">No prompt artefact for this actor type.</p>
+                    <p class="muted">Agent is in progress — started @FormatRelativeUtc(Display.TimestampUtc). The input and output will appear here when it completes.</p>
+                }
+                else if (IsWebhook)
+                {
+                    <dl class="drill-meta">
+                        <dt>Event</dt>            <dd><code>@Display.Action</code></dd>
+                        @if (!string.IsNullOrWhiteSpace(Display.IssueTitle))
+                        {
+                            <dt>Issue title</dt>  <dd>@Display.IssueTitle</dd>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(Display.IssueState))
+                        {
+                            <dt>Issue state</dt>  <dd>@(Display.IssueStateReason is null ? Display.IssueState : $"{Display.IssueState} ({Display.IssueStateReason})")</dd>
+                        }
+                        <dt>Summary</dt>          <dd>@Display.Summary</dd>
+                    </dl>
+                    <a class="drill-link" href="@Display.IssueUrl" target="_blank" rel="noopener">View issue #@Display.IssueNumber on GitHub →</a>
+                }
+                else if (IsComment)
+                {
+                    <dl class="drill-meta">
+                        <dt>Summary</dt>          <dd>@Display.Summary</dd>
+                        @if (Display.CommentUrl is not null)
+                        {
+                            <dt>Comment URL</dt>  <dd><code class="wrap">@Display.CommentUrl</code></dd>
+                        }
+                    </dl>
+                    @if (Display.CommentUrl is not null)
+                    {
+                        <a class="drill-link" href="@Display.CommentUrl" target="_blank" rel="noopener">View comment on GitHub →</a>
+                    }
+                    else
+                    {
+                        <a class="drill-link" href="@Display.IssueUrl" target="_blank" rel="noopener">View issue on GitHub →</a>
+                    }
+                }
+                else if (IsWorkflow)
+                {
+                    <dl class="drill-meta">
+                        <dt>Outcome</dt>          <dd><strong>@Display.Action</strong>@(Display.Decision is not null && Display.Decision != Display.Action ? $" · {Display.Decision}" : "")</dd>
+                        <dt>Reason</dt>           <dd>@Display.Summary</dd>
+                        <dt>Run</dt>              <dd><code>@Display.RunId</code></dd>
+                    </dl>
+                    <a class="drill-link" href="@Display.IssueUrl" target="_blank" rel="noopener">View issue on GitHub →</a>
+                }
+                else
+                {
+                    <dl class="drill-meta">
+                        <dt>Summary</dt>          <dd>@Display.Summary</dd>
+                        @if (Display.References.Count > 0)
+                        {
+                            @foreach (var (key, value) in Display.References)
+                            {
+                                <dt>@key</dt>     <dd><code class="wrap">@value</code></dd>
+                            }
+                        }
+                    </dl>
+                    <a class="drill-link" href="@Display.IssueUrl" target="_blank" rel="noopener">View issue on GitHub →</a>
                 }
             </div>
         </td>
@@ -138,6 +191,34 @@
     [Parameter, EditorRequired] public PromptArtefactLoader PromptLoader { get; set; } = default!;
 
     private DashboardEvent Display => Row.Display;
+
+    // Per-actor-type render branches for the drill-down panel.
+    private bool IsAgent           => string.Equals(Display.ActorType, "Agent",    StringComparison.OrdinalIgnoreCase);
+    private bool IsWebhook         => string.Equals(Display.ActorType, "Webhook",  StringComparison.OrdinalIgnoreCase);
+    private bool IsComment         => string.Equals(Display.ActorType, "Comment",  StringComparison.OrdinalIgnoreCase);
+    private bool IsWorkflow        => string.Equals(Display.ActorType, "Workflow", StringComparison.OrdinalIgnoreCase);
+    private bool IsAgentCompleted  => string.Equals(Display.Action,    "Completed", StringComparison.OrdinalIgnoreCase);
+    private bool IsAgentStarted    => string.Equals(Display.Action,    "Started",   StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatRelativeUtc(DateTimeOffset ts) => RelativeTimeFormatter.Format(ts);
+
+    // Map free-form decision strings to a colour bucket — green (positive), red (blocking),
+    // amber (needs attention/human), blue (in-flight/progressing), or neutral grey.
+    private static string DecisionSlug(string decision)
+    {
+        var d = decision.Trim().ToLowerInvariant();
+        if (d.Contains("blocked") || d.Contains("rejected") || d.Contains("failed") || d == "high")
+            return "blocked";
+        if (d.Contains("eligible") || d.Contains("approved") || d.Contains("approve")
+            || d.Contains("ready") || d.Contains("completed") || d.Contains("released") || d == "low")
+            return "approved";
+        if (d.Contains("required") || d.Contains("changes") || d.Contains("clarification")
+            || d.Contains("stopped") || d.Contains("pending") || d.Contains("review") || d == "medium")
+            return "warning";
+        if (d.Contains("started") || d.Contains("progress") || d.Contains("proceed") || d.Contains("continue"))
+            return "info";
+        return "default";
+    }
 
     private bool _loading;
     private PromptRecord? _record;
