@@ -36,6 +36,7 @@
         AgentVisualState.InProgress => "inprogress",
         AgentVisualState.Complete   => "complete",
         AgentVisualState.Failed     => "failed",
+        AgentVisualState.Skipped    => "skipped",
         _                           => "notstarted"
     };
 
@@ -45,6 +46,7 @@
         AgentVisualState.InProgress => "●",
         AgentVisualState.Complete   => "✓",
         AgentVisualState.Failed     => "⚠",
+        AgentVisualState.Skipped    => "⊘",
         _                           => "○"
     };
 
@@ -56,6 +58,7 @@
             AgentVisualState.InProgress => "In progress",
             AgentVisualState.Complete   => "Complete",
             AgentVisualState.Failed     => "Failed",
+            AgentVisualState.Skipped    => "Skipped (workflow stopped upstream)",
             _                           => "Unknown"
         };
 

@@ -297,6 +297,7 @@ else
     private static string StatusRowClass(RunStatus s) => s switch
     {
         RunStatus.Failed   => "row-error",
+        RunStatus.Stopped  => "row-stopped",
         RunStatus.Released => "row-released",
         RunStatus.Running  => "row-running",
         _                  => string.Empty

@@ -1,6 +1,6 @@
 namespace AiSdlc.Dashboard.Services;
 
-public enum AgentVisualState { NotStarted, InProgress, Complete, Failed }
+public enum AgentVisualState { NotStarted, InProgress, Complete, Failed, Skipped }
 
 public sealed record StageNodeState(
     string AgentName,
@@ -43,6 +43,43 @@ public static class WorkflowStateBuilder
                     : BuildAgentNode(agentName, byAgent));
             }
             stages.Add(new StageState(stage.Label, nodes));
+        }
+
+        return ApplySkippedReclassification(stages, runStatus);
+    }
+
+    // When the run has stopped or failed, any NotStarted agent in a stage AFTER the last stage with
+    // any Complete/Failed activity is reclassified as Skipped — it would have run if the workflow
+    // hadn't exited early. Stages BEFORE the last work stay as-is (e.g. NotStarted agents in a
+    // partially-completed parallel stage remain NotStarted since they were genuinely not reached).
+    private static IReadOnlyList<StageState> ApplySkippedReclassification(List<StageState> stages, RunStatus runStatus)
+    {
+        if (runStatus is not (RunStatus.Stopped or RunStatus.Failed))
+        {
+            return stages;
+        }
+
+        // Find the last stage with real agent activity. Exclude the synthetic Merged terminal
+        // node (whose state is derived from RunStatus, not actual events) so a Failed run doesn't
+        // count the Merge stage itself as "the last work" and miss reclassifying agents in between.
+        var lastActiveStageIdx = -1;
+        for (var i = 0; i < stages.Count; i++)
+        {
+            var realNodes = stages[i].Nodes.Where(n => n.AgentName != WorkflowDefinition.MergedNodeName);
+            if (realNodes.Any(n => n.State is AgentVisualState.Complete or AgentVisualState.Failed or AgentVisualState.InProgress))
+            {
+                lastActiveStageIdx = i;
+            }
+        }
+
+        for (var i = lastActiveStageIdx + 1; i < stages.Count; i++)
+        {
+            var rewritten = stages[i].Nodes
+                .Select(n => n.State == AgentVisualState.NotStarted
+                    ? n with { State = AgentVisualState.Skipped }
+                    : n)
+                .ToArray();
+            stages[i] = stages[i] with { Nodes = rewritten };
         }
 
         return stages;

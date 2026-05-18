@@ -97,6 +97,60 @@ public sealed class WorkflowStateBuilderTests
     }
 
     [Fact]
+    public void Skipped_DownstreamAgentsAfterLastCompletedWhenRunStopped()
+    {
+        // Strategy completed, Brief completed, then workflow stopped (e.g. timeout).
+        // Everything downstream of Brief should be Skipped instead of NotStarted.
+        var events = new[]
+        {
+            MakeAgent(0, "Product Strategist", "Completed", "ok"),
+            MakeAgent(1, "Product Owner",      "Completed", "brief done")
+        };
+
+        var stages = WorkflowStateBuilder.Build(events, RunStatus.Stopped);
+
+        // Product Strategist + Product Owner stay Complete
+        Assert.Equal(AgentVisualState.Complete, NodeFor(stages, "Product Strategist").State);
+        Assert.Equal(AgentVisualState.Complete, NodeFor(stages, "Product Owner").State);
+
+        // Business Analyst (next stage) and everything beyond should be Skipped
+        Assert.Equal(AgentVisualState.Skipped, NodeFor(stages, "Business Analyst").State);
+        Assert.Equal(AgentVisualState.Skipped, NodeFor(stages, "Architect").State);
+        Assert.Equal(AgentVisualState.Skipped, NodeFor(stages, "Security & Privacy Reviewer").State);
+        Assert.Equal(AgentVisualState.Skipped, NodeFor(stages, "Release Manager").State);
+        // The synthetic Merged node also rolls to Skipped (it was NotStarted before reclassification)
+        Assert.Equal(AgentVisualState.Skipped, NodeFor(stages, WorkflowDefinition.MergedNodeName).State);
+    }
+
+    [Fact]
+    public void NotStarted_StaysNotStartedWhenRunIsStillRunning()
+    {
+        var events = new[]
+        {
+            MakeAgent(0, "Product Strategist", "Completed", "ok")
+        };
+
+        var stages = WorkflowStateBuilder.Build(events, RunStatus.Running);
+
+        Assert.Equal(AgentVisualState.NotStarted, NodeFor(stages, "Business Analyst").State);
+        Assert.Equal(AgentVisualState.NotStarted, NodeFor(stages, "Release Manager").State);
+    }
+
+    [Fact]
+    public void Skipped_AlsoAppliesWhenRunFailed()
+    {
+        var events = new[]
+        {
+            MakeAgent(0, "Product Strategist", "Completed", "ok")
+        };
+
+        var stages = WorkflowStateBuilder.Build(events, RunStatus.Failed);
+        Assert.Equal(AgentVisualState.Skipped, NodeFor(stages, "Release Manager").State);
+        // Merged node: status=Failed makes it Failed directly (not Skipped)
+        Assert.Equal(AgentVisualState.Failed, NodeFor(stages, WorkflowDefinition.MergedNodeName).State);
+    }
+
+    [Fact]
     public void NonAgentEvents_AreIgnoredForAgentStateDerivation()
     {
         // A Webhook event for "Product Strategist" name (unlikely but possible) must not be treated as an agent run.

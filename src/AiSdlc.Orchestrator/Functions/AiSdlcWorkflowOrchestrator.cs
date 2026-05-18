@@ -88,9 +88,17 @@ public static class AiSdlcWorkflowOrchestrator
                 var winner = await Task.WhenAny(approveTask, changesTask, timeoutTask);
                 cts.Cancel();
 
-                if (winner == approveTask)           { briefApproved = true; break; }
-                if (winner == timeoutTask)           return Stopped(agentContext.RunId, issue, createdAt, context);
-                if (attempt == MaxBriefAttempts - 1) return Stopped(agentContext.RunId, issue, createdAt, context);
+                if (winner == approveTask) { briefApproved = true; break; }
+                if (winner == timeoutTask)
+                {
+                    await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Brief approval timed out");
+                    return Stopped(agentContext.RunId, issue, createdAt, context);
+                }
+                if (attempt == MaxBriefAttempts - 1)
+                {
+                    await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Brief approval rejected after max attempts");
+                    return Stopped(agentContext.RunId, issue, createdAt, context);
+                }
             }
         }
 
@@ -186,7 +194,10 @@ public static class AiSdlcWorkflowOrchestrator
         var riskDecision = riskResult.Decision ?? "HUMAN_REVIEW_REQUIRED";
 
         if (riskDecision == "BLOCKED")
+        {
+            await RecordWorkflowExitAsync(context, agentContext, "Failed", "Risk assessment blocked the workflow");
             return Failed(agentContext.RunId, issue, createdAt, context, riskResult);
+        }
 
         if (riskDecision == "HUMAN_REVIEW_REQUIRED")
         {
@@ -206,7 +217,10 @@ public static class AiSdlcWorkflowOrchestrator
             cts.Cancel();
 
             if (winner == timeoutTask)
+            {
+                await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Human review timed out for risk approval");
                 return Stopped(agentContext.RunId, issue, createdAt, context);
+            }
         }
 
         // ── Step 9: Release Manager ────────────────────────────────────────────
@@ -253,6 +267,7 @@ public static class AiSdlcWorkflowOrchestrator
                     nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                     new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
                         "## AI SDLC — Implementation Failed\n\nThe code implementer did not produce any file changes. The pipeline cannot proceed automatically."));
+                await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Code implementer produced no file changes");
                 return Stopped(agentContext.RunId, issue, createdAt, context);
             }
 
@@ -347,6 +362,7 @@ public static class AiSdlcWorkflowOrchestrator
                             nameof(AgentActivityFunctions.AddGitHubLabelAsync),
                             new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
                                 "ai-sdlc:implementation-review-failed"));
+                        await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Implementation re-review still required changes");
                         return Stopped(agentContext.RunId, issue, createdAt, context);
                     }
                 }
@@ -381,7 +397,10 @@ public static class AiSdlcWorkflowOrchestrator
             prCts.Cancel();
 
             if (prWinner == prTimeoutTask)
+            {
+                await RecordWorkflowExitAsync(context, agentContext, "Stopped", "PR-ready timed out");
                 return Stopped(agentContext.RunId, issue, createdAt, context);
+            }
 
             var prPayload = await prReadyTask;
 
@@ -462,7 +481,10 @@ public static class AiSdlcWorkflowOrchestrator
             mergeCts.Cancel();
 
             if (mergeWinner == mergeTimeoutTask)
+            {
+                await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Merge approval timed out");
                 return Stopped(agentContext.RunId, issue, createdAt, context);
+            }
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.MergePullRequestActivityAsync),
@@ -503,6 +525,14 @@ public static class AiSdlcWorkflowOrchestrator
     private static GitHubIssueReference BuildIssueRef(AgentContext ctx) =>
         new(ctx.Repository, ctx.IssueNumber,
             $"https://github.com/{ctx.Repository}/issues/{ctx.IssueNumber}");
+
+    // Writes a single Workflow-actor audit event before the orchestrator returns Stopped/Failed.
+    // Outcome is "Stopped" or "Failed"; reason is a short human-readable string.
+    private static Task RecordWorkflowExitAsync(
+        TaskOrchestrationContext context, AgentContext agentContext, string outcome, string reason) =>
+        context.CallActivityAsync(
+            nameof(AgentActivityFunctions.RecordWorkflowExitAsync),
+            new WorkflowExitAuditInput(agentContext.Repository, agentContext.IssueNumber, outcome, reason));
 
     private static WorkflowRun Stopped(string runId, GitHubIssueReference issue, DateTimeOffset createdAt, TaskOrchestrationContext ctx) =>
         new()

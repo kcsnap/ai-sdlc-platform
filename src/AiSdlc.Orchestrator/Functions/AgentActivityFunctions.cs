@@ -160,6 +160,32 @@ public sealed class AgentActivityFunctions
     public Task<string> ResolveContextAsync([ActivityTrigger] string contextRef, CancellationToken cancellationToken)
         => _contextStore.ResolveAsync(contextRef, cancellationToken);
 
+    [Function(nameof(RecordWorkflowExitAsync))]
+    public async Task RecordWorkflowExitAsync(
+        [ActivityTrigger] WorkflowExitAuditInput input, CancellationToken cancellationToken)
+    {
+        // Writes a single Workflow-actor audit event when the orchestrator exits early as Stopped or Failed.
+        // The dashboard reads this to flip the run's status chip and mark downstream agents as Skipped.
+        try
+        {
+            await _audit.WriteAsync(new AuditEvent
+            {
+                RunId       = BuildAuditRunId(input.Repository, input.IssueNumber),
+                Repository  = input.Repository,
+                IssueNumber = input.IssueNumber,
+                ActorType   = "Workflow",
+                ActorName   = "Orchestrator",
+                Action      = input.Outcome,
+                Summary     = input.Reason,
+                Decision    = input.Outcome
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write workflow-exit audit event for {Repo}#{Issue}.", input.Repository, input.IssueNumber);
+        }
+    }
+
     [Function(nameof(FetchRepoIndexAsync))]
     public async Task<AiSdlc.RepoIndex.RepoIndex?> FetchRepoIndexAsync([ActivityTrigger] string repository, CancellationToken cancellationToken)
     {

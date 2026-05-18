@@ -92,6 +92,46 @@ public sealed class RunSummariserTests
     }
 
     [Fact]
+    public void Status_Stopped_WhenWorkflowStoppedEventExists()
+    {
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ProductStrategist", "Completed", "ok"),
+            MakeWorkflowExit("r", 1, 1, "Stopped", "Code implementer produced no file changes")
+        };
+
+        Assert.Equal(RunStatus.Stopped, RunSummariser.Summarise(events).Single().Status);
+    }
+
+    [Fact]
+    public void Status_Stopped_WinsOverRunningAgentActivity()
+    {
+        // Even when there are agent activity events, an orchestrator-side Stopped signal
+        // takes precedence — the workflow won't make further progress.
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ProductStrategist", "Started",   "starting"),
+            MakeAgent("r", 1, 1, "ProductStrategist", "Completed", "ok"),
+            MakeAgent("r", 1, 2, "BusinessAnalyst",   "Started",   "still going..."),
+            MakeWorkflowExit("r", 1, 3, "Stopped", "Brief approval timed out")
+        };
+
+        Assert.Equal(RunStatus.Stopped, RunSummariser.Summarise(events).Single().Status);
+    }
+
+    [Fact]
+    public void Status_Failed_FromOrchestratorEvent_TakesPrecedenceOverAgentFailures()
+    {
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ProductStrategist", "Completed", "ok"),
+            MakeWorkflowExit("r", 1, 1, "Failed", "Risk assessment blocked the workflow")
+        };
+
+        Assert.Equal(RunStatus.Failed, RunSummariser.Summarise(events).Single().Status);
+    }
+
+    [Fact]
     public void Status_Pending_WhenOnlyWebhookEvents()
     {
         var events = new[]
@@ -224,6 +264,9 @@ public sealed class RunSummariserTests
 
     private static DashboardEvent MakeAgent(string runId, int issue, int offset, string agent, string action, string summary, int? pr = null) =>
         MakeEvent(runId, issue, offset, "Agent", agent, action, summary, pr);
+
+    private static DashboardEvent MakeWorkflowExit(string runId, int issue, int offset, string outcome, string reason) =>
+        MakeEvent(runId, issue, offset, "Workflow", "Orchestrator", outcome, reason);
 
     private static DashboardEvent MakeEvent(string runId, int issue, int offset, string actorType, string actor, string action, string summary, int? pr = null)
     {

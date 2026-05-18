@@ -47,15 +47,25 @@ public static class RunSummariser
                 && e.ActorName.Replace(" ", "").Replace("/", "").Equals("ReleaseManager", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(e.Action, "Completed", StringComparison.OrdinalIgnoreCase));
 
+            // Explicit orchestrator-side workflow-exit signal: ActorType="Workflow", Action="Stopped"|"Failed".
+            // Takes precedence over per-agent state because the orchestrator knows the run won't continue.
+            var workflowExit = ordered
+                .Where(e => string.Equals(e.ActorType, "Workflow", StringComparison.OrdinalIgnoreCase)
+                         && (string.Equals(e.Action, "Stopped", StringComparison.OrdinalIgnoreCase)
+                          || string.Equals(e.Action, "Failed",  StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(e => e.TimestampUtc)
+                .FirstOrDefault();
+
             var hasAnyAgentActivity = ordered.Any(IsAgent);
 
-            var status = hasReleaseManagerCompleted
-                ? RunStatus.Released
-                : hasUnresolvedFailure
-                    ? RunStatus.Failed
-                    : hasAnyAgentActivity
-                        ? RunStatus.Running
-                        : RunStatus.Pending;
+            // Precedence: Released > orchestrator Failed > orchestrator Stopped > unresolved agent Failed > Running > Pending.
+            var status =
+                  hasReleaseManagerCompleted ? RunStatus.Released
+                : workflowExit is not null && string.Equals(workflowExit.Action, "Failed", StringComparison.OrdinalIgnoreCase)  ? RunStatus.Failed
+                : workflowExit is not null && string.Equals(workflowExit.Action, "Stopped", StringComparison.OrdinalIgnoreCase) ? RunStatus.Stopped
+                : hasUnresolvedFailure ? RunStatus.Failed
+                : hasAnyAgentActivity  ? RunStatus.Running
+                : RunStatus.Pending;
 
             var pr = ordered
                 .Where(e => e.PullRequestNumber.HasValue)

@@ -88,6 +88,30 @@ public sealed class AgentActivityAuditTests
     }
 
     [Fact]
+    public async Task RecordWorkflowExitAsync_WritesWorkflowActorAuditEvent()
+    {
+        var audit  = new InMemoryAuditService();
+        var runner = new SucceedingRunner(new AgentResult { AgentName = "noop", Status = "Completed", Summary = "noop" });
+        var functions = BuildFunctions(audit, runner);
+
+        var input = new AiSdlc.Orchestrator.WorkflowExitAuditInput(
+            Repository: "org/repo",
+            IssueNumber: 9,
+            Outcome:    "Stopped",
+            Reason:     "Code implementer produced no file changes");
+
+        await functions.RecordWorkflowExitAsync(input, CancellationToken.None);
+
+        var events = await audit.GetByRunIdAsync("org_repo_9", CancellationToken.None);
+        var ev = Assert.Single(events);
+        Assert.Equal("Workflow",     ev.ActorType);
+        Assert.Equal("Orchestrator", ev.ActorName);
+        Assert.Equal("Stopped",      ev.Action);
+        Assert.Equal("Code implementer produced no file changes", ev.Summary);
+        Assert.Equal("Stopped",      ev.Decision);
+    }
+
+    [Fact]
     public async Task SuccessPath_LongOutputMarkdown_StillWritesCompletedAudit()
     {
         var audit  = new InMemoryAuditService();
