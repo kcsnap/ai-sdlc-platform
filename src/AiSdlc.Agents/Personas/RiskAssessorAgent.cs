@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using AiSdlc.ModelProviders;
 using AiSdlc.Shared;
 
@@ -89,24 +90,42 @@ public sealed class RiskAssessorAgent : IAgent
 
     private static string ExtractRiskLevel(string text)
     {
-        if (text.Contains("HIGH",   StringComparison.OrdinalIgnoreCase)) return "HIGH";
-        if (text.Contains("MEDIUM", StringComparison.OrdinalIgnoreCase)) return "MEDIUM";
+        var section = ExtractSection(text, "Final Risk Level") ?? text;
+        if (section.Contains("HIGH",   StringComparison.OrdinalIgnoreCase)) return "HIGH";
+        if (section.Contains("MEDIUM", StringComparison.OrdinalIgnoreCase)) return "MEDIUM";
         return "LOW";
     }
 
     private static string ExtractDecision(string text)
     {
-        if (text.Contains("BLOCKED",                StringComparison.OrdinalIgnoreCase)) return "BLOCKED";
-        if (text.Contains("HUMAN_REVIEW_REQUIRED",  StringComparison.OrdinalIgnoreCase)) return "HUMAN_REVIEW_REQUIRED";
-        if (text.Contains("AUTO_MERGE_ELIGIBLE",    StringComparison.OrdinalIgnoreCase)) return "AUTO_MERGE_ELIGIBLE";
+        var section = ExtractSection(text, "Risk Decision") ?? string.Empty;
+        foreach (var line in section.Split('\n'))
+        {
+            var trimmed = line.Trim().TrimStart('-', '*', ' ').Trim();
+            if (StartsWithKeyword(trimmed, "BLOCKED"))              return "BLOCKED";
+            if (StartsWithKeyword(trimmed, "HUMAN_REVIEW_REQUIRED")) return "HUMAN_REVIEW_REQUIRED";
+            if (StartsWithKeyword(trimmed, "AUTO_MERGE_ELIGIBLE"))   return "AUTO_MERGE_ELIGIBLE";
+        }
         return "HUMAN_REVIEW_REQUIRED";
     }
 
+    private static bool StartsWithKeyword(string line, string keyword) =>
+        line.StartsWith(keyword, StringComparison.OrdinalIgnoreCase) &&
+        (line.Length == keyword.Length || !char.IsLetterOrDigit(line[keyword.Length]));
+
     private static List<string> ExtractBlockingIssues(string text)
     {
-        if (text.Contains("BLOCKED", StringComparison.OrdinalIgnoreCase))
+        if (ExtractDecision(text) == "BLOCKED")
             return ["Risk assessor raised a blocking issue — see risk assessment for details."];
         return [];
+    }
+
+    private static string? ExtractSection(string text, string heading)
+    {
+        var match = Regex.Match(text,
+            $@"##\s*{Regex.Escape(heading)}\s*\n(.*?)(?=\n##|\z)",
+            RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     private static Dictionary<string, string> BuildContextDocs(AgentContext ctx)
