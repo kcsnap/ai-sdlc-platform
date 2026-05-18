@@ -287,12 +287,26 @@ public static class AiSdlcWorkflowOrchestrator
                 nameof(AgentActivityFunctions.CreateBranchActivityAsync),
                 new CreateBranchInput(agentContext.Repository, branchName, headSha));
 
-            var commitMsg = $"feat: {issueTitle} (closes #{agentContext.IssueNumber}) [ai-sdlc]";
-            foreach (var file in fileChanges)
+            var commitMsg     = $"feat: {issueTitle} (closes #{agentContext.IssueNumber}) [ai-sdlc]";
+            string? lastPath  = null;
+            try
+            {
+                foreach (var file in fileChanges)
+                {
+                    lastPath = file.Path;
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.CommitFileAsync),
+                        new CommitFileInput(agentContext.Repository, file.Path, file.Content, commitMsg, branchName));
+                }
+            }
+            catch (TaskFailedException ex)
             {
                 await context.CallActivityAsync(
-                    nameof(AgentActivityFunctions.CommitFileAsync),
-                    new CommitFileInput(agentContext.Repository, file.Path, file.Content, commitMsg, branchName));
+                    nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                    new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                        BuildCommitFailedComment(lastPath ?? "unknown", branchName, ex.InnerException?.Message ?? ex.Message)));
+                await RecordWorkflowExitAsync(context, agentContext, "Stopped", $"CommitFileAsync failed on '{lastPath}': {ex.InnerException?.Message ?? ex.Message}");
+                return Stopped(agentContext.RunId, issue, createdAt, context);
             }
 
             // ── Step 11b: Product Owner reviews committed content ──────────────
@@ -629,6 +643,24 @@ public static class AiSdlcWorkflowOrchestrator
         sb.AppendLine();
         AppendCollapsible(sb, "Test Plan",                    qa,    "{C_QA}",    contentRefs);
         AppendCollapsible(sb, "Implementation Specification", coder, "{C_CODER}", contentRefs);
+        return sb.ToString();
+    }
+
+    private static string BuildCommitFailedComment(string path, string branchName, string errorDetail)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## AI SDLC — Commit Failed");
+        sb.AppendLine();
+        sb.AppendLine($"Unable to commit `{path}` to branch `{branchName}`.");
+        sb.AppendLine();
+        if (path.StartsWith(".github/workflows/", StringComparison.OrdinalIgnoreCase))
+        {
+            sb.AppendLine("> ⚠️ **Workflow file detected.** Writing to `.github/workflows/` requires the `workflow` scope on classic PATs, or the **Workflows** permission on fine-grained PATs.");
+            sb.AppendLine();
+        }
+        sb.AppendLine($"**Error:** `{errorDetail}`");
+        sb.AppendLine();
+        sb.AppendLine("Fix the token permissions in Key Vault, then close and reopen this issue to retry.");
         return sb.ToString();
     }
 

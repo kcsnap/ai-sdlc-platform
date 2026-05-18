@@ -188,7 +188,13 @@ public sealed class GitHubApiClient : IGitHubService
         };
 
         using var putResponse = await _http.PutAsJsonAsync($"/repos/{repository}/contents/{path}", body, JsonOptions, cancellationToken);
-        putResponse.EnsureSuccessStatusCode();
+        if (!putResponse.IsSuccessStatusCode)
+        {
+            var detail = await putResponse.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"GitHub returned {(int)putResponse.StatusCode} ({putResponse.ReasonPhrase}) committing '{path}'. Detail: {detail}",
+                inner: null, putResponse.StatusCode);
+        }
     }
 
     public Task<string?> GetFileContentAsync(string repository, string path, CancellationToken cancellationToken) =>
