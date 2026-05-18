@@ -82,7 +82,7 @@ public sealed class GitHubWebhookFunction
             cancellationToken: cancellationToken,
             references:  issueRefs);
 
-        if (payload.Action != "opened")
+        if (payload.Action is not ("opened" or "reopened"))
             return Accepted(request);
 
         var repository  = payload.Repository.FullName;
@@ -92,8 +92,13 @@ public sealed class GitHubWebhookFunction
         var existing = await durableClient.GetInstanceAsync(instanceId, cancellation: cancellationToken);
         if (existing is not null)
         {
-            _logger.LogInformation("Orchestration {InstanceId} already exists (status: {Status}). Ignoring duplicate.", instanceId, existing.RuntimeStatus);
-            return Accepted(request);
+            if (!existing.IsCompleted)
+            {
+                _logger.LogInformation("Orchestration {InstanceId} already active (status: {Status}). Ignoring.", instanceId, existing.RuntimeStatus);
+                return Accepted(request);
+            }
+            _logger.LogInformation("Orchestration {InstanceId} in terminal state {Status} — purging for restart.", instanceId, existing.RuntimeStatus);
+            await durableClient.PurgeInstanceAsync(instanceId, cancellation: cancellationToken);
         }
 
         var agentContext = new AgentContext
