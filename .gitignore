@@ -10,4 +10,13 @@ local.settings.json
 *.tfstate
 *.tfstate.*
 *.tfvars
+tfplan
 _bootstrap/
+
+# Azure Functions publish artifacts
+publish/
+publish.zip
+
+# Claude Code per-machine state
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
