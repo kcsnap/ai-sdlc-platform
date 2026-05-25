@@ -1,26 +1,12 @@
 # Branch policy
 
-Three layers of enforcement keep every branch tied to a GitHub issue and protect `main`.
+Two layers of enforcement keep `main` safe and every branch tied to an open issue.
 
-## Layer 1 — push-time naming gate (GitHub Ruleset)
+## Layer 1 — `main` is PR-only (GitHub Ruleset)
 
-`branch-naming.json` defines a repo-level ruleset that rejects pushes of any branch (except `main`) whose name does not match:
+`main-pr-required.json` locks `refs/heads/main`:
 
-```
-{ai|feat|fix|docs|chore}/{issue-number}-{kebab-slug}
-```
-
-Examples:
-
-- `ai/123-add-delivery-info`
-- `fix/42-webhook-retry`
-- `docs/9-update-runbook`
-
-## Layer 2 — `main` is PR-only (GitHub Ruleset)
-
-`main-pr-required.json` locks `refs/heads/main` so changes can only land via a merged PR:
-
-- Direct pushes are rejected — including by admins (`bypass_actors: []`).
+- Direct pushes are rejected, **including by admins** (`bypass_actors: []`).
 - Force-push to `main` is blocked (`non_fast_forward`).
 - Deletion of `main` is blocked (`deletion`).
 - PRs into `main` must pass two required checks before merge:
@@ -28,24 +14,23 @@ Examples:
   - `verify-issue-link` (from `.github/workflows/branch-policy.yml`)
 - No approving review is required — solo author can self-merge once checks pass.
 
+## Layer 2 — Branch name + issue-link gate (CI workflow)
+
+`.github/workflows/branch-policy.yml` runs on every PR into `main` and fails when:
+
+- the branch name doesn't match `{ai|feat|fix|docs|chore}/{issue#}-{slug}`, or
+- the referenced issue number doesn't exist, or
+- the referenced issue is not `OPEN`.
+
+Because this workflow is wired as a required status check in Layer 1, a misnamed branch — or one referencing a missing or closed issue — cannot merge into `main`.
+
+> **Why not a push-time ruleset?**
+> GitHub's `branch_name_pattern` rule would reject misnamed branches at `git push` time, but it is a **GitHub Enterprise–only** metadata rule and is not available on Free or Pro plans. On this repo, branch naming is therefore enforced at PR-time only. A developer can still *push* a misnamed branch — they just can't merge it.
+
 ## Applying the rulesets
 
 ```powershell
 pwsh .github/rulesets/apply.ps1
 ```
 
-The script reads every `*.json` file in this directory and is idempotent — for each, it updates the existing ruleset (matched by `name`) if present, creates it otherwise. To add a new ruleset, drop a JSON file here and re-run.
-
-## Layer 3 — PR-time issue-link gate (CI workflow)
-
-`.github/workflows/branch-policy.yml` runs on every PR into `main` and fails when:
-
-- the branch name doesn't match the pattern, or
-- the referenced issue number doesn't exist, or
-- the referenced issue is not `OPEN`.
-
-This catches "valid pattern but fake issue number" cases that the push-time ruleset cannot detect.
-
-## Future: Project status gate
-
-To additionally require the issue to be in the `In Progress` column of a GitHub Project (v2), extend the workflow with a GraphQL query against `projectV2Item -> fieldValueByName(name: "Status")`. Pinning the exact project node ID and status option ID is required; deferred until the Yorrixx project board is set up.
+The script reads every `*.json` file in this directory and is idempotent — for each ruleset, it updates the existing one (matched by `name`) if present, creates it otherwise. To add a new ruleset, drop a JSON file here and re-run.
