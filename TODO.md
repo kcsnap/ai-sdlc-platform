@@ -324,7 +324,7 @@ Tasks:
 - [ ] Add issue template to template repos
 - [ ] Add PR template to template repos
 - [ ] Add CODEOWNERS guidance
-- [ ] Add branch naming conventions
+- [x] Add branch naming conventions (`.github/rulesets/branch-naming.json` + `.github/workflows/branch-policy.yml`)
 - [ ] Add AI-generated PR conventions
 
 ## Codex CLI prompt
