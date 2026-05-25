@@ -10,7 +10,7 @@
                 @foreach (var node in stage.Nodes)
                 {
                     <div class="wf-node wf-@StateSlug(node.State)" title="@TitleFor(node)">
-                        <span class="wf-icon">@IconFor(node.State)</span>
+                        <span class="wf-icon"><AgentAvatar State="node.State" /></span>
                         <span class="wf-name">@node.AgentName</span>
                         @if (node.Attempts >= 1)
                         {
@@ -38,16 +38,6 @@
         AgentVisualState.Failed     => "failed",
         AgentVisualState.Skipped    => "skipped",
         _                           => "notstarted"
-    };
-
-    private static string IconFor(AgentVisualState s) => s switch
-    {
-        AgentVisualState.NotStarted => "○",
-        AgentVisualState.InProgress => "●",
-        AgentVisualState.Complete   => "✓",
-        AgentVisualState.Failed     => "⚠",
-        AgentVisualState.Skipped    => "⊘",
-        _                           => "○"
     };
 
     private static string TitleFor(StageNodeState node)
