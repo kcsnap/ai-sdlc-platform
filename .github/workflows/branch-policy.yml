@@ -1,0 +1,46 @@
+name: branch-policy
+
+on:
+  pull_request:
+    types: [opened, reopened, edited, synchronize]
+    branches: [main]
+
+permissions:
+  issues: read
+  pull-requests: read
+  contents: read
+
+jobs:
+  verify-issue-link:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify branch name and linked issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.head_ref }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$BRANCH" =~ ^(ai|feat|fix|docs|chore)/([0-9]+)-[a-z0-9][a-z0-9-]*$ ]]; then
+            echo "::error::Branch '$BRANCH' does not match required format {ai|feat|fix|docs|chore}/{issue#}-{slug}"
+            exit 1
+          fi
+
+          ISSUE_NUMBER="${BASH_REMATCH[2]}"
+          echo "Branch references issue #$ISSUE_NUMBER"
+
+          STATE=$(gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json state -q .state 2>/dev/null || echo "MISSING")
+
+          if [[ "$STATE" == "MISSING" ]]; then
+            echo "::error::Issue #$ISSUE_NUMBER not found in $REPO"
+            exit 1
+          fi
+
+          if [[ "$STATE" != "OPEN" ]]; then
+            echo "::error::Issue #$ISSUE_NUMBER state is $STATE; branches require an OPEN issue"
+            exit 1
+          fi
+
+          echo "OK: issue #$ISSUE_NUMBER is OPEN"
