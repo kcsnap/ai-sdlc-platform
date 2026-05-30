@@ -519,7 +519,7 @@ public static class AiSdlcWorkflowOrchestrator
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
                     $"## AI SDLC — Merged\n\nPR #{prRef.PullRequestNumber} merged after human approval. " +
-                    "Launchcart CI/CD pipeline will deploy to test and production."));
+                    "The repository's CI/CD pipeline will now deploy this change."));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
