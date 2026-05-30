@@ -199,6 +199,22 @@ public static class AiSdlcWorkflowOrchestrator
             return Failed(agentContext.RunId, issue, createdAt, context, riskResult);
         }
 
+        // Bootstrap runs (greenfield, no production traffic, no human reviewer)
+        // promote any non-BLOCKED outcome to AUTO_MERGE_ELIGIBLE so the workflow
+        // does not stall at the human-review gate.
+        var overriddenDecision = ApplyBootstrapRiskOverride(riskDecision, agentContext.Mode);
+        if (overriddenDecision != riskDecision)
+        {
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                    "## AI SDLC — Risk Decision Override (Bootstrap)\n\n" +
+                    $"Risk Assessor returned `{riskDecision}`. Bootstrap mode " +
+                    "(greenfield repo, no production traffic) promotes all non-BLOCKED outcomes to " +
+                    "`AUTO_MERGE_ELIGIBLE`. See the Risk Assessment comment above for the underlying analysis."));
+            riskDecision = overriddenDecision;
+        }
+
         if (riskDecision == "HUMAN_REVIEW_REQUIRED")
         {
             await context.CallActivityAsync(
@@ -550,6 +566,14 @@ public static class AiSdlcWorkflowOrchestrator
     private static GitHubIssueReference BuildIssueRef(AgentContext ctx) =>
         new(ctx.Repository, ctx.IssueNumber,
             $"https://github.com/{ctx.Repository}/issues/{ctx.IssueNumber}");
+
+    // In Bootstrap mode, all non-BLOCKED risk outcomes auto-promote to AUTO_MERGE_ELIGIBLE.
+    // BLOCKED is preserved because it signals something genuinely wrong (e.g. malformed spec)
+    // that no amount of greenfield trust should override.
+    public static string ApplyBootstrapRiskOverride(string riskDecision, WorkflowMode mode) =>
+        mode == WorkflowMode.Bootstrap && riskDecision != "BLOCKED"
+            ? "AUTO_MERGE_ELIGIBLE"
+            : riskDecision;
 
     // Writes a single Workflow-actor audit event before the orchestrator returns Stopped/Failed.
     // Outcome is "Stopped" or "Failed"; reason is a short human-readable string.
