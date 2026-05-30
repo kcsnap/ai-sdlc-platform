@@ -53,6 +53,7 @@ public sealed class ProductOwnerBranchReviewAgent : IAgent
         AddIfPresent(contextDocs, request.Context, "ownerBrief",    "Approved Product Brief");
         AddIfPresent(contextDocs, request.Context, "analystOutput", "Business Analysis");
         AddIfPresent(contextDocs, request.Context, "branchContent", "Committed Files");
+        AgentContextDocuments.AddStandard(contextDocs, request.Context);
 
         var userPrompt = $"""
             Repository: {request.Context.Repository}

@@ -350,7 +350,8 @@ public static class AiSdlcWorkflowOrchestrator
                     agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
                     branchName, reviewFilePaths,
                     agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
-                    agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty),
+                    agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty,
+                    agentContext.Metadata.GetValueOrDefault("charter")?.ToString()       ?? string.Empty),
                 AgentRetryOptions);
 
             await context.CallActivityAsync(
@@ -395,7 +396,8 @@ public static class AiSdlcWorkflowOrchestrator
                             agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
                             branchName, fixedChanges.Select(f => f.Path).ToArray(),
                             agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
-                            agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty),
+                            agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty,
+                            agentContext.Metadata.GetValueOrDefault("charter")?.ToString()       ?? string.Empty),
                         AgentRetryOptions);
 
                     await context.CallActivityAsync(
