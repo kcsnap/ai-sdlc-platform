@@ -222,6 +222,7 @@ public sealed class AgentActivityAuditTests
         runner,
         new StubGitHubService(),
         new StubRepoIndexer(),
+        new StubCharterReader(),
         new AutoMergeEligibilityService(),
         new PassthroughContextStore(),
         audit,
@@ -290,6 +291,12 @@ public sealed class AgentActivityAuditTests
     {
         public Task<RepoIndex.RepoIndex?> IndexAsync(string repository, CancellationToken ct) =>
             Task.FromResult<RepoIndex.RepoIndex?>(null);
+    }
+
+    private sealed class StubCharterReader : RepoIndex.Charter.ICharterReader
+    {
+        public Task<RepoIndex.Charter.Charter?> ReadAsync(string repository, CancellationToken ct) =>
+            Task.FromResult<RepoIndex.Charter.Charter?>(null);
     }
 
     // Minimal IGitHubService stub — these tests never hit the GitHub paths.

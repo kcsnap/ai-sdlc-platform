@@ -3,6 +3,7 @@ using AiSdlc.Agents;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.RepoIndex;
+using AiSdlc.RepoIndex.Charter;
 using AiSdlc.Shared;
 using AiSdlc.Shared.AutoMerge;
 using Microsoft.Azure.Functions.Worker;
@@ -20,6 +21,7 @@ public sealed class AgentActivityFunctions
     private readonly IAgentRunner _agentRunner;
     private readonly IGitHubService _gitHub;
     private readonly IRepoIndexer _repoIndexer;
+    private readonly ICharterReader _charterReader;
     private readonly IAutoMergeEligibilityService _autoMergeEligibility;
     private readonly IContextStore _contextStore;
     private readonly IAuditService _audit;
@@ -30,6 +32,7 @@ public sealed class AgentActivityFunctions
         IAgentRunner agentRunner,
         IGitHubService gitHub,
         IRepoIndexer repoIndexer,
+        ICharterReader charterReader,
         IAutoMergeEligibilityService autoMergeEligibility,
         IContextStore contextStore,
         IAuditService audit,
@@ -39,6 +42,7 @@ public sealed class AgentActivityFunctions
         _agentRunner          = agentRunner;
         _gitHub               = gitHub;
         _repoIndexer          = repoIndexer;
+        _charterReader        = charterReader;
         _autoMergeEligibility = autoMergeEligibility;
         _contextStore         = contextStore;
         _audit                = audit;
@@ -197,6 +201,16 @@ public sealed class AgentActivityFunctions
         if (index is null)
             _logger.LogInformation("No .ai-sdlc.yml found in {Repository} — skipping repo index.", repository);
         return index;
+    }
+
+    [Function(nameof(FetchCharterAsync))]
+    public async Task<Charter?> FetchCharterAsync([ActivityTrigger] string repository, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Fetching .yorrixx/charter.json for {Repository}", repository);
+        var charter = await _charterReader.ReadAsync(repository, cancellationToken);
+        if (charter is null)
+            _logger.LogInformation("No usable charter found in {Repository} — skipping charter.", repository);
+        return charter;
     }
 
     [Function(nameof(AddGitHubLabelAsync))]

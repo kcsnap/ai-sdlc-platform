@@ -43,6 +43,7 @@ public sealed class OrchestratorSkeletonTests
             ]),
             new NoOpGitHubService(),
             new NoOpRepoIndexer(),
+            new NoOpCharterReader(),
             new AutoMergeEligibilityService(),
             new NoOpContextStore(),
             new InMemoryAuditService(),
@@ -266,6 +267,12 @@ public sealed class OrchestratorSkeletonTests
     {
         public Task<AiSdlc.RepoIndex.RepoIndex?> IndexAsync(string repository, CancellationToken cancellationToken)
             => Task.FromResult<AiSdlc.RepoIndex.RepoIndex?>(null);
+    }
+
+    private sealed class NoOpCharterReader : AiSdlc.RepoIndex.Charter.ICharterReader
+    {
+        public Task<AiSdlc.RepoIndex.Charter.Charter?> ReadAsync(string repository, CancellationToken cancellationToken)
+            => Task.FromResult<AiSdlc.RepoIndex.Charter.Charter?>(null);
     }
 
     // Minimal no-op IGitHubService — returns empty/stub values; swallows writes.
