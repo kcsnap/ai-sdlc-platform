@@ -41,6 +41,13 @@ public sealed record WebhookIssue
 
     // GitHub close reason: "completed", "not_planned", "duplicate", "reopened", or null
     [JsonPropertyName("state_reason")] public string? StateReason { get; init; }
+
+    [JsonPropertyName("labels")]       public IReadOnlyList<WebhookLabel> Labels { get; init; } = Array.Empty<WebhookLabel>();
+}
+
+public sealed record WebhookLabel
+{
+    [JsonPropertyName("name")] public string Name { get; init; } = string.Empty;
 }
 
 public sealed record WebhookComment

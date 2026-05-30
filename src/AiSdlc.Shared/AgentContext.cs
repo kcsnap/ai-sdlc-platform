@@ -8,6 +8,7 @@ public sealed class AgentContext
     public int? PullRequestNumber { get; init; }
     public required string CurrentState { get; init; }
     public required string RequestedAgent { get; init; }
+    public WorkflowMode Mode { get; init; } = WorkflowMode.Standard;
     public Dictionary<string, string> ArtefactRefs { get; init; } = new();
     public Dictionary<string, object> Metadata { get; init; } = new();
 }

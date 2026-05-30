@@ -16,6 +16,10 @@ namespace AiSdlc.Orchestrator.Functions;
 
 public sealed class GitHubWebhookFunction
 {
+    // Issue label that opts a run into Bootstrap mode (greenfield, fully unattended).
+    // Set by Yorrixx when filing the initial "build this app" issue on a user-app repo.
+    public const string BootstrapLabel = "ai-sdlc:bootstrap";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -101,6 +105,8 @@ public sealed class GitHubWebhookFunction
             await durableClient.PurgeInstanceAsync(instanceId, cancellation: cancellationToken);
         }
 
+        var mode = ResolveWorkflowMode(payload.Issue.Labels);
+
         var agentContext = new AgentContext
         {
             RunId          = instanceId,
@@ -108,6 +114,7 @@ public sealed class GitHubWebhookFunction
             IssueNumber    = issueNumber,
             CurrentState   = WorkflowRunStatus.Started.ToString(),
             RequestedAgent = AgentNames.ProductStrategist,
+            Mode           = mode,
             Metadata       =
             {
                 ["issueTitle"]   = payload.Issue.Title,
@@ -293,6 +300,11 @@ public sealed class GitHubWebhookFunction
         await request.Body.CopyToAsync(ms, cancellationToken);
         return ms.ToArray();
     }
+
+    public static WorkflowMode ResolveWorkflowMode(IEnumerable<WebhookLabel> labels) =>
+        labels.Any(l => string.Equals(l.Name, BootstrapLabel, StringComparison.OrdinalIgnoreCase))
+            ? WorkflowMode.Bootstrap
+            : WorkflowMode.Standard;
 
     private static string BuildInstanceId(string repository, int issueNumber)
     {
