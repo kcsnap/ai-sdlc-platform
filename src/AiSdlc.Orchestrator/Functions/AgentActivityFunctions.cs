@@ -375,7 +375,8 @@ public sealed class AgentActivityFunctions
                 ["branchContent"] = sb.ToString(),
                 ["branchName"]    = input.BranchName,
                 ["ownerBrief"]    = input.OwnerBrief,
-                ["analystOutput"] = input.AnalystOutput
+                ["analystOutput"] = input.AnalystOutput,
+                ["charter"]       = input.Charter
             }
         };
 
@@ -590,4 +591,5 @@ public sealed record ReviewBranchInput(
     string BranchName,
     IReadOnlyList<string> FilePaths,
     string OwnerBrief,
-    string AnalystOutput);
+    string AnalystOutput,
+    string Charter = "");

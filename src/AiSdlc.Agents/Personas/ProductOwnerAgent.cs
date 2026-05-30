@@ -56,6 +56,7 @@ public sealed class ProductOwnerAgent : IAgent
             contextDocs["Repository Context"] = repoContext;
         if (!string.IsNullOrWhiteSpace(strategistOutput))
             contextDocs["Strategic Assessment"] = strategistOutput;
+        AgentContextDocuments.AddStandard(contextDocs, request.Context);
 
         var userPrompt = $"""
             Repository: {request.Context.Repository}

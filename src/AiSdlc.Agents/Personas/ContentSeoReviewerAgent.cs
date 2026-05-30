@@ -43,6 +43,7 @@ public sealed class ContentSeoReviewerAgent : IAgent
         ArgumentNullException.ThrowIfNull(request);
 
         var contextDocs = BuildContextDocs(request.Context);
+        AgentContextDocuments.AddStandard(contextDocs, request.Context);
         var userPrompt  = BuildUserPrompt(request.Context);
 
         var response = await _model.CompleteAsync(new ModelRequest

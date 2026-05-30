@@ -49,6 +49,7 @@ public sealed class ProductStrategistAgent : IAgent
         var contextDocs = new Dictionary<string, string>();
         if (!string.IsNullOrWhiteSpace(repoContext))
             contextDocs["Repository Context"] = repoContext;
+        AgentContextDocuments.AddStandard(contextDocs, request.Context);
 
         var userPrompt = $"""
             Repository: {request.Context.Repository}

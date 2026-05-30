@@ -58,6 +58,7 @@ public sealed class BusinessAnalystAgent : IAgent
             contextDocs["Strategic Assessment"] = strategistOutput;
         if (!string.IsNullOrWhiteSpace(ownerBrief))
             contextDocs["Approved Product Brief"] = ownerBrief;
+        AgentContextDocuments.AddStandard(contextDocs, request.Context);
 
         var userPrompt = $"""
             Repository: {request.Context.Repository}

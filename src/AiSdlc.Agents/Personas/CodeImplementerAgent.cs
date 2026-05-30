@@ -41,6 +41,7 @@ public sealed class CodeImplementerAgent : IAgent
         ArgumentNullException.ThrowIfNull(request);
 
         var contextDocs = BuildContextDocs(request.Context);
+        AgentContextDocuments.AddStandard(contextDocs, request.Context);
         var userPrompt  = BuildUserPrompt(request.Context);
 
         var modelRequest = new ModelRequest
