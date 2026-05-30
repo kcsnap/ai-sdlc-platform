@@ -579,7 +579,7 @@ Ensure dotnet build and dotnet test pass.
 
 - [x] Configure OIDC federation in `ci.yml` (`permissions: id-token: write`)
 - [x] Remove need for long-lived Azure credentials (using `azure/login@v2` with OIDC)
-- [ ] Create service principal and federated credentials (one-time, see section 9.2)
+- [x] Create service principal and federated credentials (one-time, see section 9.2)
 - [ ] Define deployment permissions per environment
 - [ ] Add GitHub environment protections where available/free
 
@@ -637,67 +637,20 @@ Tasks:
 - [x] Add `webhook_url` Terraform output
 - [x] Add environment-specific variables
 - [ ] Add Terraform validate/plan workflow (GitHub Actions)
-- [ ] Run `terraform apply` for the `dev` environment (not yet applied)
+- [x] Run `terraform apply` for the `dev` environment (14/14 resources live in `rg-aisdlc-dev`, North Europe)
 
 ## 9.2 Production deployment — one-time setup
 
-Steps required before the Function App is live. See also section 8.2.
+Steps required before the Function App is live. See also section 8.2. **All complete as of 2026-05-12.**
 
-- [ ] **Create Azure service principal for GitHub Actions (OIDC)**
-  ```bash
-  az ad sp create-for-rbac --name "sp-aisdlc-github" --role contributor \
-    --scopes /subscriptions/{subscription-id}/resourceGroups/rg-aisdlc-dev
-  az ad app federated-credential create --id {app-id} \
-    --parameters '{"name":"github-main","issuer":"https://token.actions.githubusercontent.com","subject":"repo:kcsnap/ai-sdlc-platform:ref:refs/heads/main","audiences":["api://AzureADTokenExchange"]}'
-  ```
-
-- [ ] **Run `terraform apply`**
-  ```bash
-  cd infra/terraform/environments/dev
-  terraform init
-  terraform apply \
-    -var="subscription_id=<id>" \
-    -var="tenant_id=<id>" \
-    -var="deployment_principal_object_id=<sp-object-id>"
-  ```
-
-- [ ] **Load secrets into Key Vault** (Key Vault name: `kv-aisdlc-81c0`)
-  ```bash
-  az keyvault secret set --vault-name kv-aisdlc-81c0 --name AnthropicApiKey     --value "sk-ant-..."
-  az keyvault secret set --vault-name kv-aisdlc-81c0 --name GitHubPat           --value "ghp_..."
-  az keyvault secret set --vault-name kv-aisdlc-81c0 --name GitHubWebhookSecret --value "<secret>"
-  ```
-
-- [ ] **Add GitHub Actions secrets** to `kcsnap/ai-sdlc-platform` → Settings → Secrets → Actions:
-  - `AZURE_CLIENT_ID` — client ID of `sp-aisdlc-github`
-  - `AZURE_TENANT_ID` — Azure tenant ID
-  - `AZURE_SUBSCRIPTION_ID` — Azure subscription ID
-  - `AZURE_FUNCTION_APP_NAME` — `func-aisdlc-dev-81c0` (from `terraform output function_app_name`)
-
-- [ ] **Create a `dev` GitHub environment** in `kcsnap/ai-sdlc-platform` → Settings → Environments
-  (deploy job targets `environment: dev`)
-
-- [ ] **Update launchcart webhook to the permanent Azure URL**
-  ```bash
-  # Get the URL
-  terraform -chdir=infra/terraform/environments/dev output webhook_url
-
-  # Update webhook (current hook ID: 621737166)
-  gh api repos/kcsnap/launchcart/hooks/621737166 --method PATCH \
-    -f "config[url]=<webhook_url output>" \
-    -f "config[secret]=<GitHubWebhookSecret value>"
-  ```
-
-- [ ] **Add `pull_request` to launchcart webhook events** (currently only `issues` + `issue_comment`)
-  ```bash
-  gh api repos/kcsnap/launchcart/hooks/621737166 --method PATCH \
-    -f "events[]=issues" -f "events[]=issue_comment" -f "events[]=pull_request"
-  ```
-
-- [ ] **Trigger first deploy** — push any commit to `main`, or:
-  ```bash
-  gh workflow run ci.yml --ref main
-  ```
+- [x] **Create Azure service principal for GitHub Actions (OIDC)** — `sp-aisdlc-github` with federated credential for `repo:kcsnap/ai-sdlc-platform:ref:refs/heads/main`
+- [x] **Run `terraform apply`** — 14/14 resources live in `rg-aisdlc-dev` (North Europe)
+- [x] **Load secrets into Key Vault** — `kv-aisdlc-81c0` populated with `AnthropicApiKey`, `GitHubPat`, `GitHubWebhookSecret`
+- [x] **Add GitHub Actions secrets** to `kcsnap/ai-sdlc-platform` — `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_FUNCTION_APP_NAME` (`func-aisdlc-dev-81c0`)
+- [x] **Create a `dev` GitHub environment** — exists; deploy job targets `environment: dev`
+- [x] **Update launchcart webhook to the permanent Azure URL** — hook 621737166 now points at `https://func-aisdlc-dev-81c0.azurewebsites.net/api/github/webhook`
+- [x] **Add `pull_request` to launchcart webhook events** — events now `[issues, issue_comment, pull_request]`
+- [x] **Trigger first deploy** — CI/CD deploys on every push to `main`
 
 ## 9.2 Application infrastructure modules later
 
