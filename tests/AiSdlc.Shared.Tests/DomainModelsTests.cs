@@ -30,6 +30,37 @@ public sealed class DomainModelsTests
     }
 
     [Fact]
+    public void AgentContext_Mode_DefaultsToStandard()
+    {
+        var context = new AgentContext
+        {
+            RunId = "run-001",
+            Repository = "kcsnap/ai-sdlc-platform",
+            IssueNumber = 1,
+            CurrentState = WorkflowRunStatus.Started.ToString(),
+            RequestedAgent = "ProductStrategist"
+        };
+
+        Assert.Equal(WorkflowMode.Standard, context.Mode);
+    }
+
+    [Fact]
+    public void AgentContext_Mode_CanBeBootstrap()
+    {
+        var context = new AgentContext
+        {
+            RunId = "run-001",
+            Repository = "kcsnap/user-app-abc12345",
+            IssueNumber = 1,
+            CurrentState = WorkflowRunStatus.Started.ToString(),
+            RequestedAgent = "ProductStrategist",
+            Mode = WorkflowMode.Bootstrap
+        };
+
+        Assert.Equal(WorkflowMode.Bootstrap, context.Mode);
+    }
+
+    [Fact]
     public void AgentResult_ShouldRepresentFollowUpQuestionsAndBlockingIssues()
     {
         var result = new AgentResult
