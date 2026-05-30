@@ -87,6 +87,7 @@ var host = new HostBuilder()
         });
 
         services.AddSingleton<IRepoIndexer, GitHubRepoIndexer>();
+        services.AddSingleton<AiSdlc.RepoIndex.Charter.ICharterReader, AiSdlc.RepoIndex.Charter.GitHubCharterReader>();
     })
     .Build();
 

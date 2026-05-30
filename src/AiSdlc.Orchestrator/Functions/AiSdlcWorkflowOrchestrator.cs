@@ -4,6 +4,7 @@ using AiSdlc.Agents;
 using AiSdlc.GitHub;
 using AiSdlc.GitHub.Webhooks;
 using AiSdlc.RepoIndex;
+using AiSdlc.RepoIndex.Charter;
 using AiSdlc.Shared;
 using AiSdlc.Shared.AutoMerge;
 using Microsoft.Azure.Functions.Worker;
@@ -34,12 +35,17 @@ public static class AiSdlcWorkflowOrchestrator
         var issue     = BuildIssueRef(agentContext);
         var createdAt = new DateTimeOffset(context.CurrentUtcDateTime, TimeSpan.Zero);
 
-        // ── Step 0: Fetch repo index ───────────────────────────────────────────
+        // ── Step 0: Fetch repo index + charter ────────────────────────────────
         var repoIndex = await context.CallActivityAsync<AiSdlc.RepoIndex.RepoIndex?>(
             nameof(AgentActivityFunctions.FetchRepoIndexAsync), agentContext.Repository);
         if (repoIndex is not null)
             agentContext.Metadata["repoContext"] = RepoIndexMarkdownRenderer.Render(repoIndex);
         var allowAutoMerge = repoIndex?.AllowLowRiskAutoMerge ?? false;
+
+        var charter = await context.CallActivityAsync<Charter?>(
+            nameof(AgentActivityFunctions.FetchCharterAsync), agentContext.Repository);
+        if (charter is not null)
+            agentContext.Metadata["charter"] = CharterMarkdownRenderer.Render(charter);
 
         // ── Step 1: Product Strategist ─────────────────────────────────────────
         var strategistResult = await context.CallActivityAsync<AgentResult>(
