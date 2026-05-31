@@ -565,6 +565,8 @@ public static class AiSdlcWorkflowOrchestrator
                 new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:merged"));
         }
 
+        await PostBootstrapStatusMarkerAsync(context, agentContext, completed: true);
+
         var updatedAt = new DateTimeOffset(context.CurrentUtcDateTime, TimeSpan.Zero);
 
         return new WorkflowRun
@@ -589,6 +591,29 @@ public static class AiSdlcWorkflowOrchestrator
     private static GitHubIssueReference BuildIssueRef(AgentContext ctx) =>
         new(ctx.Repository, ctx.IssueNumber,
             $"https://github.com/{ctx.Repository}/issues/{ctx.IssueNumber}");
+
+    // HTML-comment markers that external hosts (Yorrixx) sniff in issue-comment bodies to
+    // flip domain state (Building → Live / Failed). Invisible in GitHub's rendered view.
+    internal const string TerminalStatusMarkerCompleted = "<!-- ai-sdlc:status=completed -->";
+    internal const string TerminalStatusMarkerFailed    = "<!-- ai-sdlc:status=failed -->";
+
+    // Returns the marker to post on workflow termination, or null when no marker should fire.
+    // Only Bootstrap-mode runs emit markers — Standard-mode issue feeds stay clean.
+    public static string? GetTerminalStatusMarker(WorkflowMode mode, bool completed) =>
+        mode == WorkflowMode.Bootstrap
+            ? (completed ? TerminalStatusMarkerCompleted : TerminalStatusMarkerFailed)
+            : null;
+
+    private static Task PostBootstrapStatusMarkerAsync(
+        TaskOrchestrationContext context, AgentContext agentContext, bool completed)
+    {
+        var marker = GetTerminalStatusMarker(agentContext.Mode, completed);
+        return marker is null
+            ? Task.CompletedTask
+            : context.CallActivityAsync(
+                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber, marker));
+    }
 
     // In Bootstrap mode, all non-BLOCKED risk outcomes auto-promote to AUTO_MERGE_ELIGIBLE.
     // BLOCKED is preserved because it signals something genuinely wrong (e.g. malformed spec)
@@ -615,11 +640,16 @@ public static class AiSdlcWorkflowOrchestrator
 
     // Writes a single Workflow-actor audit event before the orchestrator returns Stopped/Failed.
     // Outcome is "Stopped" or "Failed"; reason is a short human-readable string.
-    private static Task RecordWorkflowExitAsync(
-        TaskOrchestrationContext context, AgentContext agentContext, string outcome, string reason) =>
-        context.CallActivityAsync(
+    // Also emits the Bootstrap terminal-status marker comment so external hosts (Yorrixx)
+    // can detect the failure even when the visible terminal comment varies by exit path.
+    private static async Task RecordWorkflowExitAsync(
+        TaskOrchestrationContext context, AgentContext agentContext, string outcome, string reason)
+    {
+        await context.CallActivityAsync(
             nameof(AgentActivityFunctions.RecordWorkflowExitAsync),
             new WorkflowExitAuditInput(agentContext.Repository, agentContext.IssueNumber, outcome, reason));
+        await PostBootstrapStatusMarkerAsync(context, agentContext, completed: false);
+    }
 
     // Emits a Workflow-actor audit event right before a WaitForExternalEvent so the dashboard
     // can surface the run as Blocked instead of misleadingly showing it as Running.
