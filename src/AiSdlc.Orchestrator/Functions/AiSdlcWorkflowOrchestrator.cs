@@ -497,9 +497,10 @@ public static class AiSdlcWorkflowOrchestrator
 
         var commitMessage = $"feat: {issueTitle} (closes #{agentContext.IssueNumber})";
 
-        if (riskDecision == "AUTO_MERGE_ELIGIBLE" && eligibility.IsEligible && allowAutoMerge)
+        if (ShouldAutoMerge(riskDecision, eligibility.IsEligible, allowAutoMerge, agentContext.Mode))
         {
-            // All gates pass and repo has opted in — merge automatically
+            // Either all 10 gates pass, or this is a Bootstrap run (greenfield — no production
+            // to protect, downstream user-app CI/CD catches real failures).
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.MergePullRequestActivityAsync),
                 new MergePrInput(agentContext.Repository, prRef.PullRequestNumber, commitMessage));
@@ -507,7 +508,7 @@ public static class AiSdlcWorkflowOrchestrator
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                    BuildAutoMergedComment(prRef.PullRequestNumber, eligibility)));
+                    BuildAutoMergedComment(prRef.PullRequestNumber, eligibility, agentContext.Mode)));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
@@ -590,6 +591,15 @@ public static class AiSdlcWorkflowOrchestrator
     // the auto-PR path (Step 11) and the final merge gate (Step 12).
     public static bool ShouldAllowAutoMerge(bool repoFlag, WorkflowMode mode) =>
         repoFlag || mode == WorkflowMode.Bootstrap;
+
+    // Final merge gate. Bootstrap (greenfield) bypasses the 10-gate eligibility check —
+    // those gates protect launchcart's running production, but greenfield has none yet;
+    // the user-app's own CI/CD catches real failures after the platform merges.
+    public static bool ShouldAutoMerge(string riskDecision, bool eligibilityIsEligible,
+                                       bool allowAutoMerge, WorkflowMode mode) =>
+        riskDecision == "AUTO_MERGE_ELIGIBLE"
+        && allowAutoMerge
+        && (eligibilityIsEligible || mode == WorkflowMode.Bootstrap);
 
     // Writes a single Workflow-actor audit event before the orchestrator returns Stopped/Failed.
     // Outcome is "Stopped" or "Failed"; reason is a short human-readable string.
@@ -752,14 +762,28 @@ public static class AiSdlcWorkflowOrchestrator
         return sb.ToString();
     }
 
-    private static string BuildAutoMergedComment(int prNumber, AutoMergeEligibilityResult eligibility)
+    private static string BuildAutoMergedComment(int prNumber, AutoMergeEligibilityResult eligibility, WorkflowMode mode)
     {
         var sb = new StringBuilder();
         sb.AppendLine("## AI SDLC — Auto-Merged");
         sb.AppendLine();
-        sb.AppendLine($"> ✅ PR #{prNumber} merged automatically — all {eligibility.PassedGates.Count} gates passed.");
+
+        if (mode == WorkflowMode.Bootstrap && !eligibility.IsEligible)
+        {
+            sb.AppendLine($"> ✅ PR #{prNumber} merged automatically (Bootstrap policy).");
+            sb.AppendLine();
+            sb.AppendLine($"Bootstrap runs bypass the {eligibility.PassedGates.Count + eligibility.FailedGates.Count}-gate eligibility check — greenfield repos have no running production to protect. The user-app's own CI/CD will catch real failures.");
+            sb.AppendLine();
+            sb.AppendLine($"Gates that would have failed in Standard mode (informational only):");
+            foreach (var gate in eligibility.FailedGates) sb.AppendLine($"- ⏭ {gate}");
+        }
+        else
+        {
+            sb.AppendLine($"> ✅ PR #{prNumber} merged automatically — all {eligibility.PassedGates.Count} gates passed.");
+        }
+
         sb.AppendLine();
-        sb.AppendLine("Launchcart CI/CD pipeline will now deploy to test and production.");
+        sb.AppendLine("The repository's CI/CD pipeline will now deploy this change.");
         return sb.ToString();
     }
 
