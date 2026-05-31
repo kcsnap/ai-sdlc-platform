@@ -56,13 +56,28 @@ public static class RunSummariser
                 .OrderByDescending(e => e.TimestampUtc)
                 .FirstOrDefault();
 
+            // Workflow.Awaiting* events fire when the orchestrator enters a WaitForExternalEvent
+            // (brief/risk/merge approval). If the latest one is more recent than any agent activity
+            // AND no terminal workflow-exit followed it, the run is Blocked (waiting on a human).
+            var latestAwait = ordered
+                .Where(e => string.Equals(e.ActorType, "Workflow", StringComparison.OrdinalIgnoreCase)
+                         && e.Action.StartsWith("Awaiting", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(e => e.TimestampUtc)
+                .FirstOrDefault();
+
+            var latestAgentTimestamp = ordered.Where(IsAgent).Select(e => (DateTimeOffset?)e.TimestampUtc).LastOrDefault();
+            var isBlocked = latestAwait is not null
+                            && (latestAgentTimestamp is null || latestAwait.TimestampUtc > latestAgentTimestamp.Value)
+                            && (workflowExit is null || latestAwait.TimestampUtc > workflowExit.TimestampUtc);
+
             var hasAnyAgentActivity = ordered.Any(IsAgent);
 
-            // Precedence: Released > orchestrator Failed > orchestrator Stopped > unresolved agent Failed > Running > Pending.
+            // Precedence: Released > orchestrator Failed > orchestrator Stopped > Blocked > unresolved agent Failed > Running > Pending.
             var status =
                   hasReleaseManagerCompleted ? RunStatus.Released
                 : workflowExit is not null && string.Equals(workflowExit.Action, "Failed", StringComparison.OrdinalIgnoreCase)  ? RunStatus.Failed
                 : workflowExit is not null && string.Equals(workflowExit.Action, "Stopped", StringComparison.OrdinalIgnoreCase) ? RunStatus.Stopped
+                : isBlocked            ? RunStatus.Blocked
                 : hasUnresolvedFailure ? RunStatus.Failed
                 : hasAnyAgentActivity  ? RunStatus.Running
                 : RunStatus.Pending;

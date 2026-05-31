@@ -69,6 +69,10 @@ else
                         {
                             <span class="chip status status-failed" title="Failed">⚠ @app.FailedCount</span>
                         }
+                        @if (app.BlockedCount > 0)
+                        {
+                            <span class="chip status status-blocked" title="Awaiting human input">⏸ @app.BlockedCount</span>
+                        }
                         @if (app.PendingCount > 0)
                         {
                             <span class="chip status status-pending" title="Pending">○ @app.PendingCount</span>

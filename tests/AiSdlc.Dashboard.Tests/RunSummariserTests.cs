@@ -262,6 +262,77 @@ public sealed class RunSummariserTests
         Assert.Equal(RunStatus.Failed, summary.Status);         // QA's failure is unresolved
     }
 
+    // ── Blocked status: Workflow.Awaiting* events without later resolution ────────
+
+    [Fact]
+    public void Status_Blocked_WhenAwaitEventHasNoLaterAgentActivity()
+    {
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ProductStrategist", "Completed", "ok"),
+            MakeAgent("r", 1, 1, "ProductOwner",      "Completed", "brief drafted"),
+            MakeWorkflowExit("r", 1, 2, "AwaitingBriefApproval", "Awaiting /approve-brief")
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        Assert.Equal(RunStatus.Blocked, summary.Status);
+    }
+
+    [Fact]
+    public void Status_NotBlocked_WhenAgentActivityFollowsAwait()
+    {
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ProductOwner",      "Completed", "brief"),
+            MakeWorkflowExit("r", 1, 1, "AwaitingBriefApproval", "Awaiting /approve-brief"),
+            MakeAgent("r", 1, 2, "BusinessAnalyst",   "Started",   "/approve-brief received, resuming")
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        Assert.Equal(RunStatus.Running, summary.Status);
+    }
+
+    [Fact]
+    public void Status_Stopped_BeatsBlocked_WhenTimeoutExitFollowsAwait()
+    {
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ProductOwner", "Completed", "brief"),
+            MakeWorkflowExit("r", 1, 1, "AwaitingBriefApproval", "Awaiting /approve-brief"),
+            MakeWorkflowExit("r", 1, 2, "Stopped", "Brief approval timed out")
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        Assert.Equal(RunStatus.Stopped, summary.Status);
+    }
+
+    [Fact]
+    public void Status_Released_BeatsBlocked_WhenReleaseManagerCompletes()
+    {
+        var events = new[]
+        {
+            MakeWorkflowExit("r", 1, 0, "AwaitingMergeApproval", "Awaiting /approve-merge"),
+            MakeAgent("r", 1, 1, "ReleaseManager", "Completed", "merged after approval")
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        Assert.Equal(RunStatus.Released, summary.Status);
+    }
+
+    [Fact]
+    public void Status_Blocked_HandlesMergeApprovalGate()
+    {
+        var events = new[]
+        {
+            MakeAgent("r", 1, 0, "ProductStrategist", "Completed", "ok"),
+            MakeAgent("r", 1, 1, "RiskAssessor",      "Completed", "AUTO_MERGE_ELIGIBLE"),
+            MakeWorkflowExit("r", 1, 2, "AwaitingMergeApproval", "Awaiting /approve-merge (1 gate failure(s))")
+        };
+
+        var summary = RunSummariser.Summarise(events).Single();
+        Assert.Equal(RunStatus.Blocked, summary.Status);
+    }
+
     private static DashboardEvent MakeAgent(string runId, int issue, int offset, string agent, string action, string summary, int? pr = null) =>
         MakeEvent(runId, issue, offset, "Agent", agent, action, summary, pr);
 
