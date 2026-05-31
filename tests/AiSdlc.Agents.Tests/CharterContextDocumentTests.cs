@@ -65,7 +65,38 @@ public sealed class CharterContextDocumentTests
             $"{agent.Name} included 'App Charter' even though Metadata[\"charter\"] was absent.");
     }
 
-    private static AgentExecutionRequest MakeRequest(string agentName, bool withCharter)
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task Bootstrap_mode_adds_operating_mode_document(AgentFactory factory)
+    {
+        var recorder = new RecordingModelProvider();
+        var agent    = factory.Build(recorder);
+
+        await agent.ExecuteAsync(MakeRequest(agent.Name, withCharter: true, mode: WorkflowMode.Bootstrap), CancellationToken.None);
+
+        Assert.NotNull(recorder.LastRequest);
+        Assert.True(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.OperatingModeDocumentName),
+            $"{agent.Name} did not include 'Operating Mode' in ContextDocuments under Bootstrap mode.");
+        var operatingMode = recorder.LastRequest.ContextDocuments[AgentContextDocuments.OperatingModeDocumentName];
+        Assert.Contains("BOOTSTRAP", operatingMode);
+        Assert.Contains("Open Questions", operatingMode);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task Standard_mode_omits_operating_mode_document(AgentFactory factory)
+    {
+        var recorder = new RecordingModelProvider();
+        var agent    = factory.Build(recorder);
+
+        await agent.ExecuteAsync(MakeRequest(agent.Name, withCharter: true, mode: WorkflowMode.Standard), CancellationToken.None);
+
+        Assert.NotNull(recorder.LastRequest);
+        Assert.False(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.OperatingModeDocumentName),
+            $"{agent.Name} included 'Operating Mode' in Standard mode — it should only appear for Bootstrap.");
+    }
+
+    private static AgentExecutionRequest MakeRequest(string agentName, bool withCharter, WorkflowMode mode = WorkflowMode.Standard)
     {
         var metadata = new Dictionary<string, object>
         {
@@ -103,6 +134,7 @@ public sealed class CharterContextDocumentTests
                 IssueNumber    = 1,
                 CurrentState   = "Started",
                 RequestedAgent = agentName,
+                Mode           = mode,
                 Metadata       = metadata
             }
         };

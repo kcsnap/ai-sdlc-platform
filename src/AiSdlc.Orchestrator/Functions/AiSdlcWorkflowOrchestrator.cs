@@ -40,7 +40,9 @@ public static class AiSdlcWorkflowOrchestrator
             nameof(AgentActivityFunctions.FetchRepoIndexAsync), agentContext.Repository);
         if (repoIndex is not null)
             agentContext.Metadata["repoContext"] = RepoIndexMarkdownRenderer.Render(repoIndex);
-        var allowAutoMerge = repoIndex?.AllowLowRiskAutoMerge ?? false;
+        var allowAutoMerge = ShouldAllowAutoMerge(
+            repoFlag: repoIndex?.AllowLowRiskAutoMerge ?? false,
+            mode:     agentContext.Mode);
 
         var charter = await context.CallActivityAsync<Charter?>(
             nameof(AgentActivityFunctions.FetchCharterAsync), agentContext.Repository);
@@ -582,6 +584,12 @@ public static class AiSdlcWorkflowOrchestrator
         mode == WorkflowMode.Bootstrap && riskDecision != "BLOCKED"
             ? "AUTO_MERGE_ELIGIBLE"
             : riskDecision;
+
+    // Bootstrap runs are unattended by definition — they imply auto-merge regardless of
+    // whether the user-app repo ships .ai-sdlc.yml. Propagates to the brief gate (Step 2),
+    // the auto-PR path (Step 11) and the final merge gate (Step 12).
+    public static bool ShouldAllowAutoMerge(bool repoFlag, WorkflowMode mode) =>
+        repoFlag || mode == WorkflowMode.Bootstrap;
 
     // Writes a single Workflow-actor audit event before the orchestrator returns Stopped/Failed.
     // Outcome is "Stopped" or "Failed"; reason is a short human-readable string.
