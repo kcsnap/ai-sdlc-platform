@@ -5,6 +5,7 @@ public enum RunStatus
     Unknown,
     Pending,      // webhook received but no agent activity yet
     Running,      // agents are executing or finished but no terminal release
+    Blocked,      // orchestrator wrote Workflow Awaiting* and no later agent activity has resumed it
     Failed,       // an agent's latest outcome is Failed, or orchestrator wrote Workflow Failed
     Stopped,      // orchestrator exited early as Stopped (timeout, blocked, no-op implementer, etc.)
     Released,     // ReleaseManager completed

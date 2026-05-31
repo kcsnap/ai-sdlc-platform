@@ -88,6 +88,9 @@ public static class AiSdlcWorkflowOrchestrator
                     new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
                         "ai-sdlc:awaiting-brief-approval"));
 
+                await RecordWorkflowAwaitAsync(context, agentContext,
+                    "AwaitingBriefApproval", "Awaiting /approve-brief on the refined brief");
+
                 using var cts = new CancellationTokenSource();
                 var approveTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveBrief,  cts.Token);
                 var changesTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.RequestChanges, cts.Token);
@@ -233,6 +236,9 @@ public static class AiSdlcWorkflowOrchestrator
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                 new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
                     BuildHumanReviewRequiredComment(riskResult)));
+
+            await RecordWorkflowAwaitAsync(context, agentContext,
+                "AwaitingRiskApproval", "Awaiting /approve-release at the risk gate");
 
             using var cts = new CancellationTokenSource();
             var approveTask = context.WaitForExternalEvent<object?>(WorkflowEventNames.ApproveRelease, cts.Token);
@@ -526,6 +532,12 @@ public static class AiSdlcWorkflowOrchestrator
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
                 new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:awaiting-human-review"));
 
+            var gateFailureCount = eligibility.FailedGates.Count;
+            var awaitSummary = gateFailureCount > 0
+                ? $"Awaiting /approve-merge ({gateFailureCount} gate failure(s))"
+                : "Awaiting /approve-merge";
+            await RecordWorkflowAwaitAsync(context, agentContext, "AwaitingMergeApproval", awaitSummary);
+
             using var mergeCts      = new CancellationTokenSource();
             var approveTask         = context.WaitForExternalEvent<object?>(WorkflowEventNames.HumanReviewApproved, mergeCts.Token);
             var mergeTimeoutTask    = context.CreateTimer(context.CurrentUtcDateTime.Add(MergeApprovalTimeout), mergeCts.Token);
@@ -608,6 +620,15 @@ public static class AiSdlcWorkflowOrchestrator
         context.CallActivityAsync(
             nameof(AgentActivityFunctions.RecordWorkflowExitAsync),
             new WorkflowExitAuditInput(agentContext.Repository, agentContext.IssueNumber, outcome, reason));
+
+    // Emits a Workflow-actor audit event right before a WaitForExternalEvent so the dashboard
+    // can surface the run as Blocked instead of misleadingly showing it as Running.
+    // Action must start with "Awaiting" — that's the dashboard's recognition prefix.
+    private static Task RecordWorkflowAwaitAsync(
+        TaskOrchestrationContext context, AgentContext agentContext, string action, string reason) =>
+        context.CallActivityAsync(
+            nameof(AgentActivityFunctions.RecordWorkflowExitAsync),
+            new WorkflowExitAuditInput(agentContext.Repository, agentContext.IssueNumber, action, reason));
 
     private static WorkflowRun Stopped(string runId, GitHubIssueReference issue, DateTimeOffset createdAt, TaskOrchestrationContext ctx) =>
         new()

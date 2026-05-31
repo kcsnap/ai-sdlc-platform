@@ -9,6 +9,7 @@ public sealed record ApplicationSummary(
     int RunningCount,
     int FailedCount,
     int PendingCount,
+    int BlockedCount,
     DateTimeOffset? LatestActivityUtc,
     RunSummary? LatestRun)
 {
@@ -20,6 +21,7 @@ public sealed record ApplicationSummary(
         get
         {
             if (FailedCount > 0) return "failed";
+            if (BlockedCount > 0) return "blocked";
             if (RunningCount > 0) return "running";
             if (ReleasedCount > 0) return "released";
             return "pending";
@@ -29,6 +31,7 @@ public sealed record ApplicationSummary(
     public string HealthLabel => HealthSlug switch
     {
         "failed"   => "Has failures",
+        "blocked"  => "Awaiting human input",
         "running"  => "Active",
         "released" => "Healthy",
         _          => "Idle"

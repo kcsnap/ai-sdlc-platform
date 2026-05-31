@@ -23,6 +23,7 @@ public static class ApplicationSummariser
                 var released    = ordered.Count(r => r.Status == RunStatus.Released);
                 var running     = ordered.Count(r => r.Status == RunStatus.Running);
                 var failed      = ordered.Count(r => r.Status == RunStatus.Failed);
+                var blocked     = ordered.Count(r => r.Status == RunStatus.Blocked);
                 var pending     = ordered.Count(r => r.Status == RunStatus.Pending || r.Status == RunStatus.Unknown);
 
                 return new ApplicationSummary(
@@ -32,6 +33,7 @@ public static class ApplicationSummariser
                     RunningCount:      running,
                     FailedCount:       failed,
                     PendingCount:      pending,
+                    BlockedCount:      blocked,
                     LatestActivityUtc: latest.LatestActivityUtc,
                     LatestRun:         latest);
             })
