@@ -81,7 +81,7 @@ Dependency flow: Orchestrator → everything. Agents → Shared + ModelProviders
 
 **Code style:** 4-space indent (C#), 2-space (YAML/JSON/Markdown), LF line endings, UTF-8, final newline. PascalCase for types and public members, camelCase for locals/parameters.
 
-**Branch naming:** `ai/*`, `feature/*`, `fix/*`, `docs/*`.
+**Branch naming:** `{ai|feat|fix|docs|chore}/{issue#}-{slug}` (enforced by the `verify-issue-link` workflow). Slug is kebab-case `[a-z0-9][a-z0-9-]*`. Example: `feat/49-bootstrap-terminal-markers`. The issue must exist and be OPEN.
 
 ## Infrastructure
 
