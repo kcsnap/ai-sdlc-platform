@@ -19,9 +19,15 @@ This repository contains the AI SDLC platform, not an application website. It or
 
 ## Application stack targeted by v1
 
-- Frontend: React
-- Backend: C# / ASP.NET Core Web API
-- Database: recommended per solution
-- Infrastructure: Terraform
-- Pipelines: GitHub Actions
-- Hosting: Azure Static Web Apps, Azure App Service, Azure Functions and Azure database services
+Locked in [ADR-0002 — Generated-App Template Stack](docs/adr/0002-app-template-stack.md). Summary:
+
+- Frontend: React 19 + Vite + TypeScript + TanStack Query + Tailwind + shadcn/ui
+- Backend: ASP.NET Core minimal API on .NET 9
+- Database: Cosmos DB serverless (one container per user-app)
+- Auth: Clerk (Organizations — one Org per user-app)
+- Email: SendGrid (templates in user-app code)
+- Pipelines: GitHub Actions (OIDC + zip deploy via `azure/webapps-deploy@v3`)
+- Hosting: two Azure Web Apps (F1 Free tier) per user-app — frontend + API on one F1 App Service Plan
+- Region: UK South (single region, v1)
+
+Per-user-app infrastructure is centrally provisioned by Yorrixx — user-app repos contain code + tests + workflows only.
