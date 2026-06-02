@@ -17,6 +17,11 @@ _bootstrap/
 publish/
 publish.zip
 
+# NuGet pack output
+artifacts/
+*.nupkg
+*.snupkg
+
 # Claude Code per-machine state
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
