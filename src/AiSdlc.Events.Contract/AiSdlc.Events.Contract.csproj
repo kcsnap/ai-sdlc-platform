@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>AiSdlc.Events.Contract</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>kcsnap</Authors>
+    <Company>kcsnap</Company>
+    <Description>Typed event-stream contract DTOs for the AI SDLC Platform's run-events API. See ADR-0004 in kcsnap/ai-sdlc-platform.</Description>
+    <PackageProjectUrl>https://github.com/kcsnap/ai-sdlc-platform</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/kcsnap/ai-sdlc-platform</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>aisdlc;events;contract;yorrixx</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>
