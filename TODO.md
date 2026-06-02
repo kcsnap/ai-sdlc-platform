@@ -654,9 +654,10 @@ Steps required before the Function App is live. See also section 8.2. **All comp
 
 ## 9.2 Application infrastructure modules later
 
-> **Note:** for v1, user-app infrastructure is provisioned centrally by Yorrixx Hosting per [ADR-0002](docs/adr/0002-app-template-stack.md) — user-app repos contain no `infra/`. The list below is the longer-term wishlist of reusable modules the platform may publish for repos that opt out of central provisioning.
+> **Note:** for v1, user-app infrastructure is provisioned centrally by Yorrixx Hosting per [ADR-0002](docs/adr/0002-app-template-stack.md) (API tier amended by [ADR-0003](docs/adr/0003-user-app-api-flex-consumption.md)) — user-app repos contain no `infra/`. The list below is the longer-term wishlist of reusable modules the platform may publish for repos that opt out of central provisioning.
 
-- [ ] Web App (F1/B1) module for React frontend + .NET minimal API (per ADR-0002)
+- [ ] Web App (F1) module for React frontend (per ADR-0002)
+- [ ] Function App (Flex Consumption) module for .NET minimal API (per ADR-0003)
 - [ ] Cosmos DB serverless container module (per ADR-0002)
 - [ ] Static Web App module (post-v1 alternative for static-only frontends)
 - [ ] App Service module (post-v1 alternative for larger workloads)
@@ -913,9 +914,9 @@ Create a reusable starter template for the user-apps the platform generates. **S
 - [ ] Add .NET Aspire AppHost project for local dev (Aspire orchestrates API + Vite + Cosmos emulator)
 - [ ] Add Vitest + xUnit test scaffolding; Playwright + Cosmos-emulator integration scaffolded but not CI-gated
 - [ ] Add `.github/workflows/ci.yml` — build + test on PR
-- [ ] Add `.github/workflows/deploy.yml` — OIDC + zip deploy via `azure/webapps-deploy@v3` to both F1 Web Apps (frontend + API). AppHost excluded
-- [ ] Add `.ai-sdlc.yml` reflecting ADR-0002 (backend dotnet 9, frontend react/vite/ts, database cosmos serverless)
-- [ ] Add mandatory docs (README documenting F1 5–10s cold start + `*.azurewebsites.net` URL only on free tier)
+- [ ] Add `.github/workflows/deploy.yml` — OIDC + zip deploy via `azure/webapps-deploy@v3` to the frontend F1 Web App and `azure/functions-action@v1` to the API Function App (Flex Consumption). AppHost excluded
+- [ ] Add `.ai-sdlc.yml` reflecting ADR-0002 + ADR-0003 (backend dotnet 9 on Functions isolated worker, frontend react/vite/ts on F1 Web App, database cosmos serverless)
+- [ ] Add mandatory docs (README documenting frontend F1 5–10 s cold start + API Flex Consumption 1–2 s cold start + `*.azurewebsites.net` URL only on free tier + Functions 230 s HTTP gateway timeout)
 - [ ] Add issue template
 - [ ] Add PR template
 - [ ] Add CODEOWNERS example
@@ -937,8 +938,8 @@ Stack inherited from [ADR-0002](docs/adr/0002-app-template-stack.md) — launchc
 - [ ] React 19 + Vite + TypeScript + TanStack Query + Tailwind + shadcn/ui (frontend)
 - [ ] ASP.NET Core minimal API on .NET 9 (api)
 - [ ] Cosmos DB serverless container (data)
-- [ ] GitHub Actions ci.yml + deploy.yml (OIDC + zip deploy via `azure/webapps-deploy@v3`)
-- [ ] Two F1 Web Apps per user-app (frontend + api on one F1 plan), provisioned centrally by Yorrixx Hosting
+- [ ] GitHub Actions ci.yml + deploy.yml (OIDC + zip deploy — `azure/webapps-deploy@v3` for frontend Web App, `azure/functions-action@v1` for API Function App)
+- [ ] One F1 Web App (frontend) + one Function App on Flex Consumption (API) per user-app, provisioned centrally by Yorrixx Hosting (per ADR-0003)
 
 ## App features
 
