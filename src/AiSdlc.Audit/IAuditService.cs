@@ -10,4 +10,13 @@ public interface IAuditService
     // Returns events with TimestampUtc > since, capped at maxResults, ordered oldest-first.
     // Used by the dashboard to tail the live audit feed across all runs.
     Task<IReadOnlyList<AuditEvent>> GetSinceAsync(DateTimeOffset since, int maxResults, CancellationToken cancellationToken);
+
+    // Partition-scoped, cursor-paginated read for the per-run events API (ADR-0004).
+    // Returns events strictly after the supplied RowKey (null/empty = from beginning), capped at maxResults,
+    // ordered oldest-first by RowKey. Each result carries its own RowKey so the caller can build the next cursor.
+    Task<IReadOnlyList<StoredAuditEvent>> GetByRunIdAfterRowKeyAsync(
+        string runId,
+        string? rowKeyExclusive,
+        int maxResults,
+        CancellationToken cancellationToken);
 }
