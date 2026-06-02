@@ -654,10 +654,14 @@ Steps required before the Function App is live. See also section 8.2. **All comp
 
 ## 9.2 Application infrastructure modules later
 
-- [ ] Static Web App module for React frontend
-- [ ] App Service module for C# API
-- [ ] Azure SQL module
-- [ ] PostgreSQL module
+> **Note:** for v1, user-app infrastructure is provisioned centrally by Yorrixx Hosting per [ADR-0002](docs/adr/0002-app-template-stack.md) — user-app repos contain no `infra/`. The list below is the longer-term wishlist of reusable modules the platform may publish for repos that opt out of central provisioning.
+
+- [ ] Web App (F1/B1) module for React frontend + .NET minimal API (per ADR-0002)
+- [ ] Cosmos DB serverless container module (per ADR-0002)
+- [ ] Static Web App module (post-v1 alternative for static-only frontends)
+- [ ] App Service module (post-v1 alternative for larger workloads)
+- [ ] Azure SQL module (post-v1)
+- [ ] PostgreSQL module (post-v1)
 - [ ] Key Vault module
 - [ ] Application Insights module
 - [ ] Log Analytics module
@@ -878,41 +882,44 @@ A change can auto-merge and auto-deploy only when all are true:
 
 ## Goal
 
-Create a reusable starter template for future React + C# application repositories.
+Create a reusable starter template for the user-apps the platform generates. **Stack is locked in [ADR-0002](docs/adr/0002-app-template-stack.md)** — refer to it for tech, hosting, naming, RBAC, and provisioning order. Tasks below cover only the files the template repo itself ships.
 
 ## Template structure
 
 ```text
 /
 ├── .github/
-│   ├── workflows/
+│   ├── workflows/         # ci.yml + deploy.yml (no infra workflows — Yorrixx provisions)
 │   ├── ISSUE_TEMPLATE/
 │   ├── pull_request_template.md
 │   └── CODEOWNERS
-├── .ai-sdlc.yml
+├── .ai-sdlc.yml           # user-app stack per ADR-0002
 ├── docs/
-├── infra/terraform/
 ├── src/
-│   ├── frontend/
-│   └── api/
-├── tests/
-└── README.md
+│   ├── frontend/          # React 19 + Vite + TypeScript + TanStack Query + Tailwind + shadcn/ui
+│   ├── api/               # vanilla ASP.NET Core minimal API (.NET 9) — no Aspire deps
+│   └── AppHost/           # .NET Aspire AppHost — local dev only, never deployed
+├── tests/                 # Vitest + xUnit; Playwright + Cosmos emulator scaffolded
+└── README.md              # documents F1 cold-start UX + dev-loop
 ```
+
+**No `infra/` directory** — Yorrixx's Hosting module owns all Azure provisioning per ADR-0002.
 
 ## Tasks
 
 - [ ] Create `ai-sdlc-react-dotnet-template` repo
-- [ ] Add React frontend using Vite + React Router
-- [ ] Add ASP.NET Core Web API
-- [ ] Add test structure
-- [ ] Add Terraform structure
-- [ ] Add GitHub Actions workflows
-- [ ] Add `.ai-sdlc.yml`
-- [ ] Add mandatory docs
+- [ ] Add React 19 + Vite + TS frontend (TanStack Query + Tailwind + shadcn/ui)
+- [ ] Add ASP.NET Core minimal API on .NET 9 (vanilla — no Aspire deps in API project)
+- [ ] Add .NET Aspire AppHost project for local dev (Aspire orchestrates API + Vite + Cosmos emulator)
+- [ ] Add Vitest + xUnit test scaffolding; Playwright + Cosmos-emulator integration scaffolded but not CI-gated
+- [ ] Add `.github/workflows/ci.yml` — build + test on PR
+- [ ] Add `.github/workflows/deploy.yml` — OIDC + zip deploy via `azure/webapps-deploy@v3` to both F1 Web Apps (frontend + API). AppHost excluded
+- [ ] Add `.ai-sdlc.yml` reflecting ADR-0002 (backend dotnet 9, frontend react/vite/ts, database cosmos serverless)
+- [ ] Add mandatory docs (README documenting F1 5–10s cold start + `*.azurewebsites.net` URL only on free tier)
 - [ ] Add issue template
 - [ ] Add PR template
 - [ ] Add CODEOWNERS example
-- [ ] Add local dev guide
+- [ ] Add local dev guide (`dotnet run --project src/AppHost`; user-secrets for Clerk dev key; `.env.local` for Vite)
 - [ ] Add build/test verification
 
 ---
@@ -925,13 +932,13 @@ Create the first example app that demonstrates the AI SDLC end to end.
 
 ## Target stack
 
-- [ ] React frontend
-- [ ] C# / ASP.NET Core Web API
-- [ ] PostgreSQL initially
-- [ ] Terraform
-- [ ] GitHub Actions
-- [ ] Azure Static Web Apps
-- [ ] Azure App Service
+Stack inherited from [ADR-0002](docs/adr/0002-app-template-stack.md) — launchcart is the first user-app, so it gets the same shape as every other user-app:
+
+- [ ] React 19 + Vite + TypeScript + TanStack Query + Tailwind + shadcn/ui (frontend)
+- [ ] ASP.NET Core minimal API on .NET 9 (api)
+- [ ] Cosmos DB serverless container (data)
+- [ ] GitHub Actions ci.yml + deploy.yml (OIDC + zip deploy via `azure/webapps-deploy@v3`)
+- [ ] Two F1 Web Apps per user-app (frontend + api on one F1 plan), provisioned centrally by Yorrixx Hosting
 
 ## App features
 
@@ -943,11 +950,10 @@ Create the first example app that demonstrates the AI SDLC end to end.
 - [ ] Admin enquiries page
 - [ ] Products API
 - [ ] Enquiries API
-- [ ] PostgreSQL schema
-- [ ] Seed data
-- [ ] Frontend tests
-- [ ] API tests
-- [ ] E2E tests
+- [ ] Cosmos container schema + seed data
+- [ ] Frontend tests (Vitest)
+- [ ] API tests (xUnit)
+- [ ] E2E tests (Playwright — scaffolded, not CI-gated for v1)
 - [ ] Accessibility tests
 - [ ] Docs
 - [ ] `.ai-sdlc.yml`
