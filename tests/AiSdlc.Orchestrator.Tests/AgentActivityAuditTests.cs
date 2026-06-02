@@ -276,6 +276,9 @@ public sealed class AgentActivityAuditTests
             Task.FromResult<IReadOnlyList<AuditEvent>>([]);
         public Task<IReadOnlyList<AuditEvent>> GetSinceAsync(DateTimeOffset since, int maxResults, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<AuditEvent>>([]);
+        public Task<IReadOnlyList<StoredAuditEvent>> GetByRunIdAfterRowKeyAsync(
+            string runId, string? rowKeyExclusive, int maxResults, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<StoredAuditEvent>>([]);
     }
 
     private sealed class PassthroughContextStore : IContextStore

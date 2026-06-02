@@ -52,6 +52,38 @@ public sealed class AzureTableAuditService : IAuditService
         return events.AsReadOnly();
     }
 
+    public async Task<IReadOnlyList<StoredAuditEvent>> GetByRunIdAfterRowKeyAsync(
+        string runId,
+        string? rowKeyExclusive,
+        int maxResults,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(runId);
+        if (maxResults <= 0)
+        {
+            return Array.Empty<StoredAuditEvent>();
+        }
+
+        var filter = string.IsNullOrEmpty(rowKeyExclusive)
+            ? TableClient.CreateQueryFilter($"PartitionKey eq {runId}")
+            : TableClient.CreateQueryFilter($"PartitionKey eq {runId} and RowKey gt {rowKeyExclusive}");
+
+        var results = new List<StoredAuditEvent>();
+        await foreach (var entity in _table.QueryAsync<TableEntity>(
+            filter: filter,
+            maxPerPage: maxResults,
+            cancellationToken: cancellationToken))
+        {
+            results.Add(new StoredAuditEvent(FromTableEntity(entity), entity.RowKey));
+            if (results.Count >= maxResults)
+            {
+                break;
+            }
+        }
+
+        return results;
+    }
+
     public async Task<IReadOnlyList<AuditEvent>> GetSinceAsync(DateTimeOffset since, int maxResults, CancellationToken cancellationToken)
     {
         if (maxResults <= 0)
