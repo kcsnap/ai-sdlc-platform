@@ -604,15 +604,28 @@ public static class AiSdlcWorkflowOrchestrator
             ? (completed ? TerminalStatusMarkerCompleted : TerminalStatusMarkerFailed)
             : null;
 
-    private static Task PostBootstrapStatusMarkerAsync(
+    private static async Task PostBootstrapStatusMarkerAsync(
         TaskOrchestrationContext context, AgentContext agentContext, bool completed)
     {
         var marker = GetTerminalStatusMarker(agentContext.Mode, completed);
-        return marker is null
-            ? Task.CompletedTask
-            : context.CallActivityAsync(
-                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber, marker));
+        if (marker is null)
+        {
+            return;
+        }
+
+        // Emit BOTH the HTML-comment marker (fallback, scrapable) AND the typed audit event (primary
+        // contract per ADR-0004 § "Terminal markers relationship"). Both fire in v1; HTML-comment
+        // marker deprecation is deferred to v2 once Yorrixx is consuming the events API in production.
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber, marker));
+
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.EmitBootstrapTerminalMarkerAuditAsync),
+            new BootstrapTerminalMarkerAuditInput(
+                agentContext.Repository,
+                agentContext.IssueNumber,
+                completed ? "completed" : "failed"));
     }
 
     // In Bootstrap mode, all non-BLOCKED risk outcomes auto-promote to AUTO_MERGE_ELIGIBLE.
