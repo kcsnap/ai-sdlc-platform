@@ -167,6 +167,32 @@ public sealed class AgentActivityFunctions
     public Task<string> ResolveContextAsync([ActivityTrigger] string contextRef, CancellationToken cancellationToken)
         => _contextStore.ResolveAsync(contextRef, cancellationToken);
 
+    [Function(nameof(EmitBootstrapTerminalMarkerAuditAsync))]
+    public async Task EmitBootstrapTerminalMarkerAuditAsync(
+        [ActivityTrigger] BootstrapTerminalMarkerAuditInput input, CancellationToken cancellationToken)
+    {
+        // Typed audit counterpart of the HTML-comment terminal marker from PR #51.
+        // ADR-0004 has both fire in v1 — the API consumes this; markers stay as the GitHub-side fallback.
+        try
+        {
+            await _audit.WriteAsync(new AuditEvent
+            {
+                RunId       = BuildAuditRunId(input.Repository, input.IssueNumber),
+                Repository  = input.Repository,
+                IssueNumber = input.IssueNumber,
+                ActorType   = "Workflow",
+                ActorName   = "Orchestrator",
+                Action      = "BootstrapTerminalMarker",
+                Summary     = $"Bootstrap run {input.Status}.",
+                Decision    = input.Status
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write BootstrapTerminalMarker audit event for {Repo}#{Issue}.", input.Repository, input.IssueNumber);
+        }
+    }
+
     [Function(nameof(RecordWorkflowExitAsync))]
     public async Task RecordWorkflowExitAsync(
         [ActivityTrigger] WorkflowExitAuditInput input, CancellationToken cancellationToken)
