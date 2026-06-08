@@ -1,0 +1,111 @@
+@page "/users/applications"
+@rendermode InteractiveServer
+@using AiSdlc.Dashboard.Services.YorrixxAdmin
+@inject IYorrixxAdminClient AdminClient
+@inject NavigationManager Nav
+
+<PageTitle>Yorrixx apps · @Email</PageTitle>
+
+<section class="controls">
+    <h1>Yorrixx apps for @Email</h1>
+    <div class="meta">
+        <a href="/users" class="nav-link">← All users</a>
+    </div>
+</section>
+
+@if (_error is not null)
+{
+    <p class="empty">Failed to load applications: @_error</p>
+}
+else if (!_loaded)
+{
+    <p class="empty">Loading…</p>
+}
+else if (_apps.Count == 0)
+{
+    <p class="empty">No applications for this user.</p>
+}
+else
+{
+    <table class="feed applications">
+        <thead>
+            <tr>
+                <th>Application</th>
+                <th>Status</th>
+                <th>Created (UTC)</th>
+                <th>Public URL</th>
+                <th>Repo</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var app in _apps)
+            {
+                <tr class="row app-row" @onclick="() => OpenApp(app.Id)">
+                    <td class="app-name">
+                        <strong>@app.DisplayName</strong>
+                        <div class="muted" style="font-size:0.8em">@app.Id</div>
+                    </td>
+                    <td><span class="chip status-@app.Status.ToLowerInvariant().Replace(' ', '-')">@app.Status</span></td>
+                    <td class="ts">@app.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>
+                        @if (!string.IsNullOrWhiteSpace(app.PublicUrl))
+                        {
+                            <a href="@app.PublicUrl" target="_blank" rel="noopener" @onclick:stopPropagation="true">@app.PublicUrl</a>
+                        }
+                        else
+                        {
+                            <span class="muted">—</span>
+                        }
+                    </td>
+                    <td>
+                        @if (!string.IsNullOrWhiteSpace(app.RepoUrl))
+                        {
+                            <a href="@app.RepoUrl" target="_blank" rel="noopener" class="gh-link-inline" title="Open repository on GitHub" @onclick:stopPropagation="true">↗</a>
+                        }
+                        else
+                        {
+                            <span class="muted">—</span>
+                        }
+                    </td>
+                    <td class="expander">›</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [SupplyParameterFromQuery] public string? Email { get; set; }
+
+    private readonly List<YorrixxApplication> _apps = new();
+    private bool _loaded;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Email))
+        {
+            _error = "Missing email parameter.";
+            _loaded = true;
+            return;
+        }
+
+        try
+        {
+            var apps = await AdminClient.GetUserApplicationsAsync(Email, CancellationToken.None);
+            _apps.AddRange(apps);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    private void OpenApp(string appId) =>
+        Nav.NavigateTo($"/users/applications/details?email={Uri.EscapeDataString(Email!)}&appId={Uri.EscapeDataString(appId)}");
+}

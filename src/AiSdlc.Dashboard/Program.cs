@@ -4,6 +4,8 @@ using Azure.Storage.Blobs;
 using AiSdlc.Audit;
 using AiSdlc.Dashboard.Components;
 using AiSdlc.Dashboard.Services;
+using AiSdlc.Dashboard.Services.YorrixxAdmin;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,6 +38,24 @@ builder.Services.AddSingleton<IBlobPromptStore>(sp =>
 
 builder.Services.AddSingleton<PromptArtefactLoader>();
 builder.Services.AddHostedService<AuditFeedService>();
+
+builder.Services.Configure<YorrixxAdminOptions>(
+    builder.Configuration.GetSection(YorrixxAdminOptions.SectionName));
+
+builder.Services.AddHttpClient<IYorrixxAdminClient, YorrixxAdminClient>((sp, client) =>
+{
+    var opts = sp.GetRequiredService<IOptions<YorrixxAdminOptions>>().Value;
+    if (string.IsNullOrWhiteSpace(opts.BaseUrl))
+    {
+        throw new InvalidOperationException(
+            "YorrixxAdmin:BaseUrl must be set (see appsettings.Development.json).");
+    }
+    client.BaseAddress = new Uri(opts.BaseUrl.TrimEnd('/') + "/");
+    if (!string.IsNullOrWhiteSpace(opts.ApiKey))
+    {
+        client.DefaultRequestHeaders.Add("X-Yorrixx-Admin-Key", opts.ApiKey);
+    }
+});
 
 // GitHub API fallback for issue title/state when audit data lacks it (e.g. runs created before
 // the orchestrator started writing webhook audit events).

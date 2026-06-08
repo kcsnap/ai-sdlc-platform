@@ -5,16 +5,17 @@
 @inject NavigationManager Nav
 @implements IDisposable
 
-<PageTitle>Applications</PageTitle>
+<PageTitle>SDLC pipeline runs</PageTitle>
 
 @{
     var apps = ApplicationSummariser.Summarise(_events);
 }
 
 <section class="controls">
-    <h1>Applications</h1>
+    <h1>SDLC pipeline runs</h1>
+    <p class="muted">GitHub repos that have produced AI-SDLC audit events. For user-generated apps in the Yorrixx app builder, see <a href="/users">Users</a>.</p>
     <div class="meta">
-        <span class="counter">@apps.Count application@(apps.Count == 1 ? "" : "s")</span>
+        <span class="counter">@apps.Count repo@(apps.Count == 1 ? "" : "s")</span>
     </div>
 </section>
 

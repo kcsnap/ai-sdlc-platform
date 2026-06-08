@@ -1,0 +1,102 @@
+@page "/users"
+@rendermode InteractiveServer
+@using AiSdlc.Dashboard.Services.YorrixxAdmin
+@inject IYorrixxAdminClient AdminClient
+@inject NavigationManager Nav
+
+<PageTitle>Yorrixx users</PageTitle>
+
+<section class="controls">
+    <h1>Yorrixx users</h1>
+    <div class="meta">
+        @if (_loaded && _error is null)
+        {
+            <span class="counter">@_users.Count user@(_users.Count == 1 ? "" : "s")</span>
+        }
+    </div>
+</section>
+
+@if (_error is not null)
+{
+    <p class="empty">Failed to load users: @_error</p>
+}
+else if (!_loaded)
+{
+    <p class="empty">Loading…</p>
+}
+else if (_users.Count == 0)
+{
+    <p class="empty">No Yorrixx users yet.</p>
+}
+else
+{
+    <table class="feed applications">
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th>Display name</th>
+                <th>Yorrixx apps</th>
+                <th>Quota</th>
+                <th>Created (UTC)</th>
+                <th>Last sign-in (UTC)</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var user in _users)
+            {
+                var atQuota = user.ApplicationCount >= user.ApplicationQuota;
+                <tr class="row app-row" @onclick="() => OpenUser(user.Email)">
+                    <td class="app-name"><strong>@user.Email</strong></td>
+                    <td>@(user.DisplayName ?? "—")</td>
+                    <td class="counts"><strong>@user.ApplicationCount</strong></td>
+                    <td class="counts">
+                        <strong>@user.ApplicationQuota</strong>
+                        @if (atQuota)
+                        {
+                            <span class="chip status-failed" title="User is at or above quota">full</span>
+                        }
+                    </td>
+                    <td class="ts">@user.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td class="ts">@(user.LastSignInAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "—")</td>
+                    <td class="expander">
+                        <a href="@EditUrl(user.Email)"
+                           class="gh-link-inline"
+                           title="Edit user profile"
+                           @onclick:stopPropagation="true">✎</a>
+                        <span> ›</span>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private readonly List<YorrixxUser> _users = new();
+    private bool _loaded;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var page = await AdminClient.ListUsersAsync(query: null, cursor: null, pageSize: 100, CancellationToken.None);
+            _users.AddRange(page.Items);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    private void OpenUser(string email) =>
+        Nav.NavigateTo($"/users/applications?email={Uri.EscapeDataString(email)}");
+
+    private static string EditUrl(string email) =>
+        $"/users/edit?email={Uri.EscapeDataString(email)}";
+}
