@@ -26,6 +26,9 @@ public static class AiSdlcWorkflowOrchestrator
     private static readonly TaskOptions AgentRetryOptions = TaskOptions.FromRetryPolicy(
         new RetryPolicy(maxNumberOfAttempts: 3, firstRetryInterval: TimeSpan.FromMinutes(3), backoffCoefficient: 2.0));
 
+    // How long a stalled stage stays resumable (waiting for /retry) before the run gives up.
+    private static readonly TimeSpan StageRetryWindow = TimeSpan.FromDays(7);
+
     [Function(nameof(AiSdlcWorkflowOrchestrator))]
     public static async Task<WorkflowRun> RunAsync([OrchestrationTrigger] TaskOrchestrationContext context)
     {
@@ -50,8 +53,9 @@ public static class AiSdlcWorkflowOrchestrator
             agentContext.Metadata["charter"] = CharterMarkdownRenderer.Render(charter);
 
         // ── Step 1: Product Strategist ─────────────────────────────────────────
-        var strategistResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext, AgentRetryOptions);
+        var strategistResult = await RunStageWithRecoveryAsync(context, agentContext, "Product Strategist",
+            () => context.CallActivityAsync<AgentResult>(
+                nameof(AgentActivityFunctions.RunProductStrategistAsync), agentContext, AgentRetryOptions));
         agentContext.Metadata["strategistOutput"] = strategistResult.ContextRef ?? strategistResult.OutputMarkdown ?? strategistResult.Summary;
 
         // ── Step 2: Product Owner — brief, auto-approved when allowAutoMerge ────
@@ -60,8 +64,9 @@ public static class AiSdlcWorkflowOrchestrator
 
         if (allowAutoMerge)
         {
-            ownerResult = await context.CallActivityAsync<AgentResult>(
-                nameof(AgentActivityFunctions.RunProductOwnerAsync), agentContext, AgentRetryOptions);
+            ownerResult = await RunStageWithRecoveryAsync(context, agentContext, "Product Owner",
+                () => context.CallActivityAsync<AgentResult>(
+                    nameof(AgentActivityFunctions.RunProductOwnerAsync), agentContext, AgentRetryOptions));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -120,8 +125,9 @@ public static class AiSdlcWorkflowOrchestrator
             new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:brief-approved"));
 
         // ── Step 3: Business Analyst ───────────────────────────────────────────
-        var analystResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunBusinessAnalystAsync), agentContext, AgentRetryOptions);
+        var analystResult = await RunStageWithRecoveryAsync(context, agentContext, "Business Analyst",
+            () => context.CallActivityAsync<AgentResult>(
+                nameof(AgentActivityFunctions.RunBusinessAnalystAsync), agentContext, AgentRetryOptions));
         agentContext.Metadata["analystOutput"] = analystResult.ContextRef ?? analystResult.OutputMarkdown ?? analystResult.Summary;
 
         await context.CallActivityAsync(
@@ -130,8 +136,9 @@ public static class AiSdlcWorkflowOrchestrator
                 "AI SDLC — Business Analysis", analystResult));
 
         // ── Step 4: Architect ──────────────────────────────────────────────────
-        var architectResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunArchitectAsync), agentContext, AgentRetryOptions);
+        var architectResult = await RunStageWithRecoveryAsync(context, agentContext, "Architect",
+            () => context.CallActivityAsync<AgentResult>(
+                nameof(AgentActivityFunctions.RunArchitectAsync), agentContext, AgentRetryOptions));
         agentContext.Metadata["architectOutput"] = architectResult.ContextRef ?? architectResult.OutputMarkdown ?? architectResult.Summary;
 
         await context.CallActivityAsync(
@@ -140,17 +147,17 @@ public static class AiSdlcWorkflowOrchestrator
                 "AI SDLC — Architecture Review", architectResult));
 
         // ── Step 5: Parallel specialist reviews (fan-out) ─────────────────────
-        var reviewTasks = new List<Task<AgentResult>>
-        {
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSecurityPrivacyReviewerAsync), agentContext, AgentRetryOptions),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunUxAccessibilityReviewerAsync), agentContext, AgentRetryOptions),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDevOpsPlatformEngineerAsync),  agentContext, AgentRetryOptions),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunContentSeoReviewerAsync),      agentContext, AgentRetryOptions),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunComplianceLegalReviewerAsync), agentContext, AgentRetryOptions),
-            context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDataAnalyticsReviewerAsync),   agentContext, AgentRetryOptions),
-        };
-
-        var reviewResults = await Task.WhenAll(reviewTasks);
+        // Wrapped as a single recoverable stage: a /retry after failure re-runs all six.
+        var reviewResults = await RunStageWithRecoveryAsync(context, agentContext, "Specialist Reviews",
+            () => Task.WhenAll(new List<Task<AgentResult>>
+            {
+                context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSecurityPrivacyReviewerAsync), agentContext, AgentRetryOptions),
+                context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunUxAccessibilityReviewerAsync), agentContext, AgentRetryOptions),
+                context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDevOpsPlatformEngineerAsync),  agentContext, AgentRetryOptions),
+                context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunContentSeoReviewerAsync),      agentContext, AgentRetryOptions),
+                context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunComplianceLegalReviewerAsync), agentContext, AgentRetryOptions),
+                context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunDataAnalyticsReviewerAsync),   agentContext, AgentRetryOptions),
+            }));
 
         var securityResult   = reviewResults[0];
         var uxResult         = reviewResults[1];
@@ -176,11 +183,13 @@ public static class AiSdlcWorkflowOrchestrator
                 specialistMarkdown, specialistRefs.Count > 0 ? specialistRefs : null));
 
         // ── Step 6: QA + Senior Coder (parallel) ──────────────────────────────
-        var qaTask     = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunQaTestEngineerAsync), agentContext, AgentRetryOptions);
-        var coderTask  = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSeniorCoderAsync),    agentContext, AgentRetryOptions);
-
-        var qaResult    = await qaTask;
-        var coderResult = await coderTask;
+        var (qaResult, coderResult) = await RunStageWithRecoveryAsync(context, agentContext, "QA + Senior Coder",
+            async () =>
+            {
+                var qaTask    = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunQaTestEngineerAsync), agentContext, AgentRetryOptions);
+                var coderTask = context.CallActivityAsync<AgentResult>(nameof(AgentActivityFunctions.RunSeniorCoderAsync),    agentContext, AgentRetryOptions);
+                return (Qa: await qaTask, Coder: await coderTask);
+            });
 
         agentContext.Metadata["testPlan"] = qaResult.ContextRef    ?? qaResult.OutputMarkdown    ?? qaResult.Summary;
         agentContext.Metadata["implSpec"] = coderResult.ContextRef ?? coderResult.OutputMarkdown ?? coderResult.Summary;
@@ -192,8 +201,9 @@ public static class AiSdlcWorkflowOrchestrator
                 implGuidanceMarkdown, implGuidanceRefs.Count > 0 ? implGuidanceRefs : null));
 
         // ── Step 7: Risk Assessor ──────────────────────────────────────────────
-        var riskResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunRiskAssessorAsync), agentContext, AgentRetryOptions);
+        var riskResult = await RunStageWithRecoveryAsync(context, agentContext, "Risk Assessor",
+            () => context.CallActivityAsync<AgentResult>(
+                nameof(AgentActivityFunctions.RunRiskAssessorAsync), agentContext, AgentRetryOptions));
         agentContext.Metadata["riskAssessment"] = riskResult.ContextRef ?? riskResult.OutputMarkdown ?? riskResult.Summary;
 
         await context.CallActivityAsync(
@@ -265,8 +275,9 @@ public static class AiSdlcWorkflowOrchestrator
         }
 
         // ── Step 9: Release Manager ────────────────────────────────────────────
-        var releaseResult = await context.CallActivityAsync<AgentResult>(
-            nameof(AgentActivityFunctions.RunReleaseManagerAsync), agentContext, AgentRetryOptions);
+        var releaseResult = await RunStageWithRecoveryAsync(context, agentContext, "Release Manager",
+            () => context.CallActivityAsync<AgentResult>(
+                nameof(AgentActivityFunctions.RunReleaseManagerAsync), agentContext, AgentRetryOptions));
 
         await context.CallActivityAsync(
             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -287,8 +298,9 @@ public static class AiSdlcWorkflowOrchestrator
         if (allowAutoMerge)
         {
             // ── Step 10: Generate code implementation ─────────────────────────
-            var implResult = await context.CallActivityAsync<AgentResult>(
-                nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions);
+            var implResult = await RunStageWithRecoveryAsync(context, agentContext, "Code Implementer",
+                () => context.CallActivityAsync<AgentResult>(
+                    nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -352,15 +364,16 @@ public static class AiSdlcWorkflowOrchestrator
 
             // ── Step 11b: Product Owner reviews committed content ──────────────
             var reviewFilePaths = fileChanges.Select(f => f.Path).ToArray();
-            var branchReviewResult = await context.CallActivityAsync<AgentResult>(
-                nameof(AgentActivityFunctions.ReviewBranchContentAsync),
-                new ReviewBranchInput(
-                    agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
-                    branchName, reviewFilePaths,
-                    agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
-                    agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty,
-                    agentContext.Metadata.GetValueOrDefault("charter")?.ToString()       ?? string.Empty),
-                AgentRetryOptions);
+            var branchReviewResult = await RunStageWithRecoveryAsync(context, agentContext, "Implementation Review",
+                () => context.CallActivityAsync<AgentResult>(
+                    nameof(AgentActivityFunctions.ReviewBranchContentAsync),
+                    new ReviewBranchInput(
+                        agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
+                        branchName, reviewFilePaths,
+                        agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
+                        agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty,
+                        agentContext.Metadata.GetValueOrDefault("charter")?.ToString()       ?? string.Empty),
+                    AgentRetryOptions));
 
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -373,8 +386,9 @@ public static class AiSdlcWorkflowOrchestrator
                 agentContext.Metadata["poReviewFeedback"] = branchReviewResult.ContextRef
                     ?? branchReviewResult.OutputMarkdown ?? branchReviewResult.Summary;
 
-                var fixResult = await context.CallActivityAsync<AgentResult>(
-                    nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions);
+                var fixResult = await RunStageWithRecoveryAsync(context, agentContext, "Code Implementer (fix)",
+                    () => context.CallActivityAsync<AgentResult>(
+                        nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
 
                 await context.CallActivityAsync(
                     nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -398,15 +412,16 @@ public static class AiSdlcWorkflowOrchestrator
                     }
 
                     // Re-review the fixed content (once — no infinite loop)
-                    var rereviewResult = await context.CallActivityAsync<AgentResult>(
-                        nameof(AgentActivityFunctions.ReviewBranchContentAsync),
-                        new ReviewBranchInput(
-                            agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
-                            branchName, fixedChanges.Select(f => f.Path).ToArray(),
-                            agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
-                            agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty,
-                            agentContext.Metadata.GetValueOrDefault("charter")?.ToString()       ?? string.Empty),
-                        AgentRetryOptions);
+                    var rereviewResult = await RunStageWithRecoveryAsync(context, agentContext, "Implementation Re-Review",
+                        () => context.CallActivityAsync<AgentResult>(
+                            nameof(AgentActivityFunctions.ReviewBranchContentAsync),
+                            new ReviewBranchInput(
+                                agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
+                                branchName, fixedChanges.Select(f => f.Path).ToArray(),
+                                agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
+                                agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty,
+                                agentContext.Metadata.GetValueOrDefault("charter")?.ToString()       ?? string.Empty),
+                            AgentRetryOptions));
 
                     await context.CallActivityAsync(
                         nameof(AgentActivityFunctions.PostGitHubCommentAsync),
@@ -585,6 +600,56 @@ public static class AiSdlcWorkflowOrchestrator
                                analyticsResult, qaResult, coderResult, riskResult, releaseResult)
         };
     }
+
+    // Runs an LLM-backed stage and, instead of letting retry exhaustion kill the whole
+    // orchestration (v17 incident: Anthropic credit exhaustion → 400 → instance Failed,
+    // recoverable only by close/reopen from scratch), parks the run: posts a comment
+    // explaining the failure, audits an Awaiting state for the dashboard, and re-runs the
+    // stage when a /retry comment raises RetryStage. Earlier stages are never repeated.
+    private static async Task<T> RunStageWithRecoveryAsync<T>(
+        TaskOrchestrationContext context, AgentContext agentContext, string stageName, Func<Task<T>> runStage)
+    {
+        while (true)
+        {
+            try
+            {
+                return await runStage();
+            }
+            catch (TaskFailedException ex)
+            {
+                var reason = ex.InnerException?.Message ?? ex.Message;
+
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                    new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                        BuildStageStalledComment(stageName, reason)));
+
+                await RecordWorkflowAwaitAsync(context, agentContext,
+                    "AwaitingStageRetry", $"Stage '{stageName}' failed after retries — awaiting /retry");
+
+                using var cts   = new CancellationTokenSource();
+                var retryTask   = context.WaitForExternalEvent<object?>(WorkflowEventNames.RetryStage, cts.Token);
+                var timeoutTask = context.CreateTimer(context.CurrentUtcDateTime.Add(StageRetryWindow), cts.Token);
+                var winner      = await Task.WhenAny(retryTask, timeoutTask);
+                cts.Cancel();
+
+                if (winner == timeoutTask)
+                {
+                    await RecordWorkflowExitAsync(context, agentContext, "Failed",
+                        $"Stage '{stageName}' abandoned — no /retry within {StageRetryWindow.TotalDays:0} days: {reason}");
+                    throw;
+                }
+            }
+        }
+    }
+
+    internal static string BuildStageStalledComment(string stageName, string reason) =>
+        "## AI SDLC — Stage Failed (resumable)\n\n" +
+        $"Stage **{stageName}** failed after automatic retries:\n\n" +
+        $"> {reason}\n\n" +
+        "The run is paused, not dead. Fix the underlying problem (e.g. API quota), then comment " +
+        "`/retry` on this issue to resume. The run continues from this stage — earlier stages are " +
+        "not repeated.";
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 

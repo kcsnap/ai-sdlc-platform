@@ -345,6 +345,9 @@ public sealed class OrchestratorSkeletonTests
         public Task CreateOrUpdateFileAsync(string repository, string path, string content, string commitMessage, string branch, CancellationToken ct) =>
             Task.CompletedTask;
 
+        public Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(string organisation, string label, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<OrgIssueSearchHit>>([]);
+
         private static IssueComment StubComment(string repository, int number) => new()
         {
             CommentId                = 1,

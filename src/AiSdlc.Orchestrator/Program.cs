@@ -1,11 +1,13 @@
 using Azure.Data.Tables;
 using Azure.Identity;
 using Azure.Storage.Blobs;
+using Azure.Storage.Queues;
 using AiSdlc.Agents;
 using AiSdlc.Agents.Personas;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
+using AiSdlc.Orchestrator.Webhooks;
 using AiSdlc.RepoIndex;
 using AiSdlc.Shared.AutoMerge;
 using AiSdlc.Shared.Redaction;
@@ -88,6 +90,33 @@ var host = new HostBuilder()
 
         services.AddSingleton<IRepoIndexer, GitHubRepoIndexer>();
         services.AddSingleton<AiSdlc.RepoIndex.Charter.ICharterReader, AiSdlc.RepoIndex.Charter.GitHubCharterReader>();
+
+        // Fast-ACK webhook intake: queue + overflow blob live on the host storage account
+        // (the managed identity already holds queue/blob data roles there for Durable Functions).
+        // Locally (Azurite) AzureWebJobsStorage__accountName is absent — fall back to the
+        // development-storage connection string.
+        services.AddSingleton<GitHubWebhookProcessor>();
+        services.AddSingleton<IWebhookInbox>(_ =>
+        {
+            var hostAccount = Environment.GetEnvironmentVariable("AzureWebJobsStorage__accountName");
+            var queueOptions = new QueueClientOptions { MessageEncoding = QueueMessageEncoding.Base64 };
+
+            if (hostAccount is not null)
+            {
+                return new StorageQueueWebhookInbox(
+                    new QueueClient(
+                        new Uri($"https://{hostAccount}.queue.core.windows.net/{StorageQueueWebhookInbox.QueueName}"),
+                        credential, queueOptions),
+                    new BlobContainerClient(
+                        new Uri($"https://{hostAccount}.blob.core.windows.net/{StorageQueueWebhookInbox.OverflowContainerName}"),
+                        credential));
+            }
+
+            var devConnection = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? "UseDevelopmentStorage=true";
+            return new StorageQueueWebhookInbox(
+                new QueueClient(devConnection, StorageQueueWebhookInbox.QueueName, queueOptions),
+                new BlobContainerClient(devConnection, StorageQueueWebhookInbox.OverflowContainerName));
+        });
     })
     .Build();
 

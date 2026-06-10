@@ -136,4 +136,9 @@ module "function_app" {
   managed_identity_client_id     = module.managed_identity.client_id
   key_vault_uri                  = module.key_vault.vault_uri
   audit_storage_account_name     = module.audit_storage.name
+
+  app_settings = {
+    # Org swept by ReconciliationSweepFunction for stranded ai-sdlc:bootstrap issues.
+    ReconciliationOrg = "yorrixx-apps"
+  }
 }

@@ -6,5 +6,6 @@ public enum WorkflowCommand
     ApproveBrief,
     RequestChanges,
     ApproveRelease,
-    ApproveMerge
+    ApproveMerge,
+    Retry
 }

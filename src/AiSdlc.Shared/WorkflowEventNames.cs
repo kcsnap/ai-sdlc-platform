@@ -14,4 +14,5 @@ public static class WorkflowEventNames
     public const string HumanReviewApproved  = "HumanReviewApproved";
     public const string HumanReviewRejected  = "HumanReviewRejected";
     public const string DeploymentCompleted  = "DeploymentCompleted";
+    public const string RetryStage           = "RetryStage";
 }

@@ -50,6 +50,21 @@ The 14-day timeout resets on each new comment — if no approval arrives within 
 
 ---
 
+### Resume a stalled stage
+
+When an LLM agent stage exhausts its automatic retries (e.g. provider quota/credit
+exhaustion), the run does not die — it posts an "AI SDLC — Stage Failed (resumable)"
+comment and parks. Fix the underlying problem, then post on the issue:
+
+```
+/retry
+```
+
+The run resumes from the failed stage; earlier stages are not repeated. The retry
+window is 7 days, after which the orchestration gives up and ends `Failed`.
+
+---
+
 ### Force-fail a workflow
 
 Post a comment on the GitHub issue:

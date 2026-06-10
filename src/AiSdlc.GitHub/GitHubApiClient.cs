@@ -220,6 +220,25 @@ public sealed class GitHubApiClient : IGitHubService
         return System.Text.Encoding.UTF8.GetString(bytes);
     }
 
+    public async Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(
+        string organisation, string label, CancellationToken cancellationToken)
+    {
+        var query = Uri.EscapeDataString($"org:{organisation} label:\"{label}\" is:issue is:open");
+        var json  = await GetAsync<IssueSearchJson>($"/search/issues?q={query}&per_page=100", cancellationToken);
+        return json.Items.Select(i => new OrgIssueSearchHit(
+            RepositoryFromApiUrl(i.RepositoryUrl), i.Number, i.Title, i.Body, i.HtmlUrl,
+            i.User.Login, i.Labels.Select(l => l.Name).ToArray(),
+            i.UpdatedAt ?? i.CreatedAt)).ToArray();
+    }
+
+    // e.g. https://api.github.com/repos/yorrixx-apps/user-app-123 → yorrixx-apps/user-app-123
+    private static string RepositoryFromApiUrl(string repositoryUrl)
+    {
+        const string marker = "/repos/";
+        var idx = repositoryUrl.IndexOf(marker, StringComparison.Ordinal);
+        return idx >= 0 ? repositoryUrl[(idx + marker.Length)..] : repositoryUrl;
+    }
+
     private async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync(path, cancellationToken);
@@ -298,6 +317,11 @@ public sealed class GitHubApiClient : IGitHubService
     private sealed record CheckRunsJson(CheckRunJson[] CheckRuns);
     private sealed record CheckRunJson(
         string Name, string Status, string? Conclusion, string? DetailsUrl);
+
+    private sealed record IssueSearchJson(IssueSearchItemJson[] Items);
+    private sealed record IssueSearchItemJson(
+        int Number, string Title, string? Body, UserJson User, LabelJson[] Labels,
+        string HtmlUrl, string RepositoryUrl, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
 
     private sealed record UserJson(string Login);
     private sealed record LabelJson(string Name);

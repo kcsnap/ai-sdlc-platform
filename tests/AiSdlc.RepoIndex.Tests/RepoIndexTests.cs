@@ -336,5 +336,6 @@ public sealed class GitHubRepoIndexerTests
         public Task<string> GetDefaultBranchShaAsync(string r, string b, CancellationToken c) => throw new NotImplementedException();
         public Task CreateBranchAsync(string r, string b, string s, CancellationToken c) => throw new NotImplementedException();
         public Task CreateOrUpdateFileAsync(string r, string p, string c2, string m, string b, CancellationToken c) => throw new NotImplementedException();
+        public Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(string o, string l, CancellationToken c) => throw new NotImplementedException();
     }
 }
