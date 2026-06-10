@@ -27,4 +27,7 @@ public interface IGitHubService
     Task<string> GetDefaultBranchShaAsync(string repository, string branch, CancellationToken cancellationToken);
     Task CreateBranchAsync(string repository, string branchName, string sha, CancellationToken cancellationToken);
     Task CreateOrUpdateFileAsync(string repository, string path, string content, string commitMessage, string branch, CancellationToken cancellationToken);
+
+    /// <summary>Searches an organisation for open issues carrying the given label.</summary>
+    Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(string organisation, string label, CancellationToken cancellationToken);
 }

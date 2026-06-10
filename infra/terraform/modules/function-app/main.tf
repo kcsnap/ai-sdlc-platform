@@ -75,6 +75,14 @@ resource "azapi_resource" "function_app" {
         scaleAndConcurrency = {
           maximumInstanceCount = 100
           instanceMemoryMB     = 2048
+          # One always-ready instance for the HTTP group: GitHub never retries a failed
+          # webhook delivery, so a cold-start 502 on the receiver loses the event outright.
+          alwaysReady = [
+            {
+              name          = "http"
+              instanceCount = 1
+            }
+          ]
         }
         runtime = {
           name    = "dotnet-isolated"

@@ -10,7 +10,8 @@ public static class WorkflowCommandParser
         ("/approve-brief",   WorkflowCommand.ApproveBrief),
         ("/request-changes", WorkflowCommand.RequestChanges),
         ("/approve-release", WorkflowCommand.ApproveRelease),
-        ("/approve-merge",   WorkflowCommand.ApproveMerge)
+        ("/approve-merge",   WorkflowCommand.ApproveMerge),
+        ("/retry",           WorkflowCommand.Retry)
     ];
 
     public static WorkflowCommand Parse(string commentBody)

@@ -61,7 +61,18 @@ public sealed class AnthropicModelProvider : IModelProvider
             await Task.Delay(TimeSpan.FromSeconds(retryAfter), cancellationToken);
         }
 
-        httpResponse.EnsureSuccessStatusCode();
+        if (!httpResponse.IsSuccessStatusCode)
+        {
+            // Anthropic puts the actionable detail (e.g. "credit balance is too low",
+            // "max_tokens exceeds model limit") in the response body — surface it, or
+            // failures show up in audit/logs as a bare status code.
+            var errorBody = await httpResponse.Content.ReadAsStringAsync(cancellationToken);
+            var detail    = errorBody.Length > 500 ? errorBody[..500] : errorBody;
+            throw new HttpRequestException(
+                $"Anthropic API returned {(int)httpResponse.StatusCode} ({httpResponse.StatusCode}): {detail}",
+                inner: null,
+                statusCode: httpResponse.StatusCode);
+        }
 
         var result = await httpResponse.Content.ReadFromJsonAsync<AnthropicResponse>(JsonOpts, cancellationToken)
             ?? throw new InvalidOperationException("Empty response from Anthropic API.");
