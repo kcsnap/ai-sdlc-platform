@@ -137,7 +137,7 @@ public sealed class GitHubApiClient : IGitHubService
             new { merge_method = "squash", commit_message = commitMessage },
             JsonOptions,
             cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"PUT /repos/{repository}/pulls/{pullRequestNumber}/merge", cancellationToken);
     }
 
     public async Task<string> GetDefaultBranchAsync(string repository, CancellationToken cancellationToken)
@@ -161,7 +161,7 @@ public sealed class GitHubApiClient : IGitHubService
                 new { @ref = $"refs/heads/{branchName}", sha },
                 JsonOptions,
                 cancellationToken);
-            response.EnsureSuccessStatusCode();
+            await EnsureSuccessAsync(response, $"POST /repos/{repository}/git/refs", cancellationToken);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
         {
@@ -211,7 +211,7 @@ public sealed class GitHubApiClient : IGitHubService
 
         using var response = await _http.GetAsync(url, cancellationToken);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"GET {url}", cancellationToken);
 
         var json = await response.Content.ReadFromJsonAsync<FileContentJson>(JsonOptions, cancellationToken);
         if (json is null || json.Encoding != "base64") return null;
@@ -239,10 +239,26 @@ public sealed class GitHubApiClient : IGitHubService
         return idx >= 0 ? repositoryUrl[(idx + marker.Length)..] : repositoryUrl;
     }
 
+    // GitHub puts the actionable detail ("Requires authentication", "Validation Failed" with
+    // field errors, rate-limit messages) in the response body — surface it, or failures show
+    // up in audit/logs as a bare status code.
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response, string context, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+            return;
+
+        var body   = await response.Content.ReadAsStringAsync(cancellationToken);
+        var detail = body.Length > 500 ? body[..500] : body;
+        throw new HttpRequestException(
+            $"GitHub API returned {(int)response.StatusCode} ({response.StatusCode}) for {context}: {detail}",
+            inner: null,
+            statusCode: response.StatusCode);
+    }
+
     private async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync(path, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"GET {path}", cancellationToken);
         return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
                ?? throw new InvalidOperationException($"Empty response from GitHub API: GET {path}");
     }
@@ -250,7 +266,7 @@ public sealed class GitHubApiClient : IGitHubService
     private async Task<T> PostAsync<T>(string path, object body, CancellationToken cancellationToken)
     {
         using var response = await _http.PostAsJsonAsync(path, body, JsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"POST {path}", cancellationToken);
         return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
                ?? throw new InvalidOperationException($"Empty response from GitHub API: POST {path}");
     }
