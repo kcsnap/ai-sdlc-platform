@@ -77,6 +77,7 @@ var host = new HostBuilder()
             new BlobContextStore(new BlobContainerClient(
                 new Uri($"https://{auditAccountName}.blob.core.windows.net/context"), credential)));
 
+        services.AddTransient<GitHubTransientRetryHandler>();
         services.AddHttpClient<IGitHubService, GitHubApiClient>(client =>
         {
             var pat = Environment.GetEnvironmentVariable("GitHubPat")
@@ -86,7 +87,7 @@ var host = new HostBuilder()
             client.DefaultRequestHeaders.Add("User-Agent", "ai-sdlc-platform/1.0");
             client.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
             client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
-        });
+        }).AddHttpMessageHandler<GitHubTransientRetryHandler>();
 
         services.AddSingleton<IRepoIndexer, GitHubRepoIndexer>();
         services.AddSingleton<AiSdlc.RepoIndex.Charter.ICharterReader, AiSdlc.RepoIndex.Charter.GitHubCharterReader>();
