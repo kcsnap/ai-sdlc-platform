@@ -908,20 +908,23 @@ Create a reusable starter template for the user-apps the platform generates. **S
 
 ## Tasks
 
-- [ ] Create `ai-sdlc-react-dotnet-template` repo
-- [ ] Add React 19 + Vite + TS frontend (TanStack Query + Tailwind + shadcn/ui)
-- [ ] Add ASP.NET Core minimal API on .NET 9 (vanilla — no Aspire deps in API project)
-- [ ] Add .NET Aspire AppHost project for local dev (Aspire orchestrates API + Vite + Cosmos emulator)
-- [ ] Add Vitest + xUnit test scaffolding; Playwright + Cosmos-emulator integration scaffolded but not CI-gated
-- [ ] Add `.github/workflows/ci.yml` — build + test on PR
-- [ ] Add `.github/workflows/deploy.yml` — OIDC + zip deploy via `azure/webapps-deploy@v3` to the frontend F1 Web App and `azure/functions-action@v1` to the API Function App (Flex Consumption). AppHost excluded
-- [ ] Add `.ai-sdlc.yml` reflecting ADR-0002 + ADR-0003 (backend dotnet 9 on Functions isolated worker, frontend react/vite/ts on F1 Web App, database cosmos serverless)
-- [ ] Add mandatory docs (README documenting frontend F1 5–10 s cold start + API Flex Consumption 1–2 s cold start + `*.azurewebsites.net` URL only on free tier + Functions 230 s HTTP gateway timeout)
-- [ ] Add issue template
-- [ ] Add PR template
-- [ ] Add CODEOWNERS example
-- [ ] Add local dev guide (`dotnet run --project src/AppHost`; user-secrets for Clerk dev key; `.env.local` for Vite)
-- [ ] Add build/test verification
+> **Created 2026-06-11:** [`kcsnap/ai-sdlc-react-dotnet-template`](https://github.com/kcsnap/ai-sdlc-react-dotnet-template) (marked `is_template`). The API ships as a .NET 9 **Azure Functions isolated worker** per ADR-0003 (supersedes the "vanilla minimal API" wording below). Remaining: Yorrixx provisioning must seed new user-app repos from this template (Yorrixx-side change).
+
+- [x] Create `ai-sdlc-react-dotnet-template` repo
+- [x] Add React 19 + Vite + TS frontend (TanStack Query + Tailwind + shadcn/ui)
+- [x] Add API on .NET 9 (Functions isolated worker per ADR-0003 — no Aspire deps in API project)
+- [x] Add .NET Aspire AppHost project for local dev (Aspire orchestrates API + Vite + Cosmos emulator)
+- [x] Add Vitest + xUnit test scaffolding; Playwright + Cosmos-emulator integration scaffolded but not CI-gated
+- [x] Add `.github/workflows/ci.yml` — build + test on PR
+- [x] Add `.github/workflows/deploy.yml` — OIDC + zip deploy via `azure/webapps-deploy@v3` to the frontend F1 Web App and `azure/functions-action@v1` to the API Function App (Flex Consumption). AppHost excluded
+- [x] Add `.ai-sdlc.yml` reflecting ADR-0002 + ADR-0003 (backend dotnet 9 on Functions isolated worker, frontend react/vite/ts on F1 Web App, database cosmos serverless) — description + stack fields carry the Clerk/SendGrid/no-custom-auth pins so the RepoIndexer surfaces them to every agent
+- [x] Add mandatory docs (README documenting frontend F1 5–10 s cold start + API Flex Consumption 1–2 s cold start + `*.azurewebsites.net` URL only on free tier + Functions 230 s HTTP gateway timeout)
+- [x] Add issue template
+- [x] Add PR template
+- [x] Add CODEOWNERS example
+- [x] Add local dev guide (`dotnet run --project src/AppHost`; user-secrets for Clerk dev key; `.env.local` for Vite)
+- [x] Add build/test verification (dotnet build 0 warnings; xUnit 2/2; Vite build; Vitest 2/2 — verified locally 2026-06-11)
+- [ ] Yorrixx provisioning seeds user-app repos from this template (Yorrixx-side; tracked in the other session)
 
 ---
 
