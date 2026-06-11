@@ -32,6 +32,13 @@ public sealed class ReconciliationSweepFunction
     // get a bounded number of second chances before the failure is surfaced instead.
     internal const int MaxSilentFailureRestarts = 2;
 
+    // Only rescue recent failures. Instances that failed long ago are stale (abandoned builds,
+    // pre-deployment junk) — restarting them burns model spend with no one waiting on the
+    // result. Skipping leaves the Failed instance in place, which also blocks the fresh-start
+    // path, so old runs stay quietly parked. First observed 2026-06-11: the sweep resurrected
+    // days-old failed runs org-wide on its first deployment.
+    internal static readonly TimeSpan MaxRestartableAge = TimeSpan.FromHours(6);
+
     internal const string RestartCountMetadataKey = "reconciliationRestarts";
 
     // Applied when restarts are exhausted. As a non-bootstrap ai-sdlc:* label it also blocks
@@ -201,11 +208,14 @@ public sealed class ReconciliationSweepFunction
     /// <summary>
     /// Only runtime status Failed marks a silent mid-chain crash: graceful business failures
     /// post a terminal marker and complete (status Completed), Running may be waiting on a
-    /// human, and Terminated/Suspended are deliberate operator actions.
+    /// human, and Terminated/Suspended are deliberate operator actions. The failure must also
+    /// be recent — see MaxRestartableAge.
     /// </summary>
     public static bool ShouldRestartSilentFailure(
         OrchestrationRuntimeStatus status, DateTimeOffset lastUpdatedAt, DateTimeOffset nowUtc) =>
-        status == OrchestrationRuntimeStatus.Failed && nowUtc - lastUpdatedAt >= FreshIssueGrace;
+        status == OrchestrationRuntimeStatus.Failed
+        && nowUtc - lastUpdatedAt >= FreshIssueGrace
+        && nowUtc - lastUpdatedAt <= MaxRestartableAge;
 
     internal static int ReadRestartCount(AgentContext? input)
     {
