@@ -79,6 +79,32 @@ public sealed class ReconciliationSweepTests
             OrchestrationRuntimeStatus.Failed, Now.AddMinutes(-5), Now));
     }
 
+    [Fact]
+    public void Stale_failed_instance_is_left_alone()
+    {
+        // Restarting days-old failures burns model spend on abandoned builds; leaving the
+        // Failed instance in place also blocks the fresh-start path, so it stays parked.
+        Assert.False(ReconciliationSweepFunction.ShouldRestartSilentFailure(
+            OrchestrationRuntimeStatus.Failed, Now.AddDays(-2), Now));
+    }
+
+    [Fact]
+    public void Comment_over_github_limit_is_truncated_with_notice()
+    {
+        var oversized = new string('x', AgentActivityFunctions.GitHubCommentMaxChars + 5000);
+        var truncated = AgentActivityFunctions.TruncateForGitHub(oversized);
+
+        Assert.True(truncated.Length <= AgentActivityFunctions.GitHubCommentMaxChars);
+        Assert.Contains("truncated", truncated);
+    }
+
+    [Fact]
+    public void Comment_within_github_limit_is_unchanged()
+    {
+        var markdown = "## AI SDLC — Implementation\n\nAll good.";
+        Assert.Same(markdown, AgentActivityFunctions.TruncateForGitHub(markdown));
+    }
+
     [Theory]
     [InlineData(OrchestrationRuntimeStatus.Running)]
     [InlineData(OrchestrationRuntimeStatus.Completed)]

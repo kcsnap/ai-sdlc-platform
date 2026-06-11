@@ -223,7 +223,9 @@ public sealed class GitHubApiClient : IGitHubService
     public async Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(
         string organisation, string label, CancellationToken cancellationToken)
     {
-        var query = Uri.EscapeDataString($"org:{organisation} label:\"{label}\" is:issue is:open");
+        // archived:false — issues in archived repos are read-only: any run started for them
+        // burns a full agent chain and then fails on the first comment post (403).
+        var query = Uri.EscapeDataString($"org:{organisation} label:\"{label}\" is:issue is:open archived:false");
         var json  = await GetAsync<IssueSearchJson>($"/search/issues?q={query}&per_page=100", cancellationToken);
         return json.Items.Select(i => new OrgIssueSearchHit(
             RepositoryFromApiUrl(i.RepositoryUrl), i.Number, i.Title, i.Body, i.HtmlUrl,
