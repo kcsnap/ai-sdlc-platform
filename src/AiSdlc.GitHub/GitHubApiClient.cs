@@ -79,17 +79,35 @@ public sealed class GitHubApiClient : IGitHubService
 
     public async Task<GitHubPullRequestReference> CreatePullRequestAsync(CreatePullRequestRequest request, CancellationToken cancellationToken)
     {
-        var json = await PostAsync<PullRequestJson>(
-            $"/repos/{request.Repository}/pulls",
-            new
-            {
-                title  = request.Title,
-                body   = request.BodyMarkdown,
-                head   = request.HeadBranch,
-                @base  = request.BaseBranch,
-                draft  = request.Draft
-            },
-            cancellationToken);
+        PullRequestJson json;
+        try
+        {
+            json = await PostAsync<PullRequestJson>(
+                $"/repos/{request.Repository}/pulls",
+                new
+                {
+                    title  = request.Title,
+                    body   = request.BodyMarkdown,
+                    head   = request.HeadBranch,
+                    @base  = request.BaseBranch,
+                    draft  = request.Draft
+                },
+                cancellationToken);
+        }
+        catch (HttpRequestException ex) when (ex.Message.Contains("A pull request already exists", StringComparison.OrdinalIgnoreCase))
+        {
+            // Idempotent create: a reopened-issue re-run reuses the same work branch, and the
+            // previous run's PR may still be open. Adopt it instead of failing the orchestration
+            // (observed on user-app-7301476a, 2026-06-11 — the same lesson as Graph FICs: lookups
+            // are cheap, duplicate-create failures kill whole runs).
+            var owner = request.Repository.Split('/')[0];
+            var open  = await GetAsync<PullRequestJson[]>(
+                $"/repos/{request.Repository}/pulls?head={Uri.EscapeDataString($"{owner}:{request.HeadBranch}")}&state=open",
+                cancellationToken);
+            json = open.FirstOrDefault()
+                ?? throw new InvalidOperationException(
+                    $"GitHub reported an existing PR for {request.HeadBranch} but none is open.");
+        }
 
         if (request.Labels.Count > 0)
         {
