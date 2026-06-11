@@ -88,7 +88,8 @@ public sealed class AnthropicModelProviderTests
     private static AnthropicModelProvider MakeProvider(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.anthropic.com/v1/") };
-        return new AnthropicModelProvider(http, Options, new NoOpRedactionService());
+        return new AnthropicModelProvider(http, Options, new NoOpRedactionService(),
+            new AnthropicRateLimiter(new AnthropicRateLimiterOptions()));
     }
 
     private sealed class SequentialHandler(List<(HttpStatusCode Status, string Body)> responses) : HttpMessageHandler

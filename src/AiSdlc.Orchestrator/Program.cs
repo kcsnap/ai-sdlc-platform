@@ -29,6 +29,18 @@ var host = new HostBuilder()
 
         services.AddSingleton<IRedactionService, RegexRedactionService>();
 
+        // Shared across all agents so parallel fan-outs draw from one budget view —
+        // keeps the platform inside its Anthropic usage-tier limits instead of 429ing.
+        services.AddSingleton(new AnthropicRateLimiterOptions
+        {
+            MaxConcurrentRequests =
+                int.TryParse(Environment.GetEnvironmentVariable("AnthropicMaxConcurrentRequests"), out var maxConcurrent) && maxConcurrent > 0
+                    ? maxConcurrent
+                    : 2
+        });
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<AnthropicRateLimiter>();
+
         services.AddHttpClient<IModelProvider, AnthropicModelProvider>(client =>
         {
             var apiKey = Environment.GetEnvironmentVariable("AnthropicApiKey")
