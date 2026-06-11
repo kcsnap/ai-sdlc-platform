@@ -263,6 +263,55 @@ public sealed class AgentActivityFunctions
         await _gitHub.AddLabelsAsync(input.Repository, input.IssueOrPrNumber, [input.Label], cancellationToken);
     }
 
+    [Function(nameof(GetCheckRunsStateAsync))]
+    public async Task<ChecksState> GetCheckRunsStateAsync([ActivityTrigger] GetPrContextInput input, CancellationToken cancellationToken)
+    {
+        var checks = await _gitHub.GetCheckRunResultsAsync(input.Repository, input.HeadSha, cancellationToken);
+        return new ChecksState(
+            Total:       checks.Count,
+            Pending:     checks.Count(c => c.Status != "completed"),
+            FailedNames: checks
+                .Where(c => c.Status == "completed" && c.Conclusion is not ("success" or "neutral" or "skipped"))
+                .Select(c => c.Name)
+                .ToList());
+    }
+
+    [Function(nameof(FetchReopenFindingsAsync))]
+    public async Task<string> FetchReopenFindingsAsync([ActivityTrigger] FetchReopenFindingsInput input, CancellationToken cancellationToken)
+    {
+        var comments = await _gitHub.GetIssueCommentsAsync(input.Repository, input.IssueNumber, cancellationToken);
+        return ExtractReopenFindings(comments);
+    }
+
+    // The findings are whatever was said AFTER the previous run finished: comments following
+    // the last <!-- ai-sdlc:status= --> terminal marker, excluding the platform's own stage
+    // comments. That captures Yorrixx's verification findings without depending on their format.
+    internal static string ExtractReopenFindings(IReadOnlyList<IssueComment> comments)
+    {
+        const int MaxChars = 20000;
+
+        var lastMarker = -1;
+        for (var i = 0; i < comments.Count; i++)
+        {
+            if (comments[i].BodyMarkdown.Contains("<!-- ai-sdlc:status=", StringComparison.Ordinal))
+                lastMarker = i;
+        }
+
+        var findings = comments
+            .Skip(lastMarker + 1)
+            .Where(c => !c.BodyMarkdown.StartsWith("## AI SDLC", StringComparison.Ordinal)
+                     && !c.BodyMarkdown.Contains("<!-- ai-sdlc:", StringComparison.Ordinal))
+            .Select(c => c.BodyMarkdown.Trim())
+            .Where(body => body.Length > 0)
+            .ToList();
+
+        if (findings.Count == 0)
+            return string.Empty;
+
+        var joined = string.Join("\n\n---\n\n", findings);
+        return joined.Length <= MaxChars ? joined : joined[..MaxChars];
+    }
+
     [Function(nameof(GetPullRequestContextAsync))]
     public async Task<PrMergeContext> GetPullRequestContextAsync([ActivityTrigger] GetPrContextInput input, CancellationToken cancellationToken)
     {

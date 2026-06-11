@@ -9,6 +9,12 @@ public static class AgentContextDocuments
 {
     public const string CharterDocumentName = "App Charter";
     public const string OperatingModeDocumentName = "Operating Mode";
+    public const string VerificationFindingsDocumentName = "Verification Findings";
+
+    private const string VerificationFindingsPreamble =
+        "This issue was REOPENED because the previously released build failed downstream " +
+        "verification. The findings below come from that verification. Your output MUST " +
+        "address them — they take priority over regenerating from scratch.\n\n";
 
     private const string BootstrapOperatingModeInstructions = """
         This is a BOOTSTRAP run: a greenfield user-app being built unattended from a charter.
@@ -32,6 +38,10 @@ public static class AgentContextDocuments
 
         if (context.Mode == WorkflowMode.Bootstrap)
             contextDocs[OperatingModeDocumentName] = BootstrapOperatingModeInstructions;
+
+        var findings = ReadMeta(context, "reopenFindings");
+        if (!string.IsNullOrWhiteSpace(findings))
+            contextDocs[VerificationFindingsDocumentName] = VerificationFindingsPreamble + findings;
     }
 
     private static string ReadMeta(AgentContext context, string key) =>
