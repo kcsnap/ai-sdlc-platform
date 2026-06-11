@@ -163,6 +163,70 @@ public sealed class ReconciliationSweepTests
         RequestedAgent = "ProductStrategist"
     };
 
+    [Theory]
+    [InlineData(0, 0, 0, false)]  // no CI in the repo — nothing to gate on
+    [InlineData(3, 0, 0, false)]  // all checks green
+    [InlineData(3, 0, 1, true)]   // a check failed
+    [InlineData(3, 2, 0, true)]   // checks never settled within the budget
+    public void Checks_gate_blocks_on_failure_or_unsettled(int total, int pending, int failed, bool expectBlock)
+    {
+        var state = new ChecksState(total, pending,
+            Enumerable.Range(0, failed).Select(i => $"check-{i}").ToList());
+        Assert.Equal(expectBlock, AiSdlcWorkflowOrchestrator.ShouldBlockOnChecks(state));
+    }
+
+    [Fact]
+    public void Checks_failed_comment_names_the_failing_checks()
+    {
+        var comment = AiSdlcWorkflowOrchestrator.BuildChecksFailedComment(
+            new ChecksState(2, 0, ["build-test"]), "https://github.com/o/r/pull/5");
+        Assert.Contains("build-test", comment);
+        Assert.Contains("NOT merged", comment);
+    }
+
+    [Fact]
+    public void Reopen_findings_take_comments_after_the_last_terminal_marker_only()
+    {
+        var comments = new[]
+        {
+            MakeComment("## AI SDLC — Implementation Review\n\nAPPROVED"),
+            MakeComment("<!-- ai-sdlc:status=completed -->"),
+            MakeComment("## Verification findings\n\nfrontend fails to compile: TS2304 in App.tsx"),
+            MakeComment("Also the API returns 500 on /api/items."),
+        };
+
+        var findings = AgentActivityFunctions.ExtractReopenFindings(comments);
+
+        Assert.Contains("TS2304", findings);
+        Assert.Contains("500 on /api/items", findings);
+        Assert.DoesNotContain("APPROVED", findings);
+    }
+
+    [Fact]
+    public void Reopen_findings_exclude_platform_stage_comments_and_markers()
+    {
+        var comments = new[]
+        {
+            MakeComment("<!-- ai-sdlc:status=failed -->"),
+            MakeComment("## AI SDLC — Refined Brief\n\n(new run already started)"),
+            MakeComment("<!-- ai-sdlc:retry -->"),
+        };
+
+        Assert.Equal(string.Empty, AgentActivityFunctions.ExtractReopenFindings(comments));
+    }
+
+    [Fact]
+    public void Reopen_findings_empty_when_no_comments()
+    {
+        Assert.Equal(string.Empty, AgentActivityFunctions.ExtractReopenFindings([]));
+    }
+
+    private static AiSdlc.GitHub.IssueComment MakeComment(string body) => new()
+    {
+        CommentId = 1, Repository = "o/r", IssueOrPullRequestNumber = 1,
+        BodyMarkdown = body, AuthorLogin = "kcsnap", Url = "https://example"
+    };
+
     [Fact]
     public void Implementation_summary_comment_carries_branch_metadata_and_no_code()
     {

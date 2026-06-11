@@ -91,6 +91,11 @@ public sealed class GitHubWebhookProcessor
             ResolveWorkflowMode(payload.Issue.Labels),
             payload.Issue.Title, payload.Issue.Body, payload.Issue.Url, payload.Issue.User.Login);
 
+        // A reopen means the previous run's output failed downstream verification — the
+        // orchestrator fetches the findings comments and feeds them to every agent (#88).
+        if (payload.Action == "reopened")
+            agentContext.Metadata["reopened"] = "true";
+
         await durableClient.ScheduleNewOrchestrationInstanceAsync(
             nameof(AiSdlcWorkflowOrchestrator),
             agentContext,

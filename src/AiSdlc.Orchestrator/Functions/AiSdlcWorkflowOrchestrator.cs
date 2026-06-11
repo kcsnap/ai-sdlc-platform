@@ -52,6 +52,18 @@ public static class AiSdlcWorkflowOrchestrator
         if (charter is not null)
             agentContext.Metadata["charter"] = CharterMarkdownRenderer.Render(charter);
 
+        // A reopened issue means the previous run's release failed downstream verification
+        // (Yorrixx posts findings as comments, then reopens). Surface those findings to every
+        // agent so the re-run fixes them instead of regenerating blind (#88).
+        if (string.Equals(agentContext.Metadata.GetValueOrDefault("reopened")?.ToString(), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            var findings = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.FetchReopenFindingsAsync),
+                new FetchReopenFindingsInput(agentContext.Repository, agentContext.IssueNumber));
+            if (!string.IsNullOrWhiteSpace(findings))
+                agentContext.Metadata["reopenFindings"] = findings;
+        }
+
         // ── Step 1: Product Strategist ─────────────────────────────────────────
         var strategistResult = await RunStageWithRecoveryAsync(context, agentContext, "Product Strategist",
             () => context.CallActivityAsync<AgentResult>(
@@ -474,6 +486,40 @@ public static class AiSdlcWorkflowOrchestrator
             await context.CallActivityAsync(
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
                 new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:pr-opened"));
+
+            // ── Step 12a: Wait for PR check runs to settle, and block on failure ─
+            // The branch reviewer is an LLM — it cannot compile. CI check runs are the only
+            // build/typecheck signal, so a red (or never-finishing) build blocks the merge in
+            // EVERY mode, including Bootstrap. Repos without CI have zero check runs and
+            // proceed — the gate becomes real once repos carry the template's ci.yml (#88).
+            ChecksState checksState = null!;
+            for (var poll = 0; poll < MaxCheckPolls; poll++)
+            {
+                checksState = await context.CallActivityAsync<ChecksState>(
+                    nameof(AgentActivityFunctions.GetCheckRunsStateAsync),
+                    new GetPrContextInput(agentContext.Repository, prRef.PullRequestNumber, prHeadSha));
+
+                if (checksState.Pending == 0)
+                    break;
+
+                await context.CreateTimer(context.CurrentUtcDateTime.Add(CheckPollInterval), CancellationToken.None);
+            }
+
+            if (ShouldBlockOnChecks(checksState))
+            {
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                    new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                        BuildChecksFailedComment(checksState, prRef.Url)));
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                    new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:checks-failed"));
+                await RecordWorkflowExitAsync(context, agentContext, "Stopped",
+                    checksState.FailedNames.Count > 0
+                        ? $"PR checks failed: {string.Join(", ", checksState.FailedNames)}"
+                        : "PR checks did not complete within the polling budget");
+                return Stopped(agentContext.RunId, issue, createdAt, context);
+            }
 
             prContext = await context.CallActivityAsync<PrMergeContext>(
                 nameof(AgentActivityFunctions.GetPullRequestContextAsync),
@@ -990,6 +1036,25 @@ public static class AiSdlcWorkflowOrchestrator
         sb.AppendLine(ContentOrSentinel(release, "{C_RELEASE}"));
         return sb.ToString();
     }
+
+    // CI on template-seeded repos completes in ~2–4 minutes; 20 polls × 30 s gives a
+    // 10-minute budget before unfinished checks are treated as a failure.
+    internal static readonly TimeSpan CheckPollInterval = TimeSpan.FromSeconds(30);
+    internal const int MaxCheckPolls = 20;
+
+    // Block when any check failed, or when checks exist but never settled within the
+    // budget. Zero check runs (repo has no CI workflows yet) passes — there is nothing
+    // to compile against until template seeding lands.
+    internal static bool ShouldBlockOnChecks(ChecksState state) =>
+        state.FailedNames.Count > 0 || state.Pending > 0;
+
+    internal static string BuildChecksFailedComment(ChecksState state, string prUrl) =>
+        "## AI SDLC — Build Checks Failed\n\n" +
+        (state.FailedNames.Count > 0
+            ? $"The PR's checks failed: **{string.Join("**, **", state.FailedNames)}**.\n\n"
+            : "The PR's checks did not complete within the 10-minute polling budget.\n\n") +
+        $"The branch was NOT merged. Review the check logs on the [pull request]({prUrl}); " +
+        "close and reopen this issue (with findings as a comment) to run the pipeline again.";
 
     // Code-producing stages report a summary only — the branch is the single code transport.
     // Embedding source in comments leaked it into notification emails, hit GitHub's 64KB
