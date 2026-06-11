@@ -302,10 +302,8 @@ public static class AiSdlcWorkflowOrchestrator
                 () => context.CallActivityAsync<AgentResult>(
                     nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
 
-            await context.CallActivityAsync(
-                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
-                    "AI SDLC — Implementation", implResult));
+            // The implementation comment is posted AFTER the commits (step 11) as a summary with
+            // branch + SHA — code lives only on the branch, never in issue comments (#84).
 
             // Resolve code content from blob when offloaded so CodeChangeParser can extract file blocks
             var implContent = implResult.OutputMarkdown;
@@ -362,6 +360,16 @@ public static class AiSdlcWorkflowOrchestrator
                 return Stopped(agentContext.RunId, issue, createdAt, context);
             }
 
+            var implCommitSha = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                new GetHeadShaInput(agentContext.Repository, branchName));
+
+            await context.CallActivityAsync(
+                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                    BuildImplementationSummaryComment("AI SDLC — Implementation", implResult.Summary,
+                        agentContext.Repository, defaultBranch, branchName, implCommitSha, fileChanges.Count)));
+
             // ── Step 11b: Product Owner reviews committed content ──────────────
             var reviewFilePaths = fileChanges.Select(f => f.Path).ToArray();
             var branchReviewResult = await RunStageWithRecoveryAsync(context, agentContext, "Implementation Review",
@@ -390,11 +398,6 @@ public static class AiSdlcWorkflowOrchestrator
                     () => context.CallActivityAsync<AgentResult>(
                         nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
 
-                await context.CallActivityAsync(
-                    nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                    MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
-                        "AI SDLC — Implementation Fix", fixResult));
-
                 var fixContent = fixResult.OutputMarkdown;
                 if (fixContent is null && fixResult.ContextRef is not null)
                     fixContent = await context.CallActivityAsync<string>(
@@ -410,6 +413,16 @@ public static class AiSdlcWorkflowOrchestrator
                             nameof(AgentActivityFunctions.CommitFileAsync),
                             new CommitFileInput(agentContext.Repository, file.Path, file.Content, fixCommitMsg, branchName));
                     }
+
+                    var fixCommitSha = await context.CallActivityAsync<string>(
+                        nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                        new GetHeadShaInput(agentContext.Repository, branchName));
+
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                            BuildImplementationSummaryComment("AI SDLC — Implementation Fix", fixResult.Summary,
+                                agentContext.Repository, defaultBranch, branchName, fixCommitSha, fixedChanges.Count)));
 
                     // Re-review the fixed content (once — no infinite loop)
                     var rereviewResult = await RunStageWithRecoveryAsync(context, agentContext, "Implementation Re-Review",
@@ -437,6 +450,13 @@ public static class AiSdlcWorkflowOrchestrator
                         await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Implementation re-review still required changes");
                         return Stopped(agentContext.RunId, issue, createdAt, context);
                     }
+                }
+                else
+                {
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                            "## AI SDLC — Implementation Fix\n\nThe fix attempt produced no file changes; proceeding with the original implementation."));
                 }
             }
 
@@ -970,6 +990,23 @@ public static class AiSdlcWorkflowOrchestrator
         sb.AppendLine(ContentOrSentinel(release, "{C_RELEASE}"));
         return sb.ToString();
     }
+
+    // Code-producing stages report a summary only — the branch is the single code transport.
+    // Embedding source in comments leaked it into notification emails, hit GitHub's 64KB
+    // comment limit, and was the corruption surface for the v14 redaction incident (#84).
+    internal static string BuildImplementationSummaryComment(
+        string heading, string summary, string repository, string baseBranch,
+        string branchName, string commitSha, int fileCount) =>
+        $"## {heading}\n\n" +
+        $"{summary}\n\n" +
+        $"- **Branch:** `{branchName}`\n" +
+        $"- **Commit:** `{Short(commitSha)}`\n" +
+        $"- **Files changed:** {fileCount}\n" +
+        $"- [View the changes](https://github.com/{repository}/compare/{baseBranch}...{branchName})\n\n" +
+        "*Code lives on the branch only — file contents are never posted in comments. " +
+        "The full agent output is preserved in the run's artefact store.*";
+
+    private static string Short(string sha) => sha.Length > 12 ? sha[..12] : sha;
 
     private static PostCommentInput MakeSectionComment(string repo, int issue, string heading, AgentResult result)
     {

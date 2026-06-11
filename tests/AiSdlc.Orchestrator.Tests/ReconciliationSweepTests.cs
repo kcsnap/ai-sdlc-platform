@@ -164,6 +164,23 @@ public sealed class ReconciliationSweepTests
     };
 
     [Fact]
+    public void Implementation_summary_comment_carries_branch_metadata_and_no_code()
+    {
+        var comment = AiSdlcWorkflowOrchestrator.BuildImplementationSummaryComment(
+            "AI SDLC — Implementation",
+            "Code implementation generated for issue #1 (44 files from a 44-file manifest).",
+            "yorrixx-apps/user-app-test", "main", "ai/1-build-app",
+            "abc123def456789", 44);
+
+        Assert.Contains("ai/1-build-app", comment);
+        Assert.Contains("abc123def456", comment);          // short SHA
+        Assert.Contains("Files changed:** 44", comment);
+        Assert.Contains("compare/main...ai/1-build-app", comment);
+        Assert.DoesNotContain("<file ", comment);          // never a code transport
+        Assert.True(comment.Length < 2000);
+    }
+
+    [Fact]
     public void Stage_stalled_comment_explains_retry_command()
     {
         var comment = AiSdlcWorkflowOrchestrator.BuildStageStalledComment(
