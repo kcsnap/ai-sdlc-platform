@@ -58,6 +58,22 @@ public sealed class AnthropicModelProviderTests
     }
 
     [Fact]
+    public async Task CompleteAsync_BadRequest_SurfacesErrorBodyInException()
+    {
+        // The Anthropic 400 body carries the actionable detail (v17 incident: credit
+        // exhaustion was invisible because only the bare status code was surfaced).
+        var errorBody = """{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}""";
+        var handler   = new SequentialHandler([(HttpStatusCode.BadRequest, errorBody)]);
+        var provider  = MakeProvider(handler);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() =>
+            provider.CompleteAsync(SampleRequest, CancellationToken.None));
+
+        Assert.Contains("400", ex.Message);
+        Assert.Contains("credit balance is too low", ex.Message);
+    }
+
+    [Fact]
     public async Task CompleteAsync_AllAttemptsReturn429_ThrowsHttpRequestException()
     {
         var responses = Enumerable.Repeat(
@@ -72,7 +88,8 @@ public sealed class AnthropicModelProviderTests
     private static AnthropicModelProvider MakeProvider(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.anthropic.com/v1/") };
-        return new AnthropicModelProvider(http, Options, new NoOpRedactionService());
+        return new AnthropicModelProvider(http, Options, new NoOpRedactionService(),
+            new AnthropicRateLimiter(new AnthropicRateLimiterOptions()));
     }
 
     private sealed class SequentialHandler(List<(HttpStatusCode Status, string Body)> responses) : HttpMessageHandler

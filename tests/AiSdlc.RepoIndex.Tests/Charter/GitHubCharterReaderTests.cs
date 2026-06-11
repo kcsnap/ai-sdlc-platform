@@ -114,5 +114,6 @@ public sealed class GitHubCharterReaderTests
         public Task<string> GetDefaultBranchShaAsync(string r, string b, CancellationToken ct) => throw new NotImplementedException();
         public Task CreateBranchAsync(string r, string b, string s, CancellationToken ct) => throw new NotImplementedException();
         public Task CreateOrUpdateFileAsync(string r, string p, string c, string m, string b, CancellationToken ct) => throw new NotImplementedException();
+        public Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(string o, string l, CancellationToken ct) => throw new NotImplementedException();
     }
 }

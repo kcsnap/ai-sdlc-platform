@@ -169,6 +169,9 @@ public sealed class GitHubServiceContractsTests
         public Task CreateOrUpdateFileAsync(string repository, string path, string content, string commitMessage, string branch, CancellationToken cancellationToken) =>
             Task.CompletedTask;
 
+        public Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(string organisation, string label, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<OrgIssueSearchHit>>([]);
+
         private static IssueComment CreateComment(string repository, int issueOrPullRequestNumber, string markdown) =>
             new()
             {

@@ -15,6 +15,9 @@ public sealed class WorkflowCommandParserTests
     [InlineData("/approve-merge",                WorkflowCommand.ApproveMerge)]
     [InlineData("/APPROVE-MERGE",                WorkflowCommand.ApproveMerge)]
     [InlineData("/approve-merge LGTM",           WorkflowCommand.ApproveMerge)]
+    [InlineData("/retry",                        WorkflowCommand.Retry)]
+    [InlineData("/RETRY",                        WorkflowCommand.Retry)]
+    [InlineData("/retry credits topped up",      WorkflowCommand.Retry)]
     public void KnownCommands_AreDetectedCorrectly(string body, WorkflowCommand expected)
     {
         Assert.Equal(expected, WorkflowCommandParser.Parse(body));
@@ -49,5 +52,12 @@ public sealed class WorkflowCommandParserTests
     {
         // /approve-briefing is not /approve-brief
         Assert.Equal(WorkflowCommand.None, WorkflowCommandParser.Parse("/approve-briefing"));
+    }
+
+    [Fact]
+    public void RetryPrefixAsPartOfLongerWord_IsNotMatched()
+    {
+        // /retrying is not /retry
+        Assert.Equal(WorkflowCommand.None, WorkflowCommandParser.Parse("/retrying"));
     }
 }

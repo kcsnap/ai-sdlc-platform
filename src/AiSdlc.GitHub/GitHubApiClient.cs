@@ -137,7 +137,7 @@ public sealed class GitHubApiClient : IGitHubService
             new { merge_method = "squash", commit_message = commitMessage },
             JsonOptions,
             cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"PUT /repos/{repository}/pulls/{pullRequestNumber}/merge", cancellationToken);
     }
 
     public async Task<string> GetDefaultBranchAsync(string repository, CancellationToken cancellationToken)
@@ -161,7 +161,7 @@ public sealed class GitHubApiClient : IGitHubService
                 new { @ref = $"refs/heads/{branchName}", sha },
                 JsonOptions,
                 cancellationToken);
-            response.EnsureSuccessStatusCode();
+            await EnsureSuccessAsync(response, $"POST /repos/{repository}/git/refs", cancellationToken);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
         {
@@ -211,7 +211,7 @@ public sealed class GitHubApiClient : IGitHubService
 
         using var response = await _http.GetAsync(url, cancellationToken);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"GET {url}", cancellationToken);
 
         var json = await response.Content.ReadFromJsonAsync<FileContentJson>(JsonOptions, cancellationToken);
         if (json is null || json.Encoding != "base64") return null;
@@ -220,10 +220,47 @@ public sealed class GitHubApiClient : IGitHubService
         return System.Text.Encoding.UTF8.GetString(bytes);
     }
 
+    public async Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(
+        string organisation, string label, CancellationToken cancellationToken)
+    {
+        // archived:false — issues in archived repos are read-only: any run started for them
+        // burns a full agent chain and then fails on the first comment post (403).
+        var query = Uri.EscapeDataString($"org:{organisation} label:\"{label}\" is:issue is:open archived:false");
+        var json  = await GetAsync<IssueSearchJson>($"/search/issues?q={query}&per_page=100", cancellationToken);
+        return json.Items.Select(i => new OrgIssueSearchHit(
+            RepositoryFromApiUrl(i.RepositoryUrl), i.Number, i.Title, i.Body, i.HtmlUrl,
+            i.User.Login, i.Labels.Select(l => l.Name).ToArray(),
+            i.UpdatedAt ?? i.CreatedAt)).ToArray();
+    }
+
+    // e.g. https://api.github.com/repos/yorrixx-apps/user-app-123 → yorrixx-apps/user-app-123
+    private static string RepositoryFromApiUrl(string repositoryUrl)
+    {
+        const string marker = "/repos/";
+        var idx = repositoryUrl.IndexOf(marker, StringComparison.Ordinal);
+        return idx >= 0 ? repositoryUrl[(idx + marker.Length)..] : repositoryUrl;
+    }
+
+    // GitHub puts the actionable detail ("Requires authentication", "Validation Failed" with
+    // field errors, rate-limit messages) in the response body — surface it, or failures show
+    // up in audit/logs as a bare status code.
+    private static async Task EnsureSuccessAsync(HttpResponseMessage response, string context, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+            return;
+
+        var body   = await response.Content.ReadAsStringAsync(cancellationToken);
+        var detail = body.Length > 500 ? body[..500] : body;
+        throw new HttpRequestException(
+            $"GitHub API returned {(int)response.StatusCode} ({response.StatusCode}) for {context}: {detail}",
+            inner: null,
+            statusCode: response.StatusCode);
+    }
+
     private async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync(path, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"GET {path}", cancellationToken);
         return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
                ?? throw new InvalidOperationException($"Empty response from GitHub API: GET {path}");
     }
@@ -231,7 +268,7 @@ public sealed class GitHubApiClient : IGitHubService
     private async Task<T> PostAsync<T>(string path, object body, CancellationToken cancellationToken)
     {
         using var response = await _http.PostAsJsonAsync(path, body, JsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, $"POST {path}", cancellationToken);
         return await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken)
                ?? throw new InvalidOperationException($"Empty response from GitHub API: POST {path}");
     }
@@ -298,6 +335,11 @@ public sealed class GitHubApiClient : IGitHubService
     private sealed record CheckRunsJson(CheckRunJson[] CheckRuns);
     private sealed record CheckRunJson(
         string Name, string Status, string? Conclusion, string? DetailsUrl);
+
+    private sealed record IssueSearchJson(IssueSearchItemJson[] Items);
+    private sealed record IssueSearchItemJson(
+        int Number, string Title, string? Body, UserJson User, LabelJson[] Labels,
+        string HtmlUrl, string RepositoryUrl, DateTimeOffset CreatedAt, DateTimeOffset? UpdatedAt);
 
     private sealed record UserJson(string Login);
     private sealed record LabelJson(string Name);

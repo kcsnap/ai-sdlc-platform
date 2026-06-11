@@ -120,6 +120,8 @@ public sealed class AgentActivityFunctions
                 markdown = markdown.Replace(sentinel, content, StringComparison.Ordinal);
         }
 
+        markdown = TruncateForGitHub(markdown);
+
         var posted = await _gitHub.AddIssueCommentAsync(input.Repository, input.IssueNumber, markdown, cancellationToken);
 
         // Surface the comment URL in audit so the dashboard can link directly to it from the live feed.
@@ -150,6 +152,21 @@ public sealed class AgentActivityFunctions
 
     private static string BuildAuditRunId(string repository, int issueNumber) =>
         $"{repository.Replace('/', '_')}_{issueNumber}";
+
+    // GitHub rejects issue-comment bodies over 65,536 chars with a 422, which would fail the
+    // activity AFTER the expensive agent work already succeeded (observed with chunked code
+    // generation on 2026-06-11). Comments are informational — downstream parsing reads agent
+    // output from the context store, never from the comment — so truncation is always safe.
+    internal const int GitHubCommentMaxChars = 65536;
+
+    private const string TruncationNotice =
+        "\n\n---\n*(Comment truncated — it exceeded GitHub's 65,536-character limit. " +
+        "The full content is preserved in the run's artefact store and dashboard.)*";
+
+    internal static string TruncateForGitHub(string markdown) =>
+        markdown.Length <= GitHubCommentMaxChars
+            ? markdown
+            : markdown[..(GitHubCommentMaxChars - TruncationNotice.Length)] + TruncationNotice;
 
     // The orchestrator builds markdown like "## AI SDLC — Specialist Reviews\n…" — return that
     // heading so the audit row reads naturally in the live feed.

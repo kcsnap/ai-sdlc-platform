@@ -20,7 +20,9 @@ public sealed class RegexRedactionService : IRedactionService
         new("Bearer token",          @"Bearer\s+[A-Za-z0-9\-._~+/]+=*",             "[REDACTED:BEARER_TOKEN]"),
         new("JWT",                   @"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+", "[REDACTED:JWT]"),
         new("Private key header",    @"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", "[REDACTED:PRIVATE_KEY]"),
-        new("Connection string with password", @"Password=[^;'""\s]{4,}",            "[REDACTED:DB_PASSWORD]"),
+        // Value-only (lookbehind keeps the key intact so generated .env/config files stay parseable),
+        // and skip obvious placeholder/template values — redacting "your_password" only corrupts examples.
+        new("Connection string with password", @"(?<=Password=)(?!your_|change|placeholder|example|<|\$\{|\$\(|%)[^;'""\s]{4,}", "[REDACTED:DB_PASSWORD]"),
 
         // PII
         new("Email address",         @"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b", "[REDACTED:EMAIL]"),
@@ -30,7 +32,10 @@ public sealed class RegexRedactionService : IRedactionService
         // because it greedily treats '20'+'24'+'-01' as three groups — this explicit alternation avoids that.
         new("UK sort code",          @"(?<!\d)(?:\d{6}|\d{2}-\d{2}-\d{2}|\d{2}\s\d{2}\s\d{2})(?!\d)", "[REDACTED:SORT_CODE]"),
         new("Credit card number",    @"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b", "[REDACTED:CARD_NUMBER]"),
-        new("IPv4 address (private)",@"\b(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.[0-9]{1,3}\.[0-9]{1,3}\b", "[REDACTED:PRIVATE_IP]"),
+        // Requires all four octets in the 0-255 range: three-part semver ("10.9.2") and version strings
+        // with large segments ("10.0.19041.1") must not match. Lookarounds reject longer dotted runs
+        // ("1.10.2.3.4") while still allowing a sentence-ending full stop after a real address.
+        new("IPv4 address (private)",@"(?<![\d.])(?:10(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}|172\.(?:1[6-9]|2\d|3[01])(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){2}|192\.168(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){2})(?!\.?\d)", "[REDACTED:PRIVATE_IP]"),
     ];
 
     public RedactionResult Redact(string input)
