@@ -99,4 +99,52 @@ public sealed class RedactionServiceTests
         var result = _svc.Redact(input);
         Assert.DoesNotContain("[REDACTED:SORT_CODE]", result.RedactedText);
     }
+
+    [Theory]
+    [InlineData("Connect to 10.0.0.5 over SSH")]
+    [InlineData("gateway is 192.168.1.10")]
+    [InlineData("internal host 172.16.0.1.")]
+    public void Redact_PrivateIp_IsRedacted(string input)
+    {
+        var result = _svc.Redact(input);
+        Assert.Contains("[REDACTED:PRIVATE_IP]", result.RedactedText);
+        Assert.Contains("IPv4 address (private)", result.RedactedPatterns);
+    }
+
+    [Theory]
+    [InlineData("\"ts-node\": \"^10.9.2\"")]
+    [InlineData("upgraded to v10.9.1 yesterday")]
+    [InlineData("Windows build 10.0.19041.1")]
+    [InlineData("chain 1.10.2.3.4 is not an address")]
+    public void Redact_VersionString_IsNotRedactedAsPrivateIp(string input)
+    {
+        var result = _svc.Redact(input);
+        Assert.Equal(input, result.RedactedText);
+    }
+
+    [Fact]
+    public void Redact_ConnectionStringPassword_RedactsValueAndKeepsKey()
+    {
+        var result = _svc.Redact("Server=db;User Id=app;Password=S3cr3tV@lue;Encrypt=true");
+        Assert.Contains("Password=[REDACTED:DB_PASSWORD]", result.RedactedText);
+        Assert.DoesNotContain("S3cr3tV@lue", result.RedactedText);
+    }
+
+    [Fact]
+    public void Redact_EnvVarPassword_RedactsValueAndKeepsKey()
+    {
+        var result = _svc.Redact("DB_PASSWORD=hunter2secret");
+        Assert.Equal("DB_PASSWORD=[REDACTED:DB_PASSWORD]", result.RedactedText);
+    }
+
+    [Theory]
+    [InlineData("DB_PASSWORD=your_password")]
+    [InlineData("SMTP_PASSWORD=<password>")]
+    [InlineData("Password=${DB_PASSWORD}")]
+    [InlineData("PGPASSWORD=changeme")]
+    public void Redact_PlaceholderPassword_IsNotRedacted(string input)
+    {
+        var result = _svc.Redact(input);
+        Assert.Equal(input, result.RedactedText);
+    }
 }
