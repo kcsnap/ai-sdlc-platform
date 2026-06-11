@@ -1,0 +1,228 @@
+@page "/users/applications/details"
+@rendermode InteractiveServer
+@using AiSdlc.Dashboard.Services
+@using AiSdlc.Dashboard.Services.YorrixxAdmin
+@inject IYorrixxAdminClient AdminClient
+@inject DashboardEventBus Bus
+@implements IDisposable
+
+<PageTitle>@(_app?.DisplayName ?? "App") · @Email</PageTitle>
+
+<section class="controls">
+    @if (_app is not null)
+    {
+        <h1>@_app.DisplayName</h1>
+    }
+    else
+    {
+        <h1>App</h1>
+    }
+    <div class="meta">
+        @if (!string.IsNullOrWhiteSpace(Email))
+        {
+            <a href="@($"/users/applications?email={Uri.EscapeDataString(Email!)}")" class="nav-link">← Yorrixx apps for @Email</a>
+        }
+    </div>
+</section>
+
+@if (_error is not null)
+{
+    <p class="empty">@_error</p>
+}
+else if (!_loaded)
+{
+    <p class="empty">Loading…</p>
+}
+else if (_app is null)
+{
+    <p class="empty">App not found.</p>
+}
+else
+{
+    <section class="details">
+        <h2>Yorrixx app</h2>
+        <dl class="user-detail">
+            <dt>Display name</dt>
+            <dd><strong>@_app.DisplayName</strong></dd>
+
+            <dt>App ID</dt>
+            <dd><code>@_app.Id</code></dd>
+
+            <dt>Status</dt>
+            <dd><span class="chip">@_app.Status</span></dd>
+
+            <dt>Created (UTC)</dt>
+            <dd>@_app.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+
+            <dt>Public URL</dt>
+            <dd>
+                @if (!string.IsNullOrWhiteSpace(_app.PublicUrl))
+                {
+                    <a href="@_app.PublicUrl" target="_blank" rel="noopener">@_app.PublicUrl</a>
+                }
+                else
+                {
+                    <span class="muted">—</span>
+                }
+            </dd>
+
+            <dt>Repository</dt>
+            <dd>
+                @if (!string.IsNullOrWhiteSpace(_app.RepoUrl))
+                {
+                    <a href="@_app.RepoUrl" target="_blank" rel="noopener">@_app.RepoUrl</a>
+                }
+                else
+                {
+                    <span class="muted">—</span>
+                }
+            </dd>
+        </dl>
+    </section>
+
+    <section class="sdlc-runs">
+        <h2>SDLC pipeline runs</h2>
+
+        @if (_repo is null)
+        {
+            <p class="empty">No repository URL on this app — can't correlate pipeline runs.</p>
+        }
+        else if (_summary is null)
+        {
+            <p class="empty">
+                No SDLC pipeline runs yet for <code>@_repo</code>. This populates once an issue
+                (labelled <code>ai-sdlc:bootstrap</code> for greenfield Yorrixx apps) is opened
+                and the orchestrator receives the webhook.
+            </p>
+        }
+        else
+        {
+            <div class="meta">
+                <span class="chip health-@_summary.HealthSlug" title="@_summary.HealthLabel">@_summary.HealthLabel</span>
+                <span class="counter">@_summary.TotalRuns run@(_summary.TotalRuns == 1 ? "" : "s")</span>
+            </div>
+
+            <div class="breakdown">
+                @if (_summary.ReleasedCount > 0)
+                {
+                    <span class="chip status status-released" title="Released">✓ @_summary.ReleasedCount</span>
+                }
+                @if (_summary.RunningCount > 0)
+                {
+                    <span class="chip status status-running" title="Running">● @_summary.RunningCount</span>
+                }
+                @if (_summary.FailedCount > 0)
+                {
+                    <span class="chip status status-failed" title="Failed">⚠ @_summary.FailedCount</span>
+                }
+                @if (_summary.BlockedCount > 0)
+                {
+                    <span class="chip status status-blocked" title="Awaiting human input">⏸ @_summary.BlockedCount</span>
+                }
+                @if (_summary.PendingCount > 0)
+                {
+                    <span class="chip status status-pending" title="Pending">○ @_summary.PendingCount</span>
+                }
+            </div>
+
+            @if (_summary.LatestRun is { } latest)
+            {
+                <p>
+                    <strong>Latest run:</strong>
+                    <span class="muted">#@latest.IssueNumber</span>
+                    @if (!string.IsNullOrWhiteSpace(latest.IssueTitle))
+                    {
+                        <span class="title-text"> @latest.IssueTitle</span>
+                    }
+                    <span class="ts"> · @(_summary.LatestActivityUtc?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "—") UTC</span>
+                </p>
+            }
+
+            <p>
+                <a href="@($"/issues?repo={Uri.EscapeDataString(_repo)}")" class="nav-link">View per-issue detail →</a>
+            </p>
+        }
+    </section>
+}
+
+@code {
+    [SupplyParameterFromQuery] public string? Email { get; set; }
+    [SupplyParameterFromQuery] public string? AppId { get; set; }
+
+    private YorrixxApplication? _app;
+    private string? _repo;
+    private ApplicationSummary? _summary;
+    private bool _loaded;
+    private string? _error;
+
+    private readonly List<DashboardEvent> _events = new();
+    private IDisposable? _subscription;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Email) || string.IsNullOrWhiteSpace(AppId))
+        {
+            _error = "Missing email or appId parameter.";
+            _loaded = true;
+            return;
+        }
+
+        try
+        {
+            var apps = await AdminClient.GetUserApplicationsAsync(Email, CancellationToken.None);
+            _app = apps.FirstOrDefault(a => string.Equals(a.Id, AppId, StringComparison.OrdinalIgnoreCase));
+            if (_app is not null)
+            {
+                _repo = ParseRepoFromUrl(_app.RepoUrl);
+                _events.AddRange(Bus.Snapshot().Where(MatchesRepo));
+                _summary = SummariseForRepo();
+                _subscription = Bus.Subscribe(OnBatch);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    private Task OnBatch(IReadOnlyList<DashboardEvent> batch)
+    {
+        return InvokeAsync(() =>
+        {
+            var matched = batch.Where(MatchesRepo).ToArray();
+            if (matched.Length == 0) return;
+
+            foreach (var ev in matched)
+            {
+                _events.Insert(0, ev);
+            }
+            _summary = SummariseForRepo();
+            StateHasChanged();
+        });
+    }
+
+    private bool MatchesRepo(DashboardEvent ev) =>
+        _repo is not null && string.Equals(ev.Repository, _repo, StringComparison.OrdinalIgnoreCase);
+
+    private ApplicationSummary? SummariseForRepo()
+    {
+        if (_events.Count == 0) return null;
+        var summaries = ApplicationSummariser.Summarise(_events);
+        return summaries.FirstOrDefault();
+    }
+
+    private static string? ParseRepoFromUrl(string? repoUrl)
+    {
+        if (string.IsNullOrWhiteSpace(repoUrl)) return null;
+        if (!Uri.TryCreate(repoUrl, UriKind.Absolute, out var uri)) return null;
+        var path = uri.AbsolutePath.Trim('/');
+        var parts = path.Split('/', 3);
+        return parts.Length >= 2 ? $"{parts[0]}/{parts[1]}" : null;
+    }
+
+    public void Dispose() => _subscription?.Dispose();
+}
