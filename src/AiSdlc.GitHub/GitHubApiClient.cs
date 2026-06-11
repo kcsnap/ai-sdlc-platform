@@ -183,7 +183,17 @@ public sealed class GitHubApiClient : IGitHubService
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
         {
-            // Branch already exists — idempotent, ignore
+            // Branch already exists — force-reset it to the requested base instead of reusing
+            // it. A leftover branch from an earlier run diverges permanently once that run's
+            // PR is squash-merged, and every later run that commits onto it produces a PR with
+            // merge conflicts (user-app-7301476a, 2026-06-11: auto-merge died on 405
+            // "Pull Request has merge conflicts"). Each run must start from the current base.
+            using var reset = await _http.PatchAsJsonAsync(
+                $"/repos/{repository}/git/refs/heads/{Uri.EscapeDataString(branchName)}",
+                new { sha, force = true },
+                JsonOptions,
+                cancellationToken);
+            await EnsureSuccessAsync(reset, $"PATCH /repos/{repository}/git/refs/heads/{branchName}", cancellationToken);
         }
     }
 

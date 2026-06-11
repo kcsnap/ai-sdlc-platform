@@ -58,16 +58,23 @@ public sealed class GitHubApiClientCodeOpsTests
     }
 
     [Fact]
-    public async Task CreateBranchAsync_DoesNotThrowOn422()
+    public async Task CreateBranchAsync_ExistingBranch_IsForceResetToTheRequestedBase()
     {
-        // Branch already exists — should be silently ignored
-        var handler = new FakeHandler(HttpStatusCode.UnprocessableEntity, """
-            { "message": "Reference already exists" }
-            """);
+        // A leftover branch from an earlier run diverges permanently after its PR is
+        // squash-merged; reusing it as-is produces conflicted PRs. The 422 create must be
+        // followed by a force PATCH of the ref to the requested base sha.
+        var handler = new SequentialHandler(
+            new FakeResponse(HttpStatusCode.UnprocessableEntity, """{ "message": "Reference already exists" }"""),
+            new FakeResponse(HttpStatusCode.OK, """{ "ref": "refs/heads/ai/1-feature", "object": { "sha": "abc123" } }"""));
 
         var client = new GitHubApiClient(MakeClient(handler));
-        // Should not throw
         await client.CreateBranchAsync("org/repo", "ai/1-feature", "abc123", CancellationToken.None);
+
+        var patch = handler.Requests.FirstOrDefault(r => r.Method == HttpMethod.Patch);
+        Assert.NotNull(patch);
+        var body = await patch.Content!.ReadAsStringAsync();
+        Assert.Contains("abc123", body);
+        Assert.Contains("\"force\":true", body.Replace(" ", ""));
     }
 
     [Fact]
