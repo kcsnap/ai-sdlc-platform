@@ -1,5 +1,8 @@
+using System.Text.Json;
 using AiSdlc.Orchestrator.Functions;
 using AiSdlc.Orchestrator.Webhooks;
+using AiSdlc.Shared;
+using Microsoft.DurableTask.Client;
 using Xunit;
 
 namespace AiSdlc.Orchestrator.Tests;
@@ -49,6 +52,90 @@ public sealed class ReconciliationSweepTests
         var labels = new[] { "AI-SDLC:Bootstrap", "AI-SDLC:Merged" };
         Assert.False(ReconciliationSweepFunction.ShouldReconcile(labels, Now.AddHours(-1), Now));
     }
+
+    [Fact]
+    public void Issue_with_exhausted_label_is_skipped_by_fresh_start_path()
+    {
+        var labels = new[]
+        {
+            GitHubWebhookProcessor.BootstrapLabel,
+            ReconciliationSweepFunction.ExhaustedLabel
+        };
+        Assert.False(ReconciliationSweepFunction.ShouldReconcile(labels, Now.AddHours(-1), Now));
+    }
+
+    [Fact]
+    public void Failed_instance_past_grace_qualifies_for_restart()
+    {
+        Assert.True(ReconciliationSweepFunction.ShouldRestartSilentFailure(
+            OrchestrationRuntimeStatus.Failed, Now.AddHours(-1), Now));
+    }
+
+    [Fact]
+    public void Recently_failed_instance_is_left_alone()
+    {
+        // An operator may be mid-way through a manual re-fire.
+        Assert.False(ReconciliationSweepFunction.ShouldRestartSilentFailure(
+            OrchestrationRuntimeStatus.Failed, Now.AddMinutes(-5), Now));
+    }
+
+    [Theory]
+    [InlineData(OrchestrationRuntimeStatus.Running)]
+    [InlineData(OrchestrationRuntimeStatus.Completed)]
+    [InlineData(OrchestrationRuntimeStatus.Pending)]
+    [InlineData(OrchestrationRuntimeStatus.Terminated)]
+    [InlineData(OrchestrationRuntimeStatus.Suspended)]
+    public void Non_failed_statuses_are_never_restarted(OrchestrationRuntimeStatus status)
+    {
+        // Running may be waiting on human approval; Terminated/Suspended are operator actions;
+        // Completed covers graceful business failures that already posted a terminal marker.
+        Assert.False(ReconciliationSweepFunction.ShouldRestartSilentFailure(status, Now.AddHours(-1), Now));
+    }
+
+    [Fact]
+    public void Restart_count_defaults_to_zero()
+    {
+        Assert.Equal(0, ReconciliationSweepFunction.ReadRestartCount(null));
+        Assert.Equal(0, ReconciliationSweepFunction.ReadRestartCount(MakeContext()));
+    }
+
+    [Fact]
+    public void Restart_count_survives_durable_json_round_trip()
+    {
+        var context = MakeContext();
+        context.Metadata[ReconciliationSweepFunction.RestartCountMetadataKey] = "2";
+
+        // Durable serialization round-trips Metadata values as JsonElement, not string.
+        var roundTripped = JsonSerializer.Deserialize<AgentContext>(JsonSerializer.Serialize(context));
+
+        Assert.Equal(2, ReconciliationSweepFunction.ReadRestartCount(roundTripped));
+    }
+
+    [Fact]
+    public void Garbage_restart_count_is_treated_as_zero()
+    {
+        var context = MakeContext();
+        context.Metadata[ReconciliationSweepFunction.RestartCountMetadataKey] = "not-a-number";
+        Assert.Equal(0, ReconciliationSweepFunction.ReadRestartCount(context));
+    }
+
+    [Fact]
+    public void Exhausted_comment_explains_recovery_path()
+    {
+        var comment = ReconciliationSweepFunction.BuildRestartsExhaustedComment(2);
+        Assert.Contains("restarted 2 time(s)", comment);
+        Assert.Contains(ReconciliationSweepFunction.ExhaustedLabel, comment);
+        Assert.Contains("close/reopen", comment);
+    }
+
+    private static AgentContext MakeContext() => new()
+    {
+        RunId          = "yorrixx-apps_user-app-test_1",
+        Repository     = "yorrixx-apps/user-app-test",
+        IssueNumber    = 1,
+        CurrentState   = "Started",
+        RequestedAgent = "ProductStrategist"
+    };
 
     [Fact]
     public void Stage_stalled_comment_explains_retry_command()
