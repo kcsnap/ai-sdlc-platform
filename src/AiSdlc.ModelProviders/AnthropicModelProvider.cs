@@ -11,6 +11,7 @@ public sealed class AnthropicModelProvider : IModelProvider
     private readonly HttpClient _http;
     private readonly ModelProviderOptions _options;
     private readonly IRedactionService _redaction;
+    private readonly AnthropicRateLimiter _rateLimiter;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -18,11 +19,14 @@ public sealed class AnthropicModelProvider : IModelProvider
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public AnthropicModelProvider(HttpClient http, ModelProviderOptions options, IRedactionService redaction)
+    public AnthropicModelProvider(
+        HttpClient http, ModelProviderOptions options, IRedactionService redaction,
+        AnthropicRateLimiter rateLimiter)
     {
-        _http      = http;
-        _options   = options;
-        _redaction = redaction;
+        _http        = http;
+        _options     = options;
+        _redaction   = redaction;
+        _rateLimiter = rateLimiter;
     }
 
     public string ProviderName => "Anthropic";
@@ -32,19 +36,27 @@ public sealed class AnthropicModelProvider : IModelProvider
     public async Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken)
     {
         var systemPrompt = _redaction.Redact(request.SystemPrompt ?? string.Empty).RedactedText;
+        var userContent  = BuildUserContent(request);
+        var maxTokens    = request.MaxTokens ?? _options.DefaultMaxTokens;
 
         var body = new
         {
             Model     = _options.ModelName,
-            MaxTokens = request.MaxTokens ?? _options.DefaultMaxTokens,
+            MaxTokens = maxTokens,
             System    = systemPrompt,
-            Messages  = new[] { new { Role = "user", Content = BuildUserContent(request) } }
+            Messages  = new[] { new { Role = "user", Content = userContent } }
         };
+
+        // Rough input estimate (~4 chars per token) is enough for admission control —
+        // the response headers correct the budget to the server's real numbers.
+        var estimatedInputTokens = (systemPrompt.Length + userContent.Length) / 4;
+        using var lease = await _rateLimiter.AcquireAsync(estimatedInputTokens, maxTokens, cancellationToken);
 
         HttpResponseMessage httpResponse = null!;
         for (var attempt = 0; attempt <= MaxRetries; attempt++)
         {
             httpResponse = await _http.PostAsJsonAsync("messages", body, JsonOpts, cancellationToken);
+            _rateLimiter.RecordResponse(httpResponse);
 
             if ((int)httpResponse.StatusCode != 429)
                 break;
