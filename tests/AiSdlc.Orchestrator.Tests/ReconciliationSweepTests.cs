@@ -175,6 +175,18 @@ public sealed class ReconciliationSweepTests
         Assert.Equal(expectBlock, AiSdlcWorkflowOrchestrator.ShouldBlockOnChecks(state));
     }
 
+    [Theory]
+    [InlineData(0, 0, 0, true)]   // zero checks within the grace — Actions may not have registered yet
+    [InlineData(0, 0, 3, true)]   // still within grace
+    [InlineData(0, 0, 4, false)]  // grace exhausted — repo genuinely has no CI
+    [InlineData(3, 2, 0, true)]   // checks running
+    [InlineData(3, 0, 0, false)]  // settled
+    public void Gate_keeps_polling_through_the_zero_check_registration_grace(int total, int pending, int poll, bool keepPolling)
+    {
+        var state = new ChecksState(total, pending, []);
+        Assert.Equal(keepPolling, AiSdlcWorkflowOrchestrator.ShouldKeepPollingChecks(state, poll));
+    }
+
     [Fact]
     public void Checks_failed_comment_names_the_failing_checks()
     {
