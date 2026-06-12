@@ -325,11 +325,17 @@ public static class AiSdlcWorkflowOrchestrator
             // Yorrixx retries blocked builds by filing NEW issues, so a fresh run used to
             // regenerate from the charter while a nearly-green PR sat open (~30 trivial
             // type errors discarded for 115 new ones on user-app-624d97a2). Bootstrap runs
-            // without reopen findings now prime repair mode from that PR's branch source
-            // and its failing-check findings, and commit on top of its branch (#98).
+            // now prime repair mode from that PR's branch source and its failing-check
+            // findings, and commit on top of its branch (#98).
+            //
+            // Resume takes PRECEDENCE over reopen findings (#100): an open ai/ PR with CI
+            // failures is unreleased work-in-progress — post-release verification findings
+            // can't apply to code that never merged, and a reopen-triggered comment scraped
+            // as "findings" once made the reopen path force-reset the PR's branch, auto-
+            // closing it and wiping a converged fix. When no open PR exists, the reopen
+            // metadata set in Step 0 drives the repair exactly as before.
             OpenPullRequestInfo? resumePr = null;
-            if (agentContext.Mode == WorkflowMode.Bootstrap &&
-                !agentContext.Metadata.ContainsKey("reopenFindings"))
+            if (agentContext.Mode == WorkflowMode.Bootstrap)
             {
                 resumePr = await context.CallActivityAsync<OpenPullRequestInfo?>(
                     nameof(AgentActivityFunctions.GetNewestOpenAiPrAsync), agentContext.Repository);
