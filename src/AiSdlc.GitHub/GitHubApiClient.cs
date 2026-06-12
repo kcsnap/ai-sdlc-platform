@@ -148,6 +148,16 @@ public sealed class GitHubApiClient : IGitHubService
         }).ToArray();
     }
 
+    public async Task<IReadOnlyList<RepoTreeEntry>> GetBranchFileTreeAsync(string repository, string branch, CancellationToken cancellationToken)
+    {
+        var json = await GetAsync<TreeJson>(
+            $"/repos/{repository}/git/trees/{Uri.EscapeDataString(branch)}?recursive=1", cancellationToken);
+        return json.Tree
+            .Where(t => t.Type == "blob")
+            .Select(t => new RepoTreeEntry(t.Path, t.Size ?? 0))
+            .ToArray();
+    }
+
     public async Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken cancellationToken)
     {
         using var response = await _http.PutAsJsonAsync(
@@ -363,6 +373,9 @@ public sealed class GitHubApiClient : IGitHubService
     private sealed record CheckRunsJson(CheckRunJson[] CheckRuns);
     private sealed record CheckRunJson(
         string Name, string Status, string? Conclusion, string? DetailsUrl);
+
+    private sealed record TreeJson(TreeEntryJson[] Tree);
+    private sealed record TreeEntryJson(string Path, string Type, long? Size);
 
     private sealed record IssueSearchJson(IssueSearchItemJson[] Items);
     private sealed record IssueSearchItemJson(

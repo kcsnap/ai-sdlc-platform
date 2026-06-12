@@ -114,6 +114,28 @@ public sealed class CodeImplementerChunkingTests
     }
 
     [Fact]
+    public async Task Repair_mode_makes_one_surgical_call_and_never_regenerates()
+    {
+        // With findings + existing source present, the agent must take the repair path:
+        // a single CodeRepair call (no manifest, no chunked regeneration).
+        var provider = new ScriptedModelProvider(
+            _ => "<file path=\"src/App.tsx\">\nconst fixed = true;\n</file>");
+
+        var request = MakeRequest();
+        request.Context.Metadata["reopenFindings"] = "TS2304: Cannot find name 'Foo' in src/App.tsx";
+        request.Context.Metadata["existingSource"] = "<file path=\"src/App.tsx\">\nconst broken = Foo;\n</file>";
+
+        var result = await new CodeImplementerAgent(provider).ExecuteAsync(request, CancellationToken.None);
+
+        Assert.Equal("Completed", result.Status);
+        Assert.Single(provider.Requests);
+        Assert.Equal("CodeRepair", provider.Requests[0].TaskType);
+        Assert.Contains("Existing Source", provider.Requests[0].ContextDocuments.Keys.Single(k => k.StartsWith("Existing")));
+        Assert.Single(CodeChangeParser.Parse(result.OutputMarkdown));
+        Assert.Contains("1 file(s)", result.Summary);
+    }
+
+    [Fact]
     public async Task No_manifest_falls_back_to_single_shot()
     {
         var provider = new ScriptedModelProvider(
