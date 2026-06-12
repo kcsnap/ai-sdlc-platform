@@ -111,6 +111,7 @@ public sealed class GitHubCharterReaderTests
         public Task<string?> GetBranchFileContentAsync(string r, string p, string b, CancellationToken ct) => throw new NotImplementedException();
         public Task<IReadOnlyList<RepoTreeEntry>> GetBranchFileTreeAsync(string repository, string branch, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<RepoTreeEntry>>([]);
         public Task<IReadOnlyList<FailedCheckFinding>> GetFailedCheckFindingsAsync(string repository, string reference, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<FailedCheckFinding>>([]);
+        public Task<OpenPullRequestInfo?> GetNewestOpenPullRequestByBranchPrefixAsync(string repository, string branchPrefix, CancellationToken cancellationToken) => Task.FromResult<OpenPullRequestInfo?>(null);
         public Task MergePullRequestAsync(string r, int p, string m, CancellationToken ct) => throw new NotImplementedException();
         public Task<string> GetDefaultBranchAsync(string r, CancellationToken ct) => throw new NotImplementedException();
         public Task<string> GetDefaultBranchShaAsync(string r, string b, CancellationToken ct) => throw new NotImplementedException();

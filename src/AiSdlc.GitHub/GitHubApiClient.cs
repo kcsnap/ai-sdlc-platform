@@ -150,6 +150,18 @@ public sealed class GitHubApiClient : IGitHubService
         }).ToArray();
     }
 
+    public async Task<OpenPullRequestInfo?> GetNewestOpenPullRequestByBranchPrefixAsync(
+        string repository, string branchPrefix, CancellationToken cancellationToken)
+    {
+        var prs = await GetAsync<PullRequestJson[]>(
+            $"/repos/{repository}/pulls?state=open&sort=created&direction=desc&per_page=20", cancellationToken);
+        var match = prs.FirstOrDefault(p =>
+            p.Head.Ref.StartsWith(branchPrefix, StringComparison.Ordinal) && p.Head.Sha is not null);
+        return match is null
+            ? null
+            : new OpenPullRequestInfo(match.Number, match.Head.Ref, match.Head.Sha!);
+    }
+
     internal const int LogTailLines    = 150;
     internal const int LogTailMaxChars = 6_000;
     private  const long LogFetchMaxBytes = 5_000_000; // job logs can be multi-MB; skip rather than buffer
@@ -476,7 +488,7 @@ public sealed class GitHubApiClient : IGitHubService
 
     private sealed record UserJson(string Login);
     private sealed record LabelJson(string Name);
-    private sealed record BranchRefJson(string Ref);
+    private sealed record BranchRefJson(string Ref, string? Sha = null);
     private sealed record FileContentJson(string Encoding, string Content, string? Sha);
     private sealed record GitRefJson(GitRefObjectJson Object);
     private sealed record GitRefObjectJson(string Sha);

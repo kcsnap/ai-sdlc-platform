@@ -321,6 +321,43 @@ public static class AiSdlcWorkflowOrchestrator
 
         if (allowAutoMerge)
         {
+            // ── Step 9b: Resume the newest open ai/ PR instead of rerolling ────
+            // Yorrixx retries blocked builds by filing NEW issues, so a fresh run used to
+            // regenerate from the charter while a nearly-green PR sat open (~30 trivial
+            // type errors discarded for 115 new ones on user-app-624d97a2). Bootstrap runs
+            // without reopen findings now prime repair mode from that PR's branch source
+            // and its failing-check findings, and commit on top of its branch (#98).
+            OpenPullRequestInfo? resumePr = null;
+            if (agentContext.Mode == WorkflowMode.Bootstrap &&
+                !agentContext.Metadata.ContainsKey("reopenFindings"))
+            {
+                resumePr = await context.CallActivityAsync<OpenPullRequestInfo?>(
+                    nameof(AgentActivityFunctions.GetNewestOpenAiPrAsync), agentContext.Repository);
+
+                if (resumePr is not null)
+                {
+                    var resumeFindingsRef = await context.CallActivityAsync<string>(
+                        nameof(AgentActivityFunctions.FetchCiFailureFindingsAsync),
+                        new FetchCiFindingsInput(agentContext.RunId, agentContext.Repository, resumePr.HeadSha, Attempt: 0));
+                    var resumeSourceRef = string.IsNullOrWhiteSpace(resumeFindingsRef)
+                        ? string.Empty
+                        : await context.CallActivityAsync<string>(
+                            nameof(AgentActivityFunctions.FetchExistingSourceAsync),
+                            new FetchExistingSourceInput(agentContext.RunId, agentContext.Repository, resumePr.HeadBranch));
+
+                    if (!string.IsNullOrWhiteSpace(resumeFindingsRef) && !string.IsNullOrWhiteSpace(resumeSourceRef))
+                    {
+                        agentContext.Metadata["ciFindings"]     = resumeFindingsRef;
+                        agentContext.Metadata["existingSource"] = resumeSourceRef;
+                    }
+                    else
+                    {
+                        resumePr = null; // nothing actionable on the open PR — regenerate fresh
+                    }
+                }
+            }
+            var resumeMode = resumePr is not null;
+
             // ── Step 10: Generate code implementation ─────────────────────────
             var implResult = await RunStageWithRecoveryAsync(context, agentContext, "Code Implementer",
                 () => context.CallActivityAsync<AgentResult>(
@@ -335,7 +372,20 @@ public static class AiSdlcWorkflowOrchestrator
                 implContent = await context.CallActivityAsync<string>(
                     nameof(AgentActivityFunctions.ResolveContextAsync), implResult.ContextRef);
 
-            var fileChanges = CodeChangeParser.Parse(implContent);
+            var fileChanges = CodeChangeParser.Parse(implContent)
+                .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path)) // .github/ is Yorrixx-owned
+                .ToList();
+
+            // In resume mode the output is repair-mode output — enforce minimality against
+            // the findings so a "repair" can't smuggle in a refactor.
+            if (resumeMode)
+            {
+                var resumeFindingsText = await context.CallActivityAsync<string>(
+                    nameof(AgentActivityFunctions.ResolveContextAsync),
+                    (string)agentContext.Metadata["ciFindings"]!);
+                fileChanges = AgentActivityFunctions.FilterRepairChanges(fileChanges, resumeFindingsText);
+            }
+
             if (fileChanges.Count == 0)
             {
                 await context.CallActivityAsync(
@@ -348,21 +398,28 @@ public static class AiSdlcWorkflowOrchestrator
 
             // ── Step 11: Create branch and commit files ────────────────────────
             var slug          = GenerateBranchSlug(issueTitle);
-            var branchName    = $"ai/{agentContext.IssueNumber}-{slug}";
+            var branchName    = resumeMode ? resumePr!.HeadBranch : $"ai/{agentContext.IssueNumber}-{slug}";
 
             var defaultBranch = await context.CallActivityAsync<string>(
                 nameof(AgentActivityFunctions.GetDefaultBranchNameActivityAsync),
                 agentContext.Repository);
 
-            var headSha = await context.CallActivityAsync<string>(
-                nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
-                new GetHeadShaInput(agentContext.Repository, defaultBranch));
+            if (!resumeMode)
+            {
+                // Fresh run: branch starts from current main (force-reset if stale). Resume
+                // mode must NOT reset — the open PR's commits are the code being repaired.
+                var headSha = await context.CallActivityAsync<string>(
+                    nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                    new GetHeadShaInput(agentContext.Repository, defaultBranch));
 
-            await context.CallActivityAsync(
-                nameof(AgentActivityFunctions.CreateBranchActivityAsync),
-                new CreateBranchInput(agentContext.Repository, branchName, headSha));
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.CreateBranchActivityAsync),
+                    new CreateBranchInput(agentContext.Repository, branchName, headSha));
+            }
 
-            var commitMsg     = $"feat: {issueTitle} (closes #{agentContext.IssueNumber}) [ai-sdlc]";
+            var commitMsg = resumeMode
+                ? $"fix: repair CI failures on PR #{resumePr!.Number} (closes #{agentContext.IssueNumber}) [ai-sdlc]"
+                : $"feat: {issueTitle} (closes #{agentContext.IssueNumber}) [ai-sdlc]";
             string? lastPath  = null;
             try
             {
@@ -427,7 +484,9 @@ public static class AiSdlcWorkflowOrchestrator
                     fixContent = await context.CallActivityAsync<string>(
                         nameof(AgentActivityFunctions.ResolveContextAsync), fixResult.ContextRef);
 
-                var fixedChanges = CodeChangeParser.Parse(fixContent);
+                var fixedChanges = CodeChangeParser.Parse(fixContent)
+                    .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path)) // .github/ is Yorrixx-owned
+                    .ToList();
                 if (fixedChanges.Count > 0)
                 {
                     var fixCommitMsg = $"fix: address PO review feedback (closes #{agentContext.IssueNumber}) [ai-sdlc]";
@@ -585,7 +644,12 @@ public static class AiSdlcWorkflowOrchestrator
                     repairContent = await context.CallActivityAsync<string>(
                         nameof(AgentActivityFunctions.ResolveContextAsync), repairResult.ContextRef);
 
-                var repairedChanges = CodeChangeParser.Parse(repairContent);
+                // Minimal diffs only: keep files the findings implicate (and never .github/) —
+                // observed failure: repair 2 "fixed" a build by renaming namespaces (#98).
+                var ciFindingsText = await context.CallActivityAsync<string>(
+                    nameof(AgentActivityFunctions.ResolveContextAsync), ciFindingsRef);
+                var repairedChanges = AgentActivityFunctions.FilterRepairChanges(
+                    CodeChangeParser.Parse(repairContent), ciFindingsText);
                 if (repairedChanges.Count == 0)
                 {
                     await context.CallActivityAsync(
@@ -623,9 +687,28 @@ public static class AiSdlcWorkflowOrchestrator
                     return Stopped(agentContext.RunId, issue, createdAt, context);
                 }
 
+                var previousSha = prHeadSha;
                 prHeadSha = await context.CallActivityAsync<string>(
                     nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
                     new GetHeadShaInput(agentContext.Repository, branchName));
+
+                // No-op repair: identical content makes every commit a no-change, leaving the
+                // same failed sha — re-polling it would instantly re-fail and silently burn
+                // the remaining attempt (observed on 624d97a2 issue #13: two "repairs", zero
+                // commits). Exit with an honest reason instead.
+                if (prHeadSha == previousSha)
+                {
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                            BuildChecksFailedComment(checksState, prRef.Url, ciRepairAttempt)));
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                        new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:checks-failed"));
+                    await RecordWorkflowExitAsync(context, agentContext, "Stopped",
+                        $"CI repair attempt {ciRepairAttempt} produced no effective changes (head sha unchanged)");
+                    return Stopped(agentContext.RunId, issue, createdAt, context);
+                }
 
                 await context.CallActivityAsync(
                     nameof(AgentActivityFunctions.PostGitHubCommentAsync),

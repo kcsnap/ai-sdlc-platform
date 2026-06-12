@@ -96,6 +96,52 @@ public sealed class CiRepairLoopTests
         Assert.DoesNotContain("Process completed", rendered);
     }
 
+    [Theory]
+    [InlineData(".github/workflows/deploy.yml", true)]
+    [InlineData(".github/CODEOWNERS", true)]
+    [InlineData("src/api/Program.cs", false)]
+    [InlineData("github-helper/notes.md", false)]
+    public void Github_directory_is_protected(string path, bool expectProtected)
+    {
+        Assert.Equal(expectProtected, AgentActivityFunctions.IsProtectedPath(path));
+    }
+
+    [Fact]
+    public void Repair_filter_keeps_only_findings_implicated_files_and_drops_protected_paths()
+    {
+        var findings = "src/api/Program.cs:12 [failure] CS0103\nApp.tsx:3 [failure] TS2304";
+        var changes = new List<AiSdlc.Shared.FileChange>
+        {
+            new("src/api/Program.cs", "fixed"),                      // implicated by full path
+            new("src/frontend/src/App.tsx", "fixed"),                // implicated by filename
+            new("src/api/Namespaces/Renamed.cs", "refactor"),        // NOT implicated — dropped
+            new(".github/workflows/deploy.yml", "tampered"),         // protected — dropped
+        };
+
+        var filtered = AgentActivityFunctions.FilterRepairChanges(changes, findings);
+
+        Assert.Equal(2, filtered.Count);
+        Assert.DoesNotContain(filtered, f => f.Path.Contains("Renamed"));
+        Assert.DoesNotContain(filtered, f => f.Path.StartsWith(".github/"));
+    }
+
+    [Fact]
+    public void Repair_filter_falls_back_to_unprotected_set_when_nothing_matches()
+    {
+        // Findings may reference files indirectly — never brick the repair entirely,
+        // but protected paths stay out even in the fallback.
+        var changes = new List<AiSdlc.Shared.FileChange>
+        {
+            new("src/api/Helpers.cs", "fix"),
+            new(".github/workflows/ci.yml", "tampered"),
+        };
+
+        var filtered = AgentActivityFunctions.FilterRepairChanges(changes, "unrelated findings text");
+
+        var change = Assert.Single(filtered);
+        Assert.Equal("src/api/Helpers.cs", change.Path);
+    }
+
     [Fact]
     public void Findings_render_empty_when_nothing_actionable()
     {
