@@ -299,10 +299,17 @@ public sealed class AgentActivityFunctions
         var sections = new List<string>();
         foreach (var finding in findings)
         {
+            // Only substantive annotations can guide a repair; runner-generated ones
+            // ("Process completed with exit code 1") would render as findings while
+            // saying nothing — prefer the log tail in that case.
+            var substantive = finding.Annotations
+                .Where(a => GitHubApiClient.IsSubstantiveAnnotation(a.Level, a.Message))
+                .ToList();
+
             string body;
-            if (finding.Annotations.Count > 0)
+            if (substantive.Count > 0)
             {
-                body = string.Join('\n', finding.Annotations
+                body = string.Join('\n', substantive
                     .Select(a => $"{a.Path}:{a.StartLine} [{a.Level}] {a.Message}"));
             }
             else if (!string.IsNullOrWhiteSpace(finding.LogTail))

@@ -172,9 +172,14 @@ public sealed class GitHubApiClient : IGitHubService
                     .Select(a => new CheckAnnotation(a.Path, a.StartLine, a.AnnotationLevel, a.Message))
                     .ToArray();
 
-                // Annotations are only emitted when the workflow has a problem matcher
-                // (dotnet does; vite/tsc often doesn't) — fall back to the job log tail.
-                if (annotations.Count == 0 && TryParseJobIdFromDetailsUrl(check.DetailsUrl, out var jobId))
+                // Annotations only carry compiler errors when the workflow has a problem
+                // matcher that engaged. Runner-generated annotations ("Process completed
+                // with exit code 1", deprecation warnings) are content-free — observed live
+                // on b2fb2ed7#17, where the repair agent got nothing actionable while the
+                // job log held the real NU1605 error. Fall back to the log tail whenever no
+                // SUBSTANTIVE annotation exists.
+                if (!annotations.Any(a => IsSubstantiveAnnotation(a.Level, a.Message)) &&
+                    TryParseJobIdFromDetailsUrl(check.DetailsUrl, out var jobId))
                 {
                     var log = await GetTextAsync($"/repos/{repository}/actions/jobs/{jobId}/logs", cancellationToken);
                     if (log is not null)
@@ -195,6 +200,13 @@ public sealed class GitHubApiClient : IGitHubService
     // extractor must never disagree about what counts as a failure.
     public static bool IsFailedCheck(string status, string conclusion) =>
         status == "completed" && conclusion is not ("success" or "neutral" or "skipped");
+
+    // An annotation is substantive when it can actually guide a repair: failure-level and
+    // not the runner's generic exit message. Shared by the client (log-tail fallback
+    // decision) and the findings renderer (what to show the repair agent).
+    public static bool IsSubstantiveAnnotation(string level, string message) =>
+        string.Equals(level, "failure", StringComparison.OrdinalIgnoreCase)
+        && !message.StartsWith("Process completed with exit code", StringComparison.OrdinalIgnoreCase);
 
     // details_url: https://github.com/{org}/{repo}/actions/runs/{runId}/job/{jobId}
     internal static bool TryParseJobIdFromDetailsUrl(string? detailsUrl, out long jobId)
