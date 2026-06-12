@@ -132,6 +132,37 @@ public sealed class GitHubApiClientCheckFindingsTests
     }
 
     [Fact]
+    public async Task Newest_open_ai_pr_is_found_by_branch_prefix()
+    {
+        var handler = new FakeHandler(HttpStatusCode.OK, """
+            [ { "number": 16, "title": "x", "state": "open",
+                "head": { "ref": "dependabot/npm", "sha": "aaa" }, "base": { "ref": "main" },
+                "user": { "login": "bot" }, "draft": false, "labels": [],
+                "html_url": "https://x", "created_at": "2026-06-12T14:00:00Z" },
+              { "number": 14, "title": "y", "state": "open",
+                "head": { "ref": "ai/13-build-app", "sha": "bbb" }, "base": { "ref": "main" },
+                "user": { "login": "kcsnap" }, "draft": false, "labels": [],
+                "html_url": "https://y", "created_at": "2026-06-12T13:00:00Z" } ]
+            """);
+
+        var client = new GitHubApiClient(MakeClient(handler));
+        var pr = await client.GetNewestOpenPullRequestByBranchPrefixAsync("org/repo", "ai/", CancellationToken.None);
+
+        Assert.NotNull(pr);
+        Assert.Equal(14, pr.Number);
+        Assert.Equal("ai/13-build-app", pr.HeadBranch);
+        Assert.Equal("bbb", pr.HeadSha);
+    }
+
+    [Fact]
+    public async Task No_open_ai_pr_returns_null()
+    {
+        var handler = new FakeHandler(HttpStatusCode.OK, "[]");
+        var client  = new GitHubApiClient(MakeClient(handler));
+        Assert.Null(await client.GetNewestOpenPullRequestByBranchPrefixAsync("org/repo", "ai/", CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Check_run_id_is_mapped()
     {
         var handler = new FakeHandler(HttpStatusCode.OK, CheckRunsBody);

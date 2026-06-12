@@ -93,6 +93,12 @@ public sealed class CodeImplementerAgent : IAgent
         Rules:
         - Fix ONLY what the findings implicate. Do not redesign, restructure, rename, or
           "improve" anything else — unchanged files must not be touched.
+        - NEVER rename namespaces, classes, files, or folders — a rename is a refactor,
+          not a repair, and it breaks every other file that references the old name.
+        - NEVER create new files unless an error explicitly requires one (e.g. a missing
+          module the findings name).
+        - NEVER touch anything under .github/ — CI/CD workflows are owned by the host
+          platform and are read-only.
         - Output ONLY the files that need to change, each as a complete file using EXACTLY:
 
           <file path="relative/path/from/repo/root">

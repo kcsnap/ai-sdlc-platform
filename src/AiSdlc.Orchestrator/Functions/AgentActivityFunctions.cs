@@ -276,6 +276,36 @@ public sealed class AgentActivityFunctions
                 .ToList());
     }
 
+    [Function(nameof(GetNewestOpenAiPrAsync))]
+    public Task<OpenPullRequestInfo?> GetNewestOpenAiPrAsync([ActivityTrigger] string repository, CancellationToken cancellationToken) =>
+        _gitHub.GetNewestOpenPullRequestByBranchPrefixAsync(repository, "ai/", cancellationToken);
+
+    // .github/ is owned by the host platform (Yorrixx) — workflows are seeded, never
+    // generated or repaired. Observed violation: a repair edited deploy.yml (#98).
+    internal static bool IsProtectedPath(string path) =>
+        path.StartsWith(".github/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Repairs must be minimal diffs against the findings, never refactors. Keep only files
+    /// the findings implicate (full path or filename mentioned); if that would drop every
+    /// file, fall back to the unfiltered set (minus protected paths) rather than bricking
+    /// the repair — the findings text may reference files indirectly.
+    /// </summary>
+    internal static List<FileChange> FilterRepairChanges(IReadOnlyList<FileChange> changes, string findingsText)
+    {
+        var unprotected = changes.Where(c => !IsProtectedPath(c.Path)).ToList();
+        var implicated  = unprotected.Where(c => IsImplicatedByFindings(c.Path, findingsText)).ToList();
+        return implicated.Count > 0 ? implicated : unprotected;
+    }
+
+    internal static bool IsImplicatedByFindings(string path, string findingsText)
+    {
+        if (findingsText.Contains(path, StringComparison.OrdinalIgnoreCase))
+            return true;
+        var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
+        return findingsText.Contains(fileName, StringComparison.OrdinalIgnoreCase);
+    }
+
     // Caps keep the findings prompt-sized; truncation drops whole-check sections rather
     // than splitting one mid-error.
     internal const int CiFindingsMaxChars         = 15_000;
@@ -347,7 +377,7 @@ public sealed class AgentActivityFunctions
 
     private static readonly string[] RepairSourceExcludedNames = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"];
 
-    private static readonly string[] RepairSourceExcludedPrefixes = ["node_modules/", "dist/", "bin/", "obj/", ".git/"];
+    private static readonly string[] RepairSourceExcludedPrefixes = ["node_modules/", "dist/", "bin/", "obj/", ".git/", ".github/"];
 
     [Function(nameof(FetchExistingSourceAsync))]
     public async Task<string> FetchExistingSourceAsync([ActivityTrigger] FetchExistingSourceInput input, CancellationToken cancellationToken)
