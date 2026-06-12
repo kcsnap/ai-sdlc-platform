@@ -458,94 +458,103 @@ public static class AiSdlcWorkflowOrchestrator
                         agentContext.Repository, defaultBranch, branchName, implCommitSha, fileChanges.Count)));
 
             // ── Step 11b: Product Owner reviews committed content ──────────────
-            var reviewFilePaths = fileChanges.Select(f => f.Path).ToArray();
-            var branchReviewResult = await RunStageWithRecoveryAsync(context, agentContext, "Implementation Review",
-                () => context.CallActivityAsync<AgentResult>(
-                    nameof(AgentActivityFunctions.ReviewBranchContentAsync),
-                    new ReviewBranchInput(
-                        agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
-                        branchName, reviewFilePaths,
-                        agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
-                        agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty,
-                        agentContext.Metadata.GetValueOrDefault("charter")?.ToString()       ?? string.Empty),
-                    AgentRetryOptions));
-
-            await context.CallActivityAsync(
-                nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
-                    "AI SDLC — Implementation Review", branchReviewResult));
-
-            if (branchReviewResult.Decision == "CHANGES_REQUIRED")
+            // SKIPPED in resume mode (#102): the review only sees the repaired files but
+            // judges them against the full brief, so components living elsewhere on the
+            // branch get flagged as missing CRITICALs — its fix loop then rewrites code
+            // against those hallucinated gaps and the run dies before the CI gate. A
+            // resume run is a surgical CI repair of an already-reviewed implementation;
+            // like the in-gate repair loop (Step 12a), CI is its sole arbiter.
+            if (!resumeMode)
             {
-                // Critical issues found — run CodeImplementer with PO feedback and recommit
-                agentContext.Metadata["poReviewFeedback"] = branchReviewResult.ContextRef
-                    ?? branchReviewResult.OutputMarkdown ?? branchReviewResult.Summary;
-
-                var fixResult = await RunStageWithRecoveryAsync(context, agentContext, "Code Implementer (fix)",
+                var reviewFilePaths = fileChanges.Select(f => f.Path).ToArray();
+                var branchReviewResult = await RunStageWithRecoveryAsync(context, agentContext, "Implementation Review",
                     () => context.CallActivityAsync<AgentResult>(
-                        nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
+                        nameof(AgentActivityFunctions.ReviewBranchContentAsync),
+                        new ReviewBranchInput(
+                            agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
+                            branchName, reviewFilePaths,
+                            agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
+                            agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty,
+                            agentContext.Metadata.GetValueOrDefault("charter")?.ToString()       ?? string.Empty),
+                        AgentRetryOptions));
 
-                var fixContent = fixResult.OutputMarkdown;
-                if (fixContent is null && fixResult.ContextRef is not null)
-                    fixContent = await context.CallActivityAsync<string>(
-                        nameof(AgentActivityFunctions.ResolveContextAsync), fixResult.ContextRef);
+                await context.CallActivityAsync(
+                    nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                    MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
+                        "AI SDLC — Implementation Review", branchReviewResult));
 
-                var fixedChanges = CodeChangeParser.Parse(fixContent)
-                    .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path)) // .github/ is Yorrixx-owned
-                    .ToList();
-                if (fixedChanges.Count > 0)
+                if (branchReviewResult.Decision == "CHANGES_REQUIRED")
                 {
-                    var fixCommitMsg = $"fix: address PO review feedback (closes #{agentContext.IssueNumber}) [ai-sdlc]";
-                    foreach (var file in fixedChanges)
-                    {
-                        await context.CallActivityAsync(
-                            nameof(AgentActivityFunctions.CommitFileAsync),
-                            new CommitFileInput(agentContext.Repository, file.Path, file.Content, fixCommitMsg, branchName));
-                    }
+                    // Critical issues found — run CodeImplementer with PO feedback and recommit
+                    agentContext.Metadata["poReviewFeedback"] = branchReviewResult.ContextRef
+                        ?? branchReviewResult.OutputMarkdown ?? branchReviewResult.Summary;
 
-                    var fixCommitSha = await context.CallActivityAsync<string>(
-                        nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
-                        new GetHeadShaInput(agentContext.Repository, branchName));
-
-                    await context.CallActivityAsync(
-                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                            BuildImplementationSummaryComment("AI SDLC — Implementation Fix", fixResult.Summary,
-                                agentContext.Repository, defaultBranch, branchName, fixCommitSha, fixedChanges.Count)));
-
-                    // Re-review the fixed content (once — no infinite loop)
-                    var rereviewResult = await RunStageWithRecoveryAsync(context, agentContext, "Implementation Re-Review",
+                    var fixResult = await RunStageWithRecoveryAsync(context, agentContext, "Code Implementer (fix)",
                         () => context.CallActivityAsync<AgentResult>(
-                            nameof(AgentActivityFunctions.ReviewBranchContentAsync),
-                            new ReviewBranchInput(
-                                agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
-                                branchName, fixedChanges.Select(f => f.Path).ToArray(),
-                                agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
-                                agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty,
-                                agentContext.Metadata.GetValueOrDefault("charter")?.ToString()       ?? string.Empty),
-                            AgentRetryOptions));
+                            nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
 
-                    await context.CallActivityAsync(
-                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                        MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
-                            "AI SDLC — Implementation Re-Review", rereviewResult));
+                    var fixContent = fixResult.OutputMarkdown;
+                    if (fixContent is null && fixResult.ContextRef is not null)
+                        fixContent = await context.CallActivityAsync<string>(
+                            nameof(AgentActivityFunctions.ResolveContextAsync), fixResult.ContextRef);
 
-                    if (rereviewResult.Decision == "CHANGES_REQUIRED")
+                    var fixedChanges = CodeChangeParser.Parse(fixContent)
+                        .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path)) // .github/ is Yorrixx-owned
+                        .ToList();
+                    if (fixedChanges.Count > 0)
+                    {
+                        var fixCommitMsg = $"fix: address PO review feedback (closes #{agentContext.IssueNumber}) [ai-sdlc]";
+                        foreach (var file in fixedChanges)
+                        {
+                            await context.CallActivityAsync(
+                                nameof(AgentActivityFunctions.CommitFileAsync),
+                                new CommitFileInput(agentContext.Repository, file.Path, file.Content, fixCommitMsg, branchName));
+                        }
+
+                        var fixCommitSha = await context.CallActivityAsync<string>(
+                            nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                            new GetHeadShaInput(agentContext.Repository, branchName));
+
+                        await context.CallActivityAsync(
+                            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                                BuildImplementationSummaryComment("AI SDLC — Implementation Fix", fixResult.Summary,
+                                    agentContext.Repository, defaultBranch, branchName, fixCommitSha, fixedChanges.Count)));
+
+                        // Re-review the fixed content (once — no infinite loop)
+                        var rereviewResult = await RunStageWithRecoveryAsync(context, agentContext, "Implementation Re-Review",
+                            () => context.CallActivityAsync<AgentResult>(
+                                nameof(AgentActivityFunctions.ReviewBranchContentAsync),
+                                new ReviewBranchInput(
+                                    agentContext.RunId, agentContext.Repository, agentContext.IssueNumber,
+                                    branchName, fixedChanges.Select(f => f.Path).ToArray(),
+                                    agentContext.Metadata.GetValueOrDefault("ownerBrief")?.ToString()    ?? string.Empty,
+                                    agentContext.Metadata.GetValueOrDefault("analystOutput")?.ToString() ?? string.Empty,
+                                    agentContext.Metadata.GetValueOrDefault("charter")?.ToString()       ?? string.Empty),
+                                AgentRetryOptions));
+
+                        await context.CallActivityAsync(
+                            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                            MakeSectionComment(agentContext.Repository, agentContext.IssueNumber,
+                                "AI SDLC — Implementation Re-Review", rereviewResult));
+
+                        if (rereviewResult.Decision == "CHANGES_REQUIRED")
+                        {
+                            await context.CallActivityAsync(
+                                nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                                new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
+                                    "ai-sdlc:implementation-review-failed"));
+                            await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Implementation re-review still required changes");
+                            return Stopped(agentContext.RunId, issue, createdAt, context);
+                        }
+                    }
+                    else
                     {
                         await context.CallActivityAsync(
-                            nameof(AgentActivityFunctions.AddGitHubLabelAsync),
-                            new AddLabelInput(agentContext.Repository, agentContext.IssueNumber,
-                                "ai-sdlc:implementation-review-failed"));
-                        await RecordWorkflowExitAsync(context, agentContext, "Stopped", "Implementation re-review still required changes");
-                        return Stopped(agentContext.RunId, issue, createdAt, context);
+                            nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                            new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                                "## AI SDLC — Implementation Fix\n\nThe fix attempt produced no file changes; proceeding with the original implementation."));
                     }
-                }
-                else
-                {
-                    await context.CallActivityAsync(
-                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
-                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                            "## AI SDLC — Implementation Fix\n\nThe fix attempt produced no file changes; proceeding with the original implementation."));
                 }
             }
 
