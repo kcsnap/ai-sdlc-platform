@@ -113,6 +113,38 @@ public sealed class CodeImplementerChunkingTests
         Assert.Contains("runaway", ex.Message);
     }
 
+    [Theory]
+    [InlineData("reopenFindings", null, false)]              // findings without source — no repair
+    [InlineData(null, null, false)]                          // neither
+    [InlineData("reopenFindings", "existingSource", true)]   // reopen repair
+    [InlineData("ciFindings", "existingSource", true)]       // in-run CI repair
+    public void Repair_trigger_requires_findings_plus_source(string? findingsKey, string? sourceKey, bool expect)
+    {
+        var context = MakeRequest().Context;
+        if (findingsKey is not null) context.Metadata[findingsKey] = "some findings";
+        if (sourceKey is not null) context.Metadata[sourceKey] = "<file path=\"a\">x</file>";
+        Assert.Equal(expect, CodeImplementerAgent.IsRepairRequest(context));
+    }
+
+    [Fact]
+    public async Task Ci_findings_trigger_the_same_surgical_repair_path()
+    {
+        var provider = new ScriptedModelProvider(
+            _ => "<file path=\"src/App.tsx\">\nconst fixed = true;\n</file>");
+
+        var request = MakeRequest();
+        request.Context.Metadata["ciFindings"]     = "## Check: build-frontend\nsrc/App.tsx:3 [failure] TS2304";
+        request.Context.Metadata["existingSource"] = "<file path=\"src/App.tsx\">\nconst broken = Foo;\n</file>";
+
+        var result = await new CodeImplementerAgent(provider).ExecuteAsync(request, CancellationToken.None);
+
+        Assert.Equal("Completed", result.Status);
+        Assert.Single(provider.Requests);
+        Assert.Equal("CodeRepair", provider.Requests[0].TaskType);
+        Assert.Contains(provider.Requests[0].ContextDocuments.Keys,
+            k => k == AgentContextDocuments.CiFindingsDocumentName);
+    }
+
     [Fact]
     public async Task Repair_mode_makes_one_surgical_call_and_never_regenerates()
     {

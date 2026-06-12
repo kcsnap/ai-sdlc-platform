@@ -26,6 +26,37 @@ public sealed class VerificationFindingsContextTests
         var docs = new Dictionary<string, string>();
         AgentContextDocuments.AddStandard(docs, MakeContext());
         Assert.False(docs.ContainsKey(AgentContextDocuments.VerificationFindingsDocumentName));
+        Assert.False(docs.ContainsKey(AgentContextDocuments.CiFindingsDocumentName));
+    }
+
+    [Fact]
+    public void Ci_findings_produce_the_ci_document_with_its_preamble()
+    {
+        var context = MakeContext();
+        context.Metadata["ciFindings"] = "src/App.tsx:3 [failure] TS2304";
+
+        var docs = new Dictionary<string, string>();
+        AgentContextDocuments.AddStandard(docs, context);
+
+        var doc = docs[AgentContextDocuments.CiFindingsDocumentName];
+        Assert.Contains("TS2304", doc);
+        Assert.Contains("CI build FAILED", doc);
+    }
+
+    [Fact]
+    public void Fresh_ci_findings_take_precedence_over_stale_reopen_findings()
+    {
+        // A reopened run whose repair then fails CI: the reopen findings describe defects
+        // that were already fixed — only the current compiler output may reach the agents.
+        var context = MakeContext();
+        context.Metadata["reopenFindings"] = "old verification findings";
+        context.Metadata["ciFindings"]     = "fresh compiler output";
+
+        var docs = new Dictionary<string, string>();
+        AgentContextDocuments.AddStandard(docs, context);
+
+        Assert.True(docs.ContainsKey(AgentContextDocuments.CiFindingsDocumentName));
+        Assert.False(docs.ContainsKey(AgentContextDocuments.VerificationFindingsDocumentName));
     }
 
     private static AgentContext MakeContext() => new()

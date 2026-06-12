@@ -85,9 +85,10 @@ public sealed class CodeImplementerAgent : IAgent
     private const string RepairSystemPrompt = """
         You are the Code Implementer in REPAIR mode in an AI-driven SDLC pipeline.
 
-        The application already exists and was released, but failed downstream verification.
-        You are given the CURRENT source code and the verification findings (often exact
-        compiler output). Your job is a surgical fix, not a rewrite.
+        The application already exists but failed verification — either downstream
+        verification after release, or the pull request's CI build. You are given the
+        CURRENT source code and the findings (often exact compiler output). Your job is
+        a surgical fix, not a rewrite.
 
         Rules:
         - Fix ONLY what the findings implicate. Do not redesign, restructure, rename, or
@@ -127,11 +128,11 @@ public sealed class CodeImplementerAgent : IAgent
         AgentContextDocuments.AddStandard(contextDocs, request.Context);
         var userPrompt  = BuildUserPrompt(request.Context);
 
-        // Repair mode: the app exists and failed verification — iterate on the released
-        // code with the findings, never regenerate. Regeneration cannot converge: each
-        // rewrite introduces fresh defects in different files (#92).
-        if (!string.IsNullOrWhiteSpace(GetMeta(request.Context, "reopenFindings")) &&
-            !string.IsNullOrWhiteSpace(GetMeta(request.Context, "existingSource")))
+        // Repair mode: the app exists and failed verification (downstream reopen) or its
+        // PR's CI build (in-run) — iterate on the existing code with the findings, never
+        // regenerate. Regeneration cannot converge: each rewrite introduces fresh defects
+        // in different files (#92, #95).
+        if (IsRepairRequest(request.Context))
         {
             return await RepairAsync(contextDocs, userPrompt, request.Context.IssueNumber, cancellationToken);
         }
@@ -194,6 +195,11 @@ public sealed class CodeImplementerAgent : IAgent
         };
     }
 
+    internal static bool IsRepairRequest(AgentContext ctx) =>
+        (!string.IsNullOrWhiteSpace(GetMeta(ctx, "reopenFindings")) ||
+         !string.IsNullOrWhiteSpace(GetMeta(ctx, "ciFindings")))
+        && !string.IsNullOrWhiteSpace(GetMeta(ctx, "existingSource"));
+
     internal static IReadOnlyList<ManifestItem> ParseManifest(string? responseText)
     {
         if (string.IsNullOrWhiteSpace(responseText)) return [];
@@ -252,8 +258,8 @@ public sealed class CodeImplementerAgent : IAgent
             TaskType         = "CodeRepair",
             SystemPrompt     = RepairSystemPrompt,
             UserPrompt       = userPrompt +
-                "\n\nApply the minimal fix for the Verification Findings against the Existing Source. " +
-                "Output ONLY the corrected files.",
+                "\n\nApply the minimal fix for the findings document provided (Verification Findings " +
+                "or CI Failure Findings) against the Existing Source. Output ONLY the corrected files.",
             ContextDocuments = contextDocs,
             MaxTokens        = 8000
         };
@@ -340,7 +346,7 @@ public sealed class CodeImplementerAgent : IAgent
         AddIfPresent(docs, ctx, "architectOutput",  "Architecture Review");
         AddIfPresent(docs, ctx, "implSpec",         "Implementation Specification");
         AddIfPresent(docs, ctx, "poReviewFeedback", "Product Owner Review Feedback (fix these issues)");
-        AddIfPresent(docs, ctx, "existingSource",   "Existing Source (current released code — fix in place, do not regenerate)");
+        AddIfPresent(docs, ctx, "existingSource",   "Existing Source (current code — fix in place, do not regenerate)");
         return docs;
     }
 

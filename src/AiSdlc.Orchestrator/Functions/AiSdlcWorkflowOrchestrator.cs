@@ -499,38 +499,140 @@ public static class AiSdlcWorkflowOrchestrator
                 nameof(AgentActivityFunctions.AddGitHubLabelAsync),
                 new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:pr-opened"));
 
-            // ── Step 12a: Wait for PR check runs to settle, and block on failure ─
+            // ── Step 12a: check gate with bounded in-run CI repair ───────────────
             // The branch reviewer is an LLM — it cannot compile. CI check runs are the only
             // build/typecheck signal, so a red (or never-finishing) build blocks the merge in
-            // EVERY mode, including Bootstrap. Repos without CI have zero check runs and
-            // proceed — the gate becomes real once repos carry the template's ci.yml (#88).
+            // EVERY mode, including Bootstrap. When checks FAIL with extractable findings,
+            // the run repairs its own branch in place (surgical fix from compiler output,
+            // recommit, re-poll) before giving up — regeneration via fresh issues never
+            // converges (#95). Repos without CI have zero check runs and proceed.
             ChecksState checksState = null!;
-            for (var poll = 0; poll < MaxCheckPolls; poll++)
+            var ciRepairAttempt = 0;
+
+            while (true)
             {
-                checksState = await context.CallActivityAsync<ChecksState>(
-                    nameof(AgentActivityFunctions.GetCheckRunsStateAsync),
-                    new GetPrContextInput(agentContext.Repository, prRef.PullRequestNumber, prHeadSha));
+                // Poll until settled on the CURRENT head sha. poll resets each repair
+                // attempt, so the zero-check registration grace applies per attempt — a
+                // repair commit's checks also take seconds to register.
+                for (var poll = 0; poll < MaxCheckPolls; poll++)
+                {
+                    checksState = await context.CallActivityAsync<ChecksState>(
+                        nameof(AgentActivityFunctions.GetCheckRunsStateAsync),
+                        new GetPrContextInput(agentContext.Repository, prRef.PullRequestNumber, prHeadSha));
 
-                if (!ShouldKeepPollingChecks(checksState, poll))
-                    break;
+                    if (!ShouldKeepPollingChecks(checksState, poll))
+                        break;
 
-                await context.CreateTimer(context.CurrentUtcDateTime.Add(CheckPollInterval), CancellationToken.None);
-            }
+                    await context.CreateTimer(context.CurrentUtcDateTime.Add(CheckPollInterval), CancellationToken.None);
+                }
 
-            if (ShouldBlockOnChecks(checksState))
-            {
+                if (!ShouldBlockOnChecks(checksState))
+                    break; // green, or repo genuinely has no CI
+
+                string? exitReason = null;
+                if (!ShouldAttemptCiRepair(checksState, ciRepairAttempt))
+                {
+                    exitReason = checksState.FailedNames.Count > 0
+                        ? $"PR checks failed: {string.Join(", ", checksState.FailedNames)} ({ciRepairAttempt} repair attempt(s) used)"
+                        : "PR checks did not complete within the polling budget";
+                }
+
+                string ciFindingsRef = string.Empty;
+                if (exitReason is null)
+                {
+                    // Never repair blind: no extractable findings is the regeneration
+                    // anti-pattern this loop exists to kill.
+                    ciFindingsRef = await context.CallActivityAsync<string>(
+                        nameof(AgentActivityFunctions.FetchCiFailureFindingsAsync),
+                        new FetchCiFindingsInput(agentContext.RunId, agentContext.Repository, prHeadSha, ciRepairAttempt + 1));
+                    if (string.IsNullOrWhiteSpace(ciFindingsRef))
+                        exitReason = $"PR checks failed ({string.Join(", ", checksState.FailedNames)}) and no findings were extractable";
+                }
+
+                string branchSourceRef = string.Empty;
+                if (exitReason is null)
+                {
+                    branchSourceRef = await context.CallActivityAsync<string>(
+                        nameof(AgentActivityFunctions.FetchExistingSourceAsync),
+                        new FetchExistingSourceInput(agentContext.RunId, agentContext.Repository, branchName));
+                    if (string.IsNullOrWhiteSpace(branchSourceRef))
+                        exitReason = "PR checks failed and the branch source could not be bundled for repair";
+                }
+
+                if (exitReason is not null)
+                {
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                            BuildChecksFailedComment(checksState, prRef.Url, ciRepairAttempt)));
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                        new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:checks-failed"));
+                    await RecordWorkflowExitAsync(context, agentContext, "Stopped", exitReason);
+                    return Stopped(agentContext.RunId, issue, createdAt, context);
+                }
+
+                ciRepairAttempt++;
+                agentContext.Metadata["ciFindings"]     = ciFindingsRef;     // refs only — resolved agent-side
+                agentContext.Metadata["existingSource"] = branchSourceRef;   // branch code, replaces any reopen bundle
+
+                var repairResult = await RunStageWithRecoveryAsync(context, agentContext, $"CI Repair (attempt {ciRepairAttempt})",
+                    () => context.CallActivityAsync<AgentResult>(
+                        nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
+
+                var repairContent = repairResult.OutputMarkdown;
+                if (repairContent is null && repairResult.ContextRef is not null)
+                    repairContent = await context.CallActivityAsync<string>(
+                        nameof(AgentActivityFunctions.ResolveContextAsync), repairResult.ContextRef);
+
+                var repairedChanges = CodeChangeParser.Parse(repairContent);
+                if (repairedChanges.Count == 0)
+                {
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                            BuildChecksFailedComment(checksState, prRef.Url, ciRepairAttempt)));
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.AddGitHubLabelAsync),
+                        new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:checks-failed"));
+                    await RecordWorkflowExitAsync(context, agentContext, "Stopped",
+                        $"CI repair attempt {ciRepairAttempt} produced no file changes");
+                    return Stopped(agentContext.RunId, issue, createdAt, context);
+                }
+
+                var repairMsg = $"fix: repair CI failures (closes #{agentContext.IssueNumber}) [ai-sdlc]";
+                string? repairLastPath = null;
+                try
+                {
+                    foreach (var file in repairedChanges)
+                    {
+                        repairLastPath = file.Path;
+                        await context.CallActivityAsync(
+                            nameof(AgentActivityFunctions.CommitFileAsync),
+                            new CommitFileInput(agentContext.Repository, file.Path, file.Content, repairMsg, branchName));
+                    }
+                }
+                catch (TaskFailedException ex)
+                {
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                            BuildCommitFailedComment(repairLastPath ?? "unknown", branchName, ex.InnerException?.Message ?? ex.Message)));
+                    await RecordWorkflowExitAsync(context, agentContext, "Stopped",
+                        $"CommitFileAsync failed during CI repair on '{repairLastPath}': {ex.InnerException?.Message ?? ex.Message}");
+                    return Stopped(agentContext.RunId, issue, createdAt, context);
+                }
+
+                prHeadSha = await context.CallActivityAsync<string>(
+                    nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                    new GetHeadShaInput(agentContext.Repository, branchName));
+
                 await context.CallActivityAsync(
                     nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                     new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                        BuildChecksFailedComment(checksState, prRef.Url)));
-                await context.CallActivityAsync(
-                    nameof(AgentActivityFunctions.AddGitHubLabelAsync),
-                    new AddLabelInput(agentContext.Repository, agentContext.IssueNumber, "ai-sdlc:checks-failed"));
-                await RecordWorkflowExitAsync(context, agentContext, "Stopped",
-                    checksState.FailedNames.Count > 0
-                        ? $"PR checks failed: {string.Join(", ", checksState.FailedNames)}"
-                        : "PR checks did not complete within the polling budget");
-                return Stopped(agentContext.RunId, issue, createdAt, context);
+                        BuildCiRepairAttemptComment(ciRepairAttempt, MaxCiRepairAttempts, repairedChanges.Count,
+                            checksState.FailedNames, agentContext.Repository, defaultBranch, branchName, prHeadSha)));
+                // → loop back to polling on the NEW sha
             }
 
             prContext = await context.CallActivityAsync<PrMergeContext>(
@@ -1064,17 +1166,43 @@ public static class AiSdlcWorkflowOrchestrator
     internal static bool ShouldKeepPollingChecks(ChecksState state, int poll) =>
         state.Pending > 0 || (state.Total == 0 && poll < ZeroCheckGracePolls);
 
+    // Each attempt ≈ one surgical model call + a handful of GitHub calls. Two is the
+    // observed convergence horizon for compiler-mechanical failures (#95).
+    internal const int MaxCiRepairAttempts = 2;
+
+    // Repair only on concrete failures: a pure pending-timeout has no findings to act on,
+    // and a blind attempt is exactly the regeneration anti-pattern this loop replaces.
+    // Failures coexisting with still-pending checks ARE actionable (fast-fail build,
+    // slow e2e still running at the budget).
+    internal static bool ShouldAttemptCiRepair(ChecksState state, int attemptsUsed) =>
+        state.FailedNames.Count > 0 && attemptsUsed < MaxCiRepairAttempts;
+
+    // Summary only — code never goes in comments (#84). Starts "## AI SDLC" so
+    // ExtractReopenFindings excludes it from any future reopen-findings scrape.
+    internal static string BuildCiRepairAttemptComment(
+        int attempt, int maxAttempts, int fileCount, IReadOnlyList<string> failedChecks,
+        string repository, string baseBranch, string branchName, string commitSha) =>
+        $"## AI SDLC — CI Repair (attempt {attempt} of {maxAttempts})\n\n" +
+        $"CI failed: **{string.Join("**, **", failedChecks)}**. The pipeline applied a surgical fix " +
+        $"({fileCount} file(s)) and is re-running the checks.\n\n" +
+        $"- **Branch:** `{branchName}`\n" +
+        $"- **Commit:** `{Short(commitSha)}`\n" +
+        $"- [View the changes](https://github.com/{repository}/compare/{baseBranch}...{branchName})";
+
     // Block when any check failed, or when checks exist but never settled within the
     // budget. Zero check runs after the registration grace (repo genuinely has no CI
     // workflows) passes — there is nothing to compile against.
     internal static bool ShouldBlockOnChecks(ChecksState state) =>
         state.FailedNames.Count > 0 || state.Pending > 0;
 
-    internal static string BuildChecksFailedComment(ChecksState state, string prUrl) =>
+    internal static string BuildChecksFailedComment(ChecksState state, string prUrl, int repairAttemptsUsed = 0) =>
         "## AI SDLC — Build Checks Failed\n\n" +
         (state.FailedNames.Count > 0
             ? $"The PR's checks failed: **{string.Join("**, **", state.FailedNames)}**.\n\n"
             : "The PR's checks did not complete within the 10-minute polling budget.\n\n") +
+        (repairAttemptsUsed > 0
+            ? $"Automatic CI repair was attempted {repairAttemptsUsed} time(s) without converging.\n\n"
+            : string.Empty) +
         $"The branch was NOT merged. Review the check logs on the [pull request]({prUrl}); " +
         "close and reopen this issue (with findings as a comment) to run the pipeline again.";
 

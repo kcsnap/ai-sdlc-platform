@@ -10,11 +10,17 @@ public static class AgentContextDocuments
     public const string CharterDocumentName = "App Charter";
     public const string OperatingModeDocumentName = "Operating Mode";
     public const string VerificationFindingsDocumentName = "Verification Findings";
+    public const string CiFindingsDocumentName = "CI Failure Findings";
 
     private const string VerificationFindingsPreamble =
         "This issue was REOPENED because the previously released build failed downstream " +
         "verification. The findings below come from that verification. Your output MUST " +
         "address them — they take priority over regenerating from scratch.\n\n";
+
+    private const string CiFindingsPreamble =
+        "The pull request's CI build FAILED on the current branch code. The compiler/check " +
+        "output below identifies the defects. Fix exactly these — this is an in-run repair " +
+        "of code this pipeline just generated, not a regeneration.\n\n";
 
     private const string BootstrapOperatingModeInstructions = """
         This is a BOOTSTRAP run: a greenfield user-app being built unattended from a charter.
@@ -39,9 +45,20 @@ public static class AgentContextDocuments
         if (context.Mode == WorkflowMode.Bootstrap)
             contextDocs[OperatingModeDocumentName] = BootstrapOperatingModeInstructions;
 
-        var findings = ReadMeta(context, "reopenFindings");
-        if (!string.IsNullOrWhiteSpace(findings))
-            contextDocs[VerificationFindingsDocumentName] = VerificationFindingsPreamble + findings;
+        // Fresh CI findings take precedence: in a reopened run whose repair then fails CI,
+        // the stale reopen findings describe already-fixed defects and must not compete
+        // with the current compiler output.
+        var ciFindings = ReadMeta(context, "ciFindings");
+        if (!string.IsNullOrWhiteSpace(ciFindings))
+        {
+            contextDocs[CiFindingsDocumentName] = CiFindingsPreamble + ciFindings;
+        }
+        else
+        {
+            var findings = ReadMeta(context, "reopenFindings");
+            if (!string.IsNullOrWhiteSpace(findings))
+                contextDocs[VerificationFindingsDocumentName] = VerificationFindingsPreamble + findings;
+        }
     }
 
     private static string ReadMeta(AgentContext context, string key) =>

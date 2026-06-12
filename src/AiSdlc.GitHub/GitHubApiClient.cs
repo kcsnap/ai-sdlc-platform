@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using AiSdlc.Shared;
 
 namespace AiSdlc.GitHub;
@@ -141,11 +142,87 @@ public sealed class GitHubApiClient : IGitHubService
         var json = await GetAsync<CheckRunsJson>($"/repos/{repository}/commits/{Uri.EscapeDataString(reference)}/check-runs?per_page=100", cancellationToken);
         return json.CheckRuns.Select(cr => new CheckRunResult
         {
+            Id         = cr.Id,
             Name       = cr.Name,
             Status     = cr.Status,
             Conclusion = cr.Conclusion ?? "pending",
             DetailsUrl = cr.DetailsUrl
         }).ToArray();
+    }
+
+    internal const int LogTailLines    = 150;
+    internal const int LogTailMaxChars = 6_000;
+    private  const long LogFetchMaxBytes = 5_000_000; // job logs can be multi-MB; skip rather than buffer
+
+    public async Task<IReadOnlyList<FailedCheckFinding>> GetFailedCheckFindingsAsync(
+        string repository, string reference, CancellationToken cancellationToken)
+    {
+        var checks   = await GetCheckRunResultsAsync(repository, reference, cancellationToken);
+        var findings = new List<FailedCheckFinding>();
+
+        foreach (var check in checks.Where(c => IsFailedCheck(c.Status, c.Conclusion)))
+        {
+            IReadOnlyList<CheckAnnotation> annotations = [];
+            string? logTail = null;
+            try
+            {
+                var json = await GetAsync<AnnotationJson[]>(
+                    $"/repos/{repository}/check-runs/{check.Id}/annotations?per_page=100", cancellationToken);
+                annotations = json
+                    .Select(a => new CheckAnnotation(a.Path, a.StartLine, a.AnnotationLevel, a.Message))
+                    .ToArray();
+
+                // Annotations are only emitted when the workflow has a problem matcher
+                // (dotnet does; vite/tsc often doesn't) — fall back to the job log tail.
+                if (annotations.Count == 0 && TryParseJobIdFromDetailsUrl(check.DetailsUrl, out var jobId))
+                {
+                    var log = await GetTextAsync($"/repos/{repository}/actions/jobs/{jobId}/logs", cancellationToken);
+                    if (log is not null)
+                        logTail = TakeLogTail(log, LogTailLines, LogTailMaxChars);
+                }
+            }
+            catch (HttpRequestException)
+            {
+                // Degrade: the finding carries only the check name; the renderer skips it.
+            }
+            findings.Add(new FailedCheckFinding(check.Name, annotations, logTail));
+        }
+
+        return findings;
+    }
+
+    // Single source of truth for "this check failed" — the merge gate and the findings
+    // extractor must never disagree about what counts as a failure.
+    public static bool IsFailedCheck(string status, string conclusion) =>
+        status == "completed" && conclusion is not ("success" or "neutral" or "skipped");
+
+    // details_url: https://github.com/{org}/{repo}/actions/runs/{runId}/job/{jobId}
+    internal static bool TryParseJobIdFromDetailsUrl(string? detailsUrl, out long jobId)
+    {
+        jobId = 0;
+        if (string.IsNullOrEmpty(detailsUrl)) return false;
+        var match = Regex.Match(detailsUrl, @"/actions/runs/\d+/job/(\d+)");
+        return match.Success && long.TryParse(match.Groups[1].Value, out jobId);
+    }
+
+    internal static string TakeLogTail(string log, int maxLines, int maxChars)
+    {
+        var lines = log.Split('\n');
+        var tail  = string.Join('\n', lines.Skip(Math.Max(0, lines.Length - maxLines))).TrimEnd();
+        return tail.Length <= maxChars ? tail : tail[^maxChars..];
+    }
+
+    private async Task<string?> GetTextAsync(string path, CancellationToken cancellationToken)
+    {
+        // The Actions logs endpoint 302-redirects to a signed blob URL; the default handler
+        // follows it (and correctly drops the Authorization header cross-host).
+        using var response = await _http.GetAsync(path, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return null;
+        if (response.Content.Headers.ContentLength > LogFetchMaxBytes)
+            return null;
+        await EnsureSuccessAsync(response, $"GET {path}", cancellationToken);
+        return await response.Content.ReadAsStringAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<RepoTreeEntry>> GetBranchFileTreeAsync(string repository, string branch, CancellationToken cancellationToken)
@@ -372,7 +449,10 @@ public sealed class GitHubApiClient : IGitHubService
 
     private sealed record CheckRunsJson(CheckRunJson[] CheckRuns);
     private sealed record CheckRunJson(
-        string Name, string Status, string? Conclusion, string? DetailsUrl);
+        long Id, string Name, string Status, string? Conclusion, string? DetailsUrl);
+
+    private sealed record AnnotationJson(
+        string Path, int StartLine, string AnnotationLevel, string Message);
 
     private sealed record TreeJson(TreeEntryJson[] Tree);
     private sealed record TreeEntryJson(string Path, string Type, long? Size);
