@@ -499,7 +499,7 @@ public static class AiSdlcWorkflowOrchestrator
                     nameof(AgentActivityFunctions.GetCheckRunsStateAsync),
                     new GetPrContextInput(agentContext.Repository, prRef.PullRequestNumber, prHeadSha));
 
-                if (checksState.Pending == 0)
+                if (!ShouldKeepPollingChecks(checksState, poll))
                     break;
 
                 await context.CreateTimer(context.CurrentUtcDateTime.Add(CheckPollInterval), CancellationToken.None);
@@ -1042,9 +1042,19 @@ public static class AiSdlcWorkflowOrchestrator
     internal static readonly TimeSpan CheckPollInterval = TimeSpan.FromSeconds(30);
     internal const int MaxCheckPolls = 20;
 
+    // GitHub Actions takes seconds to register check runs for a fresh SHA, so an instant
+    // zero-check read does NOT mean the repo has no CI — user-app-624d97a2 merged six
+    // non-compiling builds because the gate read zero, concluded no-CI, and merged three
+    // seconds before the checks appeared (and failed). Keep polling through this grace
+    // before concluding the repo genuinely has no CI.
+    internal const int ZeroCheckGracePolls = 4;
+
+    internal static bool ShouldKeepPollingChecks(ChecksState state, int poll) =>
+        state.Pending > 0 || (state.Total == 0 && poll < ZeroCheckGracePolls);
+
     // Block when any check failed, or when checks exist but never settled within the
-    // budget. Zero check runs (repo has no CI workflows yet) passes — there is nothing
-    // to compile against until template seeding lands.
+    // budget. Zero check runs after the registration grace (repo genuinely has no CI
+    // workflows) passes — there is nothing to compile against.
     internal static bool ShouldBlockOnChecks(ChecksState state) =>
         state.FailedNames.Count > 0 || state.Pending > 0;
 
