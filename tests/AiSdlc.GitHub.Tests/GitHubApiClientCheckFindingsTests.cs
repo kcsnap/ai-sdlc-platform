@@ -59,6 +59,38 @@ public sealed class GitHubApiClientCheckFindingsTests
     }
 
     [Fact]
+    public async Task Content_free_annotations_also_fall_back_to_the_job_log_tail()
+    {
+        // Observed live (b2fb2ed7#17): the runner emits "Process completed with exit code 1"
+        // and deprecation warnings as annotations — non-empty but useless. The real error
+        // (NU1605) only existed in the job log.
+        var handler = new SequentialHandler(
+            new FakeResponse(HttpStatusCode.OK, CheckRunsBody),
+            new FakeResponse(HttpStatusCode.OK, """
+                [ { "path": ".github", "start_line": 2, "annotation_level": "warning",
+                    "message": "Node.js 20 actions are deprecated." },
+                  { "path": ".github", "start_line": 28, "annotation_level": "failure",
+                    "message": "Process completed with exit code 1." } ]
+                """),
+            new FakeResponse(HttpStatusCode.OK, "restore...\nApi.csproj : error NU1605: Detected package downgrade: Azure.Identity\n1 Error(s)"));
+
+        var client   = new GitHubApiClient(MakeClient(handler));
+        var findings = await client.GetFailedCheckFindingsAsync("org/repo", "abc123", CancellationToken.None);
+
+        Assert.Contains("/repos/org/repo/actions/jobs/77/logs", handler.Requests[2].RequestUri!.ToString());
+        Assert.Contains("NU1605", Assert.Single(findings).LogTail);
+    }
+
+    [Theory]
+    [InlineData("failure", "CS0103: The name 'Foo' does not exist", true)]
+    [InlineData("failure", "Process completed with exit code 1.", false)]
+    [InlineData("warning", "Node.js 20 actions are deprecated.", false)]
+    public void Substantive_annotation_classification(string level, string message, bool expect)
+    {
+        Assert.Equal(expect, GitHubApiClient.IsSubstantiveAnnotation(level, message));
+    }
+
+    [Fact]
     public async Task Annotation_fetch_error_degrades_to_an_empty_finding_not_an_exception()
     {
         var handler = new SequentialHandler(

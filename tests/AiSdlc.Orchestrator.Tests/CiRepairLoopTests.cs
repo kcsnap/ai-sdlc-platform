@@ -80,6 +80,23 @@ public sealed class CiRepairLoopTests
     }
 
     [Fact]
+    public void Findings_prefer_log_tail_over_content_free_annotations()
+    {
+        var findings = new List<FailedCheckFinding>
+        {
+            new("build-api",
+                [new CheckAnnotation(".github", 28, "failure", "Process completed with exit code 1."),
+                 new CheckAnnotation(".github", 2, "warning", "Node.js 20 actions are deprecated.")],
+                "Api.csproj : error NU1605: Detected package downgrade: Azure.Identity")
+        };
+
+        var rendered = AgentActivityFunctions.RenderCiFindings(findings);
+
+        Assert.Contains("NU1605", rendered);
+        Assert.DoesNotContain("Process completed", rendered);
+    }
+
+    [Fact]
     public void Findings_render_empty_when_nothing_actionable()
     {
         var findings = new List<FailedCheckFinding> { new("x", [], null) };
