@@ -330,6 +330,9 @@ public sealed class OrchestratorSkeletonTests
         public Task<string?> GetBranchFileContentAsync(string repository, string path, string branch, CancellationToken ct) =>
             Task.FromResult<string?>(null);
 
+        public Task<IReadOnlyList<RepoTreeEntry>> GetBranchFileTreeAsync(string repository, string branch, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<RepoTreeEntry>>([]);
+
         public Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken ct) =>
             Task.CompletedTask;
 

@@ -61,7 +61,19 @@ public static class AiSdlcWorkflowOrchestrator
                 nameof(AgentActivityFunctions.FetchReopenFindingsAsync),
                 new FetchReopenFindingsInput(agentContext.Repository, agentContext.IssueNumber));
             if (!string.IsNullOrWhiteSpace(findings))
+            {
                 agentContext.Metadata["reopenFindings"] = findings;
+
+                // Repair runs iterate on the released code instead of regenerating it — six
+                // cycles on user-app-624d97a2 never converged because each rewrite introduced
+                // fresh defects in different files (#92). The bundle lives in the context
+                // store; the metadata carries only the ref, resolved at agent execution.
+                var existingSourceRef = await context.CallActivityAsync<string>(
+                    nameof(AgentActivityFunctions.FetchExistingSourceAsync),
+                    new FetchExistingSourceInput(agentContext.RunId, agentContext.Repository));
+                if (!string.IsNullOrWhiteSpace(existingSourceRef))
+                    agentContext.Metadata["existingSource"] = existingSourceRef;
+            }
         }
 
         // ── Step 1: Product Strategist ─────────────────────────────────────────

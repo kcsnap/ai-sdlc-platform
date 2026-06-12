@@ -197,6 +197,35 @@ public sealed class ReconciliationSweepTests
     }
 
     [Fact]
+    public void Repair_source_selection_excludes_generated_binary_and_oversized_files()
+    {
+        var tree = new List<AiSdlc.GitHub.RepoTreeEntry>
+        {
+            new("src/frontend/src/App.tsx", 2000),
+            new("src/frontend/package-lock.json", 30000),          // lockfile — excluded by name
+            new("src/frontend/public/logo.png", 5000),             // binary — excluded by extension
+            new("node_modules/react/index.js", 100),               // excluded by prefix
+            new("src/api/Big.cs", AgentActivityFunctions.RepairSourceMaxFileBytes + 1), // oversized
+            new("src/api/Program.cs", 3000),
+        };
+
+        var selected = AgentActivityFunctions.SelectRepairSourcePaths(tree);
+
+        Assert.Equal(["src/frontend/src/App.tsx", "src/api/Program.cs"], selected);
+    }
+
+    [Fact]
+    public void Repair_source_selection_respects_the_total_budget()
+    {
+        // 30KB files against the 160KB budget → exactly 5 fit
+        var tree = Enumerable.Range(0, 10)
+            .Select(i => new AiSdlc.GitHub.RepoTreeEntry($"src/f{i}.ts", 30_000))
+            .ToList();
+
+        Assert.Equal(5, AgentActivityFunctions.SelectRepairSourcePaths(tree).Count);
+    }
+
+    [Fact]
     public void Reopen_findings_take_comments_after_the_last_terminal_marker_only()
     {
         var comments = new[]

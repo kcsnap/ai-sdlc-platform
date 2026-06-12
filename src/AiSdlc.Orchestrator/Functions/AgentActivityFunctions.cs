@@ -276,6 +276,67 @@ public sealed class AgentActivityFunctions
                 .ToList());
     }
 
+    // Bounded so a big repo cannot blow the prompt: skip generated/binary/oversized files
+    // and stop at a cumulative cap. The bundle is offloaded to the context store and the
+    // REF is returned — agent execution resolves metadata refs before building prompts.
+    internal const int RepairSourceMaxFileBytes  = 40_000;
+    internal const int RepairSourceTotalBudget   = 160_000;
+
+    private static readonly string[] RepairSourceExcludedExtensions =
+        [".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".woff", ".woff2", ".ttf", ".zip", ".dll", ".pdf", ".map"];
+
+    private static readonly string[] RepairSourceExcludedNames = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"];
+
+    private static readonly string[] RepairSourceExcludedPrefixes = ["node_modules/", "dist/", "bin/", "obj/", ".git/"];
+
+    [Function(nameof(FetchExistingSourceAsync))]
+    public async Task<string> FetchExistingSourceAsync([ActivityTrigger] FetchExistingSourceInput input, CancellationToken cancellationToken)
+    {
+        var branch = await _gitHub.GetDefaultBranchAsync(input.Repository, cancellationToken);
+        var tree   = await _gitHub.GetBranchFileTreeAsync(input.Repository, branch, cancellationToken);
+        var paths  = SelectRepairSourcePaths(tree);
+
+        var fetched = await Task.WhenAll(paths.Select(async p =>
+            (Path: p, Content: await _gitHub.GetBranchFileContentAsync(input.Repository, p, branch, cancellationToken))));
+
+        var sb = new StringBuilder();
+        foreach (var (path, content) in fetched)
+        {
+            if (content is null) continue;
+            sb.Append("<file path=\"").Append(path).AppendLine("\">");
+            sb.AppendLine(content);
+            sb.AppendLine("</file>");
+        }
+
+        if (sb.Length == 0)
+            return string.Empty;
+
+        _logger.LogInformation("Bundled {Count} existing source files ({Bytes} chars) from {Repository}@{Branch} for repair.",
+            paths.Count, sb.Length, input.Repository, branch);
+        return await _contextStore.OffloadAsync(input.RunId, "existing-source", sb.ToString(), cancellationToken);
+    }
+
+    internal static IReadOnlyList<string> SelectRepairSourcePaths(IReadOnlyList<RepoTreeEntry> tree)
+    {
+        var selected = new List<string>();
+        long budget = RepairSourceTotalBudget;
+
+        foreach (var entry in tree)
+        {
+            if (entry.Size > RepairSourceMaxFileBytes) continue;
+            var fileName = entry.Path.Contains('/') ? entry.Path[(entry.Path.LastIndexOf('/') + 1)..] : entry.Path;
+            if (RepairSourceExcludedNames.Contains(fileName, StringComparer.OrdinalIgnoreCase)) continue;
+            if (RepairSourceExcludedExtensions.Any(ext => entry.Path.EndsWith(ext, StringComparison.OrdinalIgnoreCase))) continue;
+            if (RepairSourceExcludedPrefixes.Any(prefix => entry.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))) continue;
+            if (entry.Size > budget) continue;
+
+            selected.Add(entry.Path);
+            budget -= entry.Size;
+        }
+
+        return selected;
+    }
+
     [Function(nameof(FetchReopenFindingsAsync))]
     public async Task<string> FetchReopenFindingsAsync([ActivityTrigger] FetchReopenFindingsInput input, CancellationToken cancellationToken)
     {

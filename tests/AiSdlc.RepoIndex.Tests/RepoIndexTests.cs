@@ -321,6 +321,9 @@ public sealed class GitHubRepoIndexerTests
         public Task<string?> GetBranchFileContentAsync(string repository, string path, string branch, CancellationToken cancellationToken)
             => Task.FromResult<string?>(null);
 
+        public Task<IReadOnlyList<RepoTreeEntry>> GetBranchFileTreeAsync(string repository, string branch, CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<RepoTreeEntry>>([]);
+
         public Task<IssueDetails> GetIssueAsync(string r, int n, CancellationToken c) => throw new NotImplementedException();
         public Task<IReadOnlyList<IssueComment>> GetIssueCommentsAsync(string r, int n, CancellationToken c) => throw new NotImplementedException();
         public Task<IssueComment> AddIssueCommentAsync(string r, int n, string m, CancellationToken c) => throw new NotImplementedException();

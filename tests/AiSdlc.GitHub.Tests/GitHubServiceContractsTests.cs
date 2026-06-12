@@ -154,6 +154,9 @@ public sealed class GitHubServiceContractsTests
         public Task<string?> GetBranchFileContentAsync(string repository, string path, string branch, CancellationToken cancellationToken) =>
             Task.FromResult<string?>(null);
 
+        public Task<IReadOnlyList<RepoTreeEntry>> GetBranchFileTreeAsync(string repository, string branch, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<RepoTreeEntry>>([]);
+
         public Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken cancellationToken) =>
             Task.CompletedTask;
 

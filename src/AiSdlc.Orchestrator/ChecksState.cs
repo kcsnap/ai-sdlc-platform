@@ -5,3 +5,6 @@ public sealed record ChecksState(int Total, int Pending, List<string> FailedName
 
 /// <summary>Input to AgentActivityFunctions.FetchReopenFindingsAsync.</summary>
 public sealed record FetchReopenFindingsInput(string Repository, int IssueNumber);
+
+/// <summary>Input to AgentActivityFunctions.FetchExistingSourceAsync.</summary>
+public sealed record FetchExistingSourceInput(string RunId, string Repository);

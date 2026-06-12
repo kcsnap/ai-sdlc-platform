@@ -82,6 +82,28 @@ public sealed class CodeImplementerAgent : IAgent
         - The literal text </file> must never appear inside file content.
         """;
 
+    private const string RepairSystemPrompt = """
+        You are the Code Implementer in REPAIR mode in an AI-driven SDLC pipeline.
+
+        The application already exists and was released, but failed downstream verification.
+        You are given the CURRENT source code and the verification findings (often exact
+        compiler output). Your job is a surgical fix, not a rewrite.
+
+        Rules:
+        - Fix ONLY what the findings implicate. Do not redesign, restructure, rename, or
+          "improve" anything else — unchanged files must not be touched.
+        - Output ONLY the files that need to change, each as a complete file using EXACTLY:
+
+          <file path="relative/path/from/repo/root">
+          (complete fixed file content)
+          </file>
+
+        - Each output file must be the COMPLETE corrected file, based on the existing
+          content shown to you — never a fragment or diff.
+        - Output nothing outside the file blocks.
+        - The literal text </file> must never appear inside file content.
+        """;
+
     private const string RetryPrompt =
         "Your previous response contained no `<file path=\"...\">` blocks. " +
         "You MUST wrap every file in `<file path=\"...\">` tags. " +
@@ -104,6 +126,15 @@ public sealed class CodeImplementerAgent : IAgent
         var contextDocs = BuildContextDocs(request.Context);
         AgentContextDocuments.AddStandard(contextDocs, request.Context);
         var userPrompt  = BuildUserPrompt(request.Context);
+
+        // Repair mode: the app exists and failed verification — iterate on the released
+        // code with the findings, never regenerate. Regeneration cannot converge: each
+        // rewrite introduces fresh defects in different files (#92).
+        if (!string.IsNullOrWhiteSpace(GetMeta(request.Context, "reopenFindings")) &&
+            !string.IsNullOrWhiteSpace(GetMeta(request.Context, "existingSource")))
+        {
+            return await RepairAsync(contextDocs, userPrompt, request.Context.IssueNumber, cancellationToken);
+        }
 
         var manifestResponse = await _model.CompleteAsync(new ModelRequest
         {
@@ -211,6 +242,41 @@ public sealed class CodeImplementerAgent : IAgent
             emitted[change.Path] = change;
     }
 
+    private async Task<AgentResult> RepairAsync(
+        Dictionary<string, string> contextDocs, string userPrompt, int issueNumber,
+        CancellationToken cancellationToken)
+    {
+        var modelRequest = new ModelRequest
+        {
+            AgentName        = Name,
+            TaskType         = "CodeRepair",
+            SystemPrompt     = RepairSystemPrompt,
+            UserPrompt       = userPrompt +
+                "\n\nApply the minimal fix for the Verification Findings against the Existing Source. " +
+                "Output ONLY the corrected files.",
+            ContextDocuments = contextDocs,
+            MaxTokens        = 8000
+        };
+
+        var response = await _model.CompleteAsync(modelRequest, cancellationToken);
+        if (!response.ResponseText.Contains("<file ", StringComparison.Ordinal))
+        {
+            response = await _model.CompleteAsync(modelRequest with
+            {
+                UserPrompt = $"{modelRequest.UserPrompt}\n\n{RetryPrompt}"
+            }, cancellationToken);
+        }
+
+        var fileCount = CodeChangeParser.Parse(response.ResponseText).Count;
+        return new AgentResult
+        {
+            AgentName      = Name,
+            Status         = "Completed",
+            Summary        = $"Repaired issue #{issueNumber}: minimal fix touching {fileCount} file(s) for the verification findings.",
+            OutputMarkdown = response.ResponseText
+        };
+    }
+
     private async Task<AgentResult> SingleShotAsync(
         Dictionary<string, string> contextDocs, string userPrompt, int issueNumber,
         CancellationToken cancellationToken)
@@ -274,6 +340,7 @@ public sealed class CodeImplementerAgent : IAgent
         AddIfPresent(docs, ctx, "architectOutput",  "Architecture Review");
         AddIfPresent(docs, ctx, "implSpec",         "Implementation Specification");
         AddIfPresent(docs, ctx, "poReviewFeedback", "Product Owner Review Feedback (fix these issues)");
+        AddIfPresent(docs, ctx, "existingSource",   "Existing Source (current released code — fix in place, do not regenerate)");
         return docs;
     }
 
