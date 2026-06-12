@@ -271,9 +271,62 @@ public sealed class AgentActivityFunctions
             Total:       checks.Count,
             Pending:     checks.Count(c => c.Status != "completed"),
             FailedNames: checks
-                .Where(c => c.Status == "completed" && c.Conclusion is not ("success" or "neutral" or "skipped"))
+                .Where(c => GitHubApiClient.IsFailedCheck(c.Status, c.Conclusion))
                 .Select(c => c.Name)
                 .ToList());
+    }
+
+    // Caps keep the findings prompt-sized; truncation drops whole-check sections rather
+    // than splitting one mid-error.
+    internal const int CiFindingsMaxChars         = 15_000;
+    internal const int CiFindingsPerCheckMaxChars = 6_000;
+
+    [Function(nameof(FetchCiFailureFindingsAsync))]
+    public async Task<string> FetchCiFailureFindingsAsync([ActivityTrigger] FetchCiFindingsInput input, CancellationToken cancellationToken)
+    {
+        var findings = await _gitHub.GetFailedCheckFindingsAsync(input.Repository, input.HeadSha, cancellationToken);
+        var rendered = RenderCiFindings(findings);
+        if (string.IsNullOrWhiteSpace(rendered))
+            return string.Empty; // nothing actionable — the orchestrator must not repair blind
+
+        _logger.LogInformation("Extracted CI findings for {Repository}@{Sha} (attempt {Attempt}): {Chars} chars from {Checks} failed check(s).",
+            input.Repository, input.HeadSha, input.Attempt, rendered.Length, findings.Count);
+        return await _contextStore.OffloadAsync(input.RunId, $"ci-findings-attempt-{input.Attempt}", rendered, cancellationToken);
+    }
+
+    internal static string RenderCiFindings(IReadOnlyList<FailedCheckFinding> findings)
+    {
+        var sections = new List<string>();
+        foreach (var finding in findings)
+        {
+            string body;
+            if (finding.Annotations.Count > 0)
+            {
+                body = string.Join('\n', finding.Annotations
+                    .Select(a => $"{a.Path}:{a.StartLine} [{a.Level}] {a.Message}"));
+            }
+            else if (!string.IsNullOrWhiteSpace(finding.LogTail))
+            {
+                body = $"```\n{finding.LogTail}\n```";
+            }
+            else
+            {
+                continue; // nothing extractable for this check
+            }
+
+            if (body.Length > CiFindingsPerCheckMaxChars)
+                body = body[..CiFindingsPerCheckMaxChars];
+
+            sections.Add($"## Check: {finding.CheckName}\n\n{body}");
+        }
+
+        var output = string.Join("\n\n", sections);
+        while (output.Length > CiFindingsMaxChars && sections.Count > 1)
+        {
+            sections.RemoveAt(0); // drop whole-check sections from the front
+            output = string.Join("\n\n", sections);
+        }
+        return output.Length <= CiFindingsMaxChars ? output : output[..CiFindingsMaxChars];
     }
 
     // Bounded so a big repo cannot blow the prompt: skip generated/binary/oversized files
@@ -292,7 +345,10 @@ public sealed class AgentActivityFunctions
     [Function(nameof(FetchExistingSourceAsync))]
     public async Task<string> FetchExistingSourceAsync([ActivityTrigger] FetchExistingSourceInput input, CancellationToken cancellationToken)
     {
-        var branch = await _gitHub.GetDefaultBranchAsync(input.Repository, cancellationToken);
+        // Reopen repairs read the released code (default branch); in-run CI repairs read the
+        // WORK branch — the failing code lives there. Blob key reuse is safe: fetches are
+        // strictly sequential and the ref is resolved before any later overwrite.
+        var branch = input.Branch ?? await _gitHub.GetDefaultBranchAsync(input.Repository, cancellationToken);
         var tree   = await _gitHub.GetBranchFileTreeAsync(input.Repository, branch, cancellationToken);
         var paths  = SelectRepairSourcePaths(tree);
 

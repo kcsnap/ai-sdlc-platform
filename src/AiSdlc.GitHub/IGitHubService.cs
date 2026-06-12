@@ -24,6 +24,13 @@ public interface IGitHubService
     /// <summary>Lists every blob (path + size) in a branch's tree, recursively.</summary>
     Task<IReadOnlyList<RepoTreeEntry>> GetBranchFileTreeAsync(string repository, string branch, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// For each FAILED check run on the commit: its annotations (preferred) or the Actions
+    /// job-log tail (fallback). Per-check fetch errors degrade to an empty finding, never an
+    /// exception — callers treat "no findings" as non-actionable.
+    /// </summary>
+    Task<IReadOnlyList<FailedCheckFinding>> GetFailedCheckFindingsAsync(string repository, string reference, CancellationToken cancellationToken);
+
     Task MergePullRequestAsync(string repository, int pullRequestNumber, string commitMessage, CancellationToken cancellationToken);
 
     Task<string> GetDefaultBranchAsync(string repository, CancellationToken cancellationToken);
