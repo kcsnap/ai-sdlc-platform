@@ -112,35 +112,56 @@ public sealed class CiRepairLoopTests
     }
 
     [Theory]
-    [InlineData(".github/workflows/deploy.yml", true)]
-    [InlineData("tests/e2e/specs/auth.spec.ts", true)]
-    [InlineData("tests/e2e/specs/acceptance.spec.ts", true)]  // repair may NEVER touch it (#115)
-    [InlineData("src/api/Program.cs", false)]
-    public void Repair_filter_also_protects_acceptance_spec(string path, bool expectProtected)
+    // existing has 2 tests / 2 expects / 0 skip / 0 throw
+    [InlineData("test('a',()=>{expect(1).toBe(1)}); test('b',()=>{expect(2).toBe(2)})", false)] // identical — fine
+    [InlineData("test('a',()=>{expect(1).toBe(1)}); test('b',()=>{expect(2).toBe(2); expect(3).toBe(3)})", false)] // more asserts — fine
+    [InlineData("test('a',()=>{expect(1).toBe(1)})", true)]                          // a test removed — gutting
+    [InlineData("test('a',()=>{}); test('b',()=>{})", true)]                          // assertions removed — gutting
+    [InlineData("test.skip('a',()=>{expect(1).toBe(1)}); test('b',()=>{expect(2).toBe(2)})", true)] // newly skipped — gutting
+    [InlineData("test('a',()=>{throw 1}); test('b',()=>{expect(2).toBe(2)})", true)]  // assertion→throw — gutting
+    public void Acceptance_spec_regression_is_detected(string proposed, bool expectRegression)
     {
-        Assert.Equal(expectProtected, AgentActivityFunctions.IsProtectedForRepair(path));
+        const string existing = "test('a',()=>{expect(1).toBe(1)}); test('b',()=>{expect(2).toBe(2)})";
+        Assert.Equal(expectRegression, AgentActivityFunctions.IsAcceptanceSpecRegression(existing, proposed));
     }
 
     [Fact]
-    public void Repair_filter_keeps_only_findings_implicated_files_and_drops_protected_paths()
+    public void Acceptance_spec_regression_blocks_when_existing_unknown()
     {
-        // acceptance.spec.ts is named in the findings, but a repair must still never touch it (#115).
-        var findings = "src/api/Program.cs:12 [failure] CS0103\nApp.tsx:3 [failure] TS2304\nacceptance.spec.ts AC1 failing";
+        // Can't verify on a repair → block (preserves the original #115 protection).
+        Assert.True(AgentActivityFunctions.IsAcceptanceSpecRegression(null, "test('a',()=>{expect(1).toBe(1)})"));
+    }
+
+    [Fact]
+    public void Repair_filter_drops_protected_paths_and_gutted_acceptance_spec_but_keeps_maintenance()
+    {
+        var findings = "src/api/Program.cs:12 CS0103\nApp.tsx:3 TS2304\nacceptance.spec.ts register helper flaky";
+        const string existingSpec = "test('a',()=>{expect(1).toBe(1)}); test('b',()=>{expect(2).toBe(2)})";
         var changes = new List<AiSdlc.Shared.FileChange>
         {
-            new("src/api/Program.cs", "fixed"),                      // implicated by full path
-            new("src/frontend/src/App.tsx", "fixed"),                // implicated by filename
+            new("src/api/Program.cs", "fixed"),                      // implicated
+            new("src/frontend/src/App.tsx", "fixed"),                // implicated
             new("src/api/Namespaces/Renamed.cs", "refactor"),        // NOT implicated — dropped
             new(".github/workflows/deploy.yml", "tampered"),         // protected — dropped
-            new("tests/e2e/specs/acceptance.spec.ts", "gutted"),     // findings-implicated but repair-protected — dropped
+            // a MAINTENANCE edit to acceptance.spec.ts (same tests/asserts, robust helper) — kept
+            new("tests/e2e/specs/acceptance.spec.ts",
+                "test('a',()=>{expect(1).toBe(1)}); test('b',()=>{expect(2).toBe(2)}) /* robust */"),
         };
 
-        var filtered = AgentActivityFunctions.FilterRepairChanges(changes, findings);
+        var filtered = AgentActivityFunctions.FilterRepairChanges(changes, findings, existingSpec);
 
-        Assert.Equal(2, filtered.Count);
         Assert.DoesNotContain(filtered, f => f.Path.Contains("Renamed"));
         Assert.DoesNotContain(filtered, f => f.Path.StartsWith(".github/"));
-        Assert.DoesNotContain(filtered, f => f.Path.Contains("acceptance.spec.ts"));
+        Assert.Contains(filtered, f => f.Path.Contains("acceptance.spec.ts")); // maintenance survives
+
+        // ...but a GUTTING edit (one test deleted) to the same file is dropped.
+        var gutting = new List<AiSdlc.Shared.FileChange>
+        {
+            new("src/api/Program.cs", "fixed"),
+            new("tests/e2e/specs/acceptance.spec.ts", "test('a',()=>{expect(1).toBe(1)})"),
+        };
+        var filtered2 = AgentActivityFunctions.FilterRepairChanges(gutting, findings, existingSpec);
+        Assert.DoesNotContain(filtered2, f => f.Path.Contains("acceptance.spec.ts"));
     }
 
     [Fact]

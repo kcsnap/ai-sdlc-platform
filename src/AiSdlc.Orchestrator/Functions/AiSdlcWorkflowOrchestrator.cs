@@ -406,7 +406,19 @@ public static class AiSdlcWorkflowOrchestrator
                 {
                     repairFindingsText = Convert.ToString(agentContext.Metadata.GetValueOrDefault("reopenFindings")) ?? string.Empty;
                 }
-                fileChanges = AgentActivityFunctions.FilterRepairChanges(fileChanges, repairFindingsText);
+
+                // acceptance.spec.ts may be MAINTAINED by a repair but never GUTTED (#117): pass its
+                // existing content (from the source bundle) so the filter drops any regressive change.
+                string? existingAcceptanceSpec = null;
+                if (agentContext.Metadata.TryGetValue("existingSource", out var srcRef)
+                    && !string.IsNullOrWhiteSpace(Convert.ToString(srcRef)))
+                {
+                    var existingSourceText = await context.CallActivityAsync<string>(
+                        nameof(AgentActivityFunctions.ResolveContextAsync), Convert.ToString(srcRef)!);
+                    existingAcceptanceSpec = CodeChangeParser.Parse(existingSourceText)
+                        .FirstOrDefault(f => AgentActivityFunctions.IsAcceptanceSpec(f.Path))?.Content;
+                }
+                fileChanges = AgentActivityFunctions.FilterRepairChanges(fileChanges, repairFindingsText, existingAcceptanceSpec);
             }
 
             if (fileChanges.Count == 0)
@@ -529,13 +541,11 @@ public static class AiSdlcWorkflowOrchestrator
                         fixContent = await context.CallActivityAsync<string>(
                             nameof(AgentActivityFunctions.ResolveContextAsync), fixResult.ContextRef);
 
-                    // A repair run that reaches PO review (reopen-repair) must use the stricter
-                    // filter — its fix must never touch acceptance.spec.ts either. A pure first
-                    // build (no findings) may still author it.
+                    // This PO-fix loop only runs on a fresh first build (#121 skips review for
+                    // repair runs), so acceptance.spec.ts authoring is allowed — only the always
+                    // immutable harness (.github/, tests/e2e/ except acceptance.spec.ts) is dropped.
                     var fixedChanges = CodeChangeParser.Parse(fixContent)
-                        .Where(f => AgentActivityFunctions.IsRepairRun(agentContext.Metadata)
-                            ? !AgentActivityFunctions.IsProtectedForRepair(f.Path)
-                            : !AgentActivityFunctions.IsProtectedPath(f.Path))
+                        .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path))
                         .ToList();
                     if (fixedChanges.Count > 0)
                     {

@@ -283,9 +283,9 @@ public sealed class AgentActivityFunctions
     private static readonly string[] ProtectedPathPrefixes = [".github/", "tests/e2e/"];
 
     // acceptance.spec.ts is the ONE verification-harness file the Code Implementer legitimately
-    // authors — once, on the first build, replacing the seeded throwing stubs with real tests.
-    // After that it must never be modified. So it is allowed through the always-protected filter
-    // (first-build authoring) but blocked by the repair filter (see IsProtectedForRepair).
+    // authors — on the first build (replacing seeded stubs) and, on a repair, MAINTAINS without
+    // gutting. So it is allowed through IsProtectedPath, and the repair filter guards it against
+    // regression rather than freezing it (see IsAcceptanceSpecRegression).
     internal static bool IsAcceptanceSpec(string path) =>
         path.EndsWith("tests/e2e/specs/acceptance.spec.ts", StringComparison.OrdinalIgnoreCase);
 
@@ -297,26 +297,43 @@ public sealed class AgentActivityFunctions
         !IsAcceptanceSpec(path) &&
         ProtectedPathPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
 
-    // Repair / resume / CI-repair stages may modify NOTHING in the harness — including
-    // acceptance.spec.ts. Violation (#115): a vague reopen finding made the repair "fix the test,
-    // not the code" — it gutted acceptance.spec.ts (deleted AC1–AC7) and merged it instead of
-    // fixing the app. A later fix must always target the app code, never the verification spec.
-    internal static bool IsProtectedForRepair(string path) =>
-        IsProtectedPath(path) || IsAcceptanceSpec(path);
+    // acceptance.spec.ts is NOT frozen on repair (#117 refined per Yorrixx): the platform authors
+    // it on the first build and may MAINTAIN it on a repair (e.g. fix a selector / register helper).
+    // What it must never do is GUT it — the #115 incident, where a vague finding made a repair delete
+    // AC1–AC7. So a repair's change to acceptance.spec.ts is allowed only when it is NON-REGRESSIVE vs
+    // the existing file. If the existing content can't be verified, treat it as a regression (block) —
+    // the safe default that preserves the original #115 protection.
+    internal static bool IsAcceptanceSpecRegression(string? existing, string proposed)
+    {
+        if (string.IsNullOrWhiteSpace(existing)) return true; // can't verify on a repair → block
+        static int Count(string s, string pattern) =>
+            System.Text.RegularExpressions.Regex.Matches(s, pattern).Count;
+        // Gutting signatures: fewer tests, fewer assertions, more skipped/only, or more throws.
+        return Count(proposed, @"\btest\s*\(")              < Count(existing, @"\btest\s*\(")
+            || Count(proposed, @"\bexpect\s*\(")            < Count(existing, @"\bexpect\s*\(")
+            || Count(proposed, @"\.(skip|only)\b")          > Count(existing, @"\.(skip|only)\b")
+            || Count(proposed, @"\bthrow\b")                > Count(existing, @"\bthrow\b");
+    }
 
     /// <summary>
     /// Repairs must be minimal diffs against the findings, never refactors. Keep only files
     /// the findings implicate (full path or filename mentioned); if that would drop every
     /// file, fall back to the unfiltered set (minus protected paths) rather than bricking
-    /// the repair — the findings text may reference files indirectly.
+    /// the repair — the findings text may reference files indirectly. acceptance.spec.ts may be
+    /// maintained but never gutted (see IsAcceptanceSpecRegression); pass its existing content
+    /// so a gutting change is dropped.
     /// </summary>
-    internal static List<FileChange> FilterRepairChanges(IReadOnlyList<FileChange> changes, string findingsText)
+    internal static List<FileChange> FilterRepairChanges(
+        IReadOnlyList<FileChange> changes, string findingsText, string? existingAcceptanceSpec = null)
     {
-        // Repair stages use the stricter filter — the verification harness, incl. acceptance.spec.ts,
-        // is entirely off-limits to a repair (a fix must target the app, never the test).
-        var unprotected = changes.Where(c => !IsProtectedForRepair(c.Path)).ToList();
-        var implicated  = unprotected.Where(c => IsImplicatedByFindings(c.Path, findingsText)).ToList();
-        return implicated.Count > 0 ? implicated : unprotected;
+        // Immutable harness (.github/, tests/e2e/ except acceptance.spec.ts) is always dropped.
+        // acceptance.spec.ts is dropped only when the change would regress it (or can't be verified).
+        var allowed = changes.Where(c =>
+            !IsProtectedPath(c.Path) &&
+            !(IsAcceptanceSpec(c.Path) && IsAcceptanceSpecRegression(existingAcceptanceSpec, c.Content)))
+            .ToList();
+        var implicated = allowed.Where(c => IsImplicatedByFindings(c.Path, findingsText)).ToList();
+        return implicated.Count > 0 ? implicated : allowed;
     }
 
     internal static bool IsImplicatedByFindings(string path, string findingsText)
