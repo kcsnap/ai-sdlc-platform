@@ -126,8 +126,17 @@ public sealed class CodeImplementerAgent : IAgent
         it by exact selector. This is a HARD CONTRACT — preserve all of it:
 
         - Keep <ClerkProvider> wrapping the application. Never remove or replace it.
-        - Keep the Clerk sign-in / sign-up MODAL flow. Do NOT build a custom email/password
-          LoginPage or any custom auth UI that replaces the Clerk components.
+        - SIGNED-OUT ENTRY: when the user is not signed in, the app MUST render a visible
+          <button> (role=button) whose accessible name matches "Sign up" AND another whose name
+          matches "Sign in", each opening the Clerk MODAL. Use Clerk's <SignUpButton mode="modal">
+          and <SignInButton mode="modal"> — their default rendering produces buttons labelled
+          exactly "Sign up" / "Sign in". Do NOT use <RedirectToSignIn /> or <RedirectToSignUp />
+          as the entry point (they render no button and navigate away, so the test finds nothing),
+          do NOT relabel the buttons ("Get Started", "Register", "Login"), and do NOT render them
+          as links/anchors — the immutable auth.spec.ts drives them via
+          getByRole('button', { name: /sign up/i }) and getByRole('button', { name: /sign in/i }).
+        - Do NOT build a custom email/password LoginPage or any custom auth UI that replaces the
+          Clerk components.
         - The signed-in application shell MUST render an element with data-testid="signed-in".
         - The Clerk modal's primary submit button MUST keep the class .cl-formButtonPrimary.
         - TYPE SAFETY: ClerkProvider's `publishableKey` prop requires a `string`, but

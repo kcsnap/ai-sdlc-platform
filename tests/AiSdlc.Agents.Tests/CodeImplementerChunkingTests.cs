@@ -184,6 +184,8 @@ public sealed class CodeImplementerChunkingTests
         Assert.Contains("data-testid=\"signed-in\"", contract);
         Assert.Contains(".cl-formButtonPrimary", contract);
         Assert.Contains("VITE_CLERK_PUBLISHABLE_KEY", contract); // publishableKey type-safety (TS2769)
+        Assert.Contains("SignUpButton", contract);               // signed-out entry must expose the modal triggers
+        Assert.Contains("RedirectToSignIn", contract);           // ...and forbid the redirect pattern that renders no button
         // and it travels into the batch prompts too
         Assert.True(provider.Requests[1].ContextDocuments.ContainsKey(CodeImplementerAgent.AuthContractLabel));
     }
