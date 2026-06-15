@@ -528,8 +528,13 @@ public static class AiSdlcWorkflowOrchestrator
                         fixContent = await context.CallActivityAsync<string>(
                             nameof(AgentActivityFunctions.ResolveContextAsync), fixResult.ContextRef);
 
+                    // A repair run that reaches PO review (reopen-repair) must use the stricter
+                    // filter — its fix must never touch acceptance.spec.ts either. A pure first
+                    // build (no findings) may still author it.
                     var fixedChanges = CodeChangeParser.Parse(fixContent)
-                        .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path)) // .github/ is Yorrixx-owned
+                        .Where(f => AgentActivityFunctions.IsRepairRun(agentContext.Metadata)
+                            ? !AgentActivityFunctions.IsProtectedForRepair(f.Path)
+                            : !AgentActivityFunctions.IsProtectedPath(f.Path))
                         .ToList();
                     if (fixedChanges.Count > 0)
                     {

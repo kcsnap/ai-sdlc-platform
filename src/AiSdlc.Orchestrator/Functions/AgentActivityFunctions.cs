@@ -280,17 +280,29 @@ public sealed class AgentActivityFunctions
     public Task<OpenPullRequestInfo?> GetNewestOpenAiPrAsync([ActivityTrigger] string repository, CancellationToken cancellationToken) =>
         _gitHub.GetNewestOpenPullRequestByBranchPrefixAsync(repository, "ai/", cancellationToken);
 
-    // Paths owned by the host platform (Yorrixx) — seeded, never generated or repaired:
-    //   .github/   — CI/CD workflows (violation #98: a repair edited deploy.yml)
-    //   tests/e2e/ — the immutable verification specs (auth.spec.ts / acceptance.spec.ts) the
-    //                release gate runs. Violation (#115): a vague reopen finding made the repair
-    //                "fix the test, not the code" — it gutted acceptance.spec.ts (deleted AC1–AC7)
-    //                and merged it instead of fixing the app. The verification harness is a
-    //                contract the platform must never touch.
     private static readonly string[] ProtectedPathPrefixes = [".github/", "tests/e2e/"];
 
+    // acceptance.spec.ts is the ONE verification-harness file the Code Implementer legitimately
+    // authors — once, on the first build, replacing the seeded throwing stubs with real tests.
+    // After that it must never be modified. So it is allowed through the always-protected filter
+    // (first-build authoring) but blocked by the repair filter (see IsProtectedForRepair).
+    internal static bool IsAcceptanceSpec(string path) =>
+        path.EndsWith("tests/e2e/specs/acceptance.spec.ts", StringComparison.OrdinalIgnoreCase);
+
+    // Always immutable — never authored or repaired. Seeded + drift-restored by Yorrixx:
+    //   .github/   — CI/CD workflows (violation #98: a repair edited deploy.yml)
+    //   tests/e2e/ — the verification harness (auth.spec.ts, playwright.config.ts, …) the release
+    //                gate runs — EXCEPT acceptance.spec.ts, which the platform authors once.
     internal static bool IsProtectedPath(string path) =>
+        !IsAcceptanceSpec(path) &&
         ProtectedPathPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+
+    // Repair / resume / CI-repair stages may modify NOTHING in the harness — including
+    // acceptance.spec.ts. Violation (#115): a vague reopen finding made the repair "fix the test,
+    // not the code" — it gutted acceptance.spec.ts (deleted AC1–AC7) and merged it instead of
+    // fixing the app. A later fix must always target the app code, never the verification spec.
+    internal static bool IsProtectedForRepair(string path) =>
+        IsProtectedPath(path) || IsAcceptanceSpec(path);
 
     /// <summary>
     /// Repairs must be minimal diffs against the findings, never refactors. Keep only files
@@ -300,7 +312,9 @@ public sealed class AgentActivityFunctions
     /// </summary>
     internal static List<FileChange> FilterRepairChanges(IReadOnlyList<FileChange> changes, string findingsText)
     {
-        var unprotected = changes.Where(c => !IsProtectedPath(c.Path)).ToList();
+        // Repair stages use the stricter filter — the verification harness, incl. acceptance.spec.ts,
+        // is entirely off-limits to a repair (a fix must target the app, never the test).
+        var unprotected = changes.Where(c => !IsProtectedForRepair(c.Path)).ToList();
         var implicated  = unprotected.Where(c => IsImplicatedByFindings(c.Path, findingsText)).ToList();
         return implicated.Count > 0 ? implicated : unprotected;
     }
