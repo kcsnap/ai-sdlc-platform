@@ -149,6 +149,70 @@ public sealed class CiRepairLoopTests
         Assert.Equal(string.Empty, AgentActivityFunctions.RenderCiFindings(findings));
     }
 
+    [Theory]
+    [InlineData(true, false, true, true)]    // reopen findings + source → repair
+    [InlineData(false, true, true, true)]    // ci findings + source → repair
+    [InlineData(true, true, true, true)]     // both findings + source → repair
+    [InlineData(true, false, false, false)]  // findings, no source → not a repair (greenfield)
+    [InlineData(false, false, true, false)]  // source only, no findings → not a repair
+    [InlineData(false, false, false, false)] // nothing → greenfield
+    public void IsRepairRun_requires_findings_and_existing_source(
+        bool reopen, bool ci, bool source, bool expect)
+    {
+        var meta = new Dictionary<string, object>();
+        if (reopen) meta["reopenFindings"] = "login page broken";
+        if (ci)     meta["ciFindings"]     = "ci-ref";
+        if (source) meta["existingSource"] = "source-ref";
+
+        Assert.Equal(expect, AgentActivityFunctions.IsRepairRun(meta));
+    }
+
+    [Fact]
+    public void IsRepairRun_treats_blank_values_as_absent()
+    {
+        var meta = new Dictionary<string, object> { ["reopenFindings"] = "  ", ["existingSource"] = "ref" };
+        Assert.False(AgentActivityFunctions.IsRepairRun(meta));
+    }
+
+    [Fact]
+    public void Source_selection_floats_findings_implicated_files_to_the_front()
+    {
+        // Order is by implication first (stable within each group), then tree order — so the
+        // file the findings name survives even when earlier-in-tree files exist.
+        var tree = new List<RepoTreeEntry>
+        {
+            new("src/api/Program.cs", 100),
+            new("src/api/Controllers/CoachController.cs", 100),
+            new("src/frontend/src/components/LoginPage.tsx", 100),
+        };
+
+        var ordered = AgentActivityFunctions.SelectRepairSourcePaths(tree, "auth.spec.ts fails: LoginPage.tsx missing selector");
+
+        Assert.Equal("src/frontend/src/components/LoginPage.tsx", ordered[0]);
+        Assert.Equal(3, ordered.Count); // all fit; prioritisation only reorders
+    }
+
+    [Fact]
+    public void Source_selection_keeps_implicated_file_when_budget_would_otherwise_drop_it()
+    {
+        // Fill the budget with max-size filler files ahead of the implicated file in tree order.
+        // Each file respects the per-file cap, so eligibility never excludes them — only the
+        // total budget does. Counts are derived from the constants so the test survives tuning.
+        var fileSize    = AgentActivityFunctions.RepairSourceMaxFileBytes;          // == per-file cap (still eligible)
+        var fillerCount = AgentActivityFunctions.RepairSourceTotalBudget / fileSize; // exhausts budget to < one more file
+        var tree = Enumerable.Range(0, fillerCount)
+            .Select(i => new RepoTreeEntry($"src/api/Filler{i}.cs", fileSize))
+            .Append(new RepoTreeEntry("src/frontend/src/components/LoginPage.tsx", fileSize))
+            .ToList();
+
+        var withFindings = AgentActivityFunctions.SelectRepairSourcePaths(tree, "fix LoginPage.tsx");
+        Assert.Contains("src/frontend/src/components/LoginPage.tsx", withFindings);
+
+        // Without findings, tree order wins and the implicated file is squeezed out at the end.
+        var withoutFindings = AgentActivityFunctions.SelectRepairSourcePaths(tree);
+        Assert.DoesNotContain("src/frontend/src/components/LoginPage.tsx", withoutFindings);
+    }
+
     [Fact]
     public void Findings_total_cap_drops_whole_check_sections_from_the_front()
     {

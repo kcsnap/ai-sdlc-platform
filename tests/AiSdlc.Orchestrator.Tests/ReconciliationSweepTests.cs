@@ -217,12 +217,15 @@ public sealed class ReconciliationSweepTests
     [Fact]
     public void Repair_source_selection_respects_the_total_budget()
     {
-        // 30KB files against the 160KB budget → exactly 5 fit
-        var tree = Enumerable.Range(0, 10)
-            .Select(i => new AiSdlc.GitHub.RepoTreeEntry($"src/f{i}.ts", 30_000))
+        // 30KB files (under the per-file cap) against the total budget — derive the expected
+        // count from the constant so the test survives budget tuning.
+        const int fileSize = 30_000;
+        var expectedFit = AgentActivityFunctions.RepairSourceTotalBudget / fileSize;
+        var tree = Enumerable.Range(0, expectedFit + 5)
+            .Select(i => new AiSdlc.GitHub.RepoTreeEntry($"src/f{i}.ts", fileSize))
             .ToList();
 
-        Assert.Equal(5, AgentActivityFunctions.SelectRepairSourcePaths(tree).Count);
+        Assert.Equal(expectedFit, AgentActivityFunctions.SelectRepairSourcePaths(tree).Count);
     }
 
     [Fact]

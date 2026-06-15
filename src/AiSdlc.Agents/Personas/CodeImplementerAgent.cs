@@ -90,6 +90,10 @@ public sealed class CodeImplementerAgent : IAgent
         CURRENT source code and the findings (often exact compiler output). Your job is
         a surgical fix, not a rewrite.
 
+        The application ALREADY BUILDS and is merged to main — only the listed findings are
+        wrong. This is edit mode, not greenfield: never regenerate the app, and never re-emit
+        a file the findings do not implicate.
+
         Rules:
         - Fix ONLY what the findings implicate. Do not redesign, restructure, rename, or
           "improve" anything else — unchanged files must not be touched.
@@ -109,6 +113,26 @@ public sealed class CodeImplementerAgent : IAgent
           content shown to you — never a fragment or diff.
         - Output nothing outside the file blocks.
         - The literal text </file> must never appear inside file content.
+        """;
+
+    // Every user-app is the pinned React + shared-Clerk stack (ADR-0002). The seeded scaffold
+    // ships a Clerk auth shell that the immutable verification suite (auth.spec.ts) drives by
+    // exact selector. Greenfield generation never sees the scaffold, so without this it emits
+    // its own LoginPage and clobbers the contract — breaking auth and cascading to every
+    // acceptance test. This doc travels into every generation/repair prompt.
+    internal const string AuthContractLabel = "Authentication Contract (DO NOT BREAK)";
+    internal const string AuthContractDoc = """
+        The app uses Clerk for authentication and the verification suite (auth.spec.ts) drives
+        it by exact selector. This is a HARD CONTRACT — preserve all of it:
+
+        - Keep <ClerkProvider> wrapping the application. Never remove or replace it.
+        - Keep the Clerk sign-in / sign-up MODAL flow. Do NOT build a custom email/password
+          LoginPage or any custom auth UI that replaces the Clerk components.
+        - The signed-in application shell MUST render an element with data-testid="signed-in".
+        - The Clerk modal's primary submit button MUST keep the class .cl-formButtonPrimary.
+
+        You may restyle freely WITHIN the Clerk components, but never substitute a custom auth
+        flow for Clerk's.
         """;
 
     private const string RetryPrompt =
@@ -346,6 +370,7 @@ public sealed class CodeImplementerAgent : IAgent
     private static Dictionary<string, string> BuildContextDocs(AgentContext ctx)
     {
         var docs = new Dictionary<string, string>();
+        docs[AuthContractLabel] = AuthContractDoc; // pinned stack — applies to every user-app
         AddIfPresent(docs, ctx, "repoContext",       "Repository Context");
         AddIfPresent(docs, ctx, "ownerBrief",       "Approved Product Brief");
         AddIfPresent(docs, ctx, "analystOutput",    "Business Analysis");

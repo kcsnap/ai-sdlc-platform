@@ -70,7 +70,7 @@ public static class AiSdlcWorkflowOrchestrator
                 // store; the metadata carries only the ref, resolved at agent execution.
                 var existingSourceRef = await context.CallActivityAsync<string>(
                     nameof(AgentActivityFunctions.FetchExistingSourceAsync),
-                    new FetchExistingSourceInput(agentContext.RunId, agentContext.Repository));
+                    new FetchExistingSourceInput(agentContext.RunId, agentContext.Repository, FindingsText: findings));
                 if (!string.IsNullOrWhiteSpace(existingSourceRef))
                     agentContext.Metadata["existingSource"] = existingSourceRef;
             }
@@ -382,14 +382,25 @@ public static class AiSdlcWorkflowOrchestrator
                 .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path)) // .github/ is Yorrixx-owned
                 .ToList();
 
-            // In resume mode the output is repair-mode output — enforce minimality against
-            // the findings so a "repair" can't smuggle in a refactor.
-            if (resumeMode)
+            // Any repair run — resume (open PR), in-run CI, OR a reopened-issue verification
+            // repair — must enforce minimality against its findings so a "repair" can't smuggle
+            // in a refactor or a full regeneration (#100: a reopen regenerated 412 errors over a
+            // green API). ciFindings (a context-store ref) takes precedence over reopenFindings
+            // (inline text); resume mode primes ciFindings, so this covers it too.
+            if (AgentActivityFunctions.IsRepairRun(agentContext.Metadata))
             {
-                var resumeFindingsText = await context.CallActivityAsync<string>(
-                    nameof(AgentActivityFunctions.ResolveContextAsync),
-                    (string)agentContext.Metadata["ciFindings"]!);
-                fileChanges = AgentActivityFunctions.FilterRepairChanges(fileChanges, resumeFindingsText);
+                string repairFindingsText;
+                if (agentContext.Metadata.TryGetValue("ciFindings", out var ciRef)
+                    && !string.IsNullOrWhiteSpace(Convert.ToString(ciRef)))
+                {
+                    repairFindingsText = await context.CallActivityAsync<string>(
+                        nameof(AgentActivityFunctions.ResolveContextAsync), Convert.ToString(ciRef)!);
+                }
+                else
+                {
+                    repairFindingsText = Convert.ToString(agentContext.Metadata.GetValueOrDefault("reopenFindings")) ?? string.Empty;
+                }
+                fileChanges = AgentActivityFunctions.FilterRepairChanges(fileChanges, repairFindingsText);
             }
 
             if (fileChanges.Count == 0)
