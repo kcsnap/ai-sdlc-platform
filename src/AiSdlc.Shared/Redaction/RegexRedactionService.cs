@@ -68,7 +68,12 @@ public sealed class RegexRedactionService : IRedactionService
 
     private sealed record RedactionRule(string Name, string PatternString, string Replacement)
     {
+        // 2s, not 100ms: the first match on a RegexOptions.Compiled pattern pays a JIT warm-up
+        // that intermittently exceeded a 100ms ceiling on contended CI runners — the private-IP
+        // rule timed out (RegexMatchTimeoutException) and failed the build repeatedly. The match
+        // itself is sub-millisecond; this ceiling only guards against pathological input, so a
+        // generous bound removes the false positives without weakening the safety net.
         public Regex Pattern { get; } = new(PatternString,
-            RegexOptions.Compiled | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+            RegexOptions.Compiled | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
     }
 }
