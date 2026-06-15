@@ -100,27 +100,39 @@ public sealed class CiRepairLoopTests
     [Theory]
     [InlineData(".github/workflows/deploy.yml", true)]
     [InlineData(".github/CODEOWNERS", true)]
-    [InlineData("tests/e2e/specs/acceptance.spec.ts", true)] // verification harness — Yorrixx-owned (#115)
     [InlineData("tests/e2e/specs/auth.spec.ts", true)]       // immutable auth contract spec
     [InlineData("tests/e2e/playwright.config.ts", true)]
+    [InlineData("tests/e2e/specs/acceptance.spec.ts", false)] // platform AUTHORS this once on first build
     [InlineData("src/api/Program.cs", false)]
-    [InlineData("src/frontend/src/App.test.tsx", false)]     // the app's own unit tests are fair game
+    [InlineData("src/frontend/src/App.test.tsx", false)]      // the app's own unit tests are fair game
     [InlineData("github-helper/notes.md", false)]
-    public void Platform_owned_paths_are_protected(string path, bool expectProtected)
+    public void Always_protected_paths_block_authoring_except_acceptance_spec(string path, bool expectProtected)
     {
         Assert.Equal(expectProtected, AgentActivityFunctions.IsProtectedPath(path));
+    }
+
+    [Theory]
+    [InlineData(".github/workflows/deploy.yml", true)]
+    [InlineData("tests/e2e/specs/auth.spec.ts", true)]
+    [InlineData("tests/e2e/specs/acceptance.spec.ts", true)]  // repair may NEVER touch it (#115)
+    [InlineData("src/api/Program.cs", false)]
+    public void Repair_filter_also_protects_acceptance_spec(string path, bool expectProtected)
+    {
+        Assert.Equal(expectProtected, AgentActivityFunctions.IsProtectedForRepair(path));
     }
 
     [Fact]
     public void Repair_filter_keeps_only_findings_implicated_files_and_drops_protected_paths()
     {
-        var findings = "src/api/Program.cs:12 [failure] CS0103\nApp.tsx:3 [failure] TS2304";
+        // acceptance.spec.ts is named in the findings, but a repair must still never touch it (#115).
+        var findings = "src/api/Program.cs:12 [failure] CS0103\nApp.tsx:3 [failure] TS2304\nacceptance.spec.ts AC1 failing";
         var changes = new List<AiSdlc.Shared.FileChange>
         {
             new("src/api/Program.cs", "fixed"),                      // implicated by full path
             new("src/frontend/src/App.tsx", "fixed"),                // implicated by filename
             new("src/api/Namespaces/Renamed.cs", "refactor"),        // NOT implicated — dropped
             new(".github/workflows/deploy.yml", "tampered"),         // protected — dropped
+            new("tests/e2e/specs/acceptance.spec.ts", "gutted"),     // findings-implicated but repair-protected — dropped
         };
 
         var filtered = AgentActivityFunctions.FilterRepairChanges(changes, findings);
@@ -128,6 +140,7 @@ public sealed class CiRepairLoopTests
         Assert.Equal(2, filtered.Count);
         Assert.DoesNotContain(filtered, f => f.Path.Contains("Renamed"));
         Assert.DoesNotContain(filtered, f => f.Path.StartsWith(".github/"));
+        Assert.DoesNotContain(filtered, f => f.Path.Contains("acceptance.spec.ts"));
     }
 
     [Fact]
