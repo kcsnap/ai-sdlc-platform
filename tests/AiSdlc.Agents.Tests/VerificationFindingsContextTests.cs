@@ -59,6 +59,31 @@ public sealed class VerificationFindingsContextTests
         Assert.False(docs.ContainsKey(AgentContextDocuments.VerificationFindingsDocumentName));
     }
 
+    [Fact]
+    public void Repair_mode_doc_is_added_only_with_findings_plus_existing_source()
+    {
+        // findings + existing source → targeted-repair instruction pins the pipeline to findings
+        var repair = MakeContext();
+        repair.Metadata["reopenFindings"] = "AuthGate.tsx uses RedirectToSignIn";
+        repair.Metadata["existingSource"] = "<file path=\"AuthGate.tsx\">...</file>";
+        var repairDocs = new Dictionary<string, string>();
+        AgentContextDocuments.AddStandard(repairDocs, repair);
+        Assert.True(repairDocs.ContainsKey(AgentContextDocuments.RepairModeDocumentName));
+        Assert.Contains("TARGETED REPAIR", repairDocs[AgentContextDocuments.RepairModeDocumentName]);
+
+        // findings but no source (fresh build with stale findings) → no repair-mode doc
+        var noSource = MakeContext();
+        noSource.Metadata["reopenFindings"] = "something";
+        var noSourceDocs = new Dictionary<string, string>();
+        AgentContextDocuments.AddStandard(noSourceDocs, noSource);
+        Assert.False(noSourceDocs.ContainsKey(AgentContextDocuments.RepairModeDocumentName));
+
+        // plain fresh build → no repair-mode doc
+        var freshDocs = new Dictionary<string, string>();
+        AgentContextDocuments.AddStandard(freshDocs, MakeContext());
+        Assert.False(freshDocs.ContainsKey(AgentContextDocuments.RepairModeDocumentName));
+    }
+
     private static AgentContext MakeContext() => new()
     {
         RunId          = "run-1",
