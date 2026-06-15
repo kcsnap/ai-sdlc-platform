@@ -280,10 +280,17 @@ public sealed class AgentActivityFunctions
     public Task<OpenPullRequestInfo?> GetNewestOpenAiPrAsync([ActivityTrigger] string repository, CancellationToken cancellationToken) =>
         _gitHub.GetNewestOpenPullRequestByBranchPrefixAsync(repository, "ai/", cancellationToken);
 
-    // .github/ is owned by the host platform (Yorrixx) — workflows are seeded, never
-    // generated or repaired. Observed violation: a repair edited deploy.yml (#98).
+    // Paths owned by the host platform (Yorrixx) — seeded, never generated or repaired:
+    //   .github/   — CI/CD workflows (violation #98: a repair edited deploy.yml)
+    //   tests/e2e/ — the immutable verification specs (auth.spec.ts / acceptance.spec.ts) the
+    //                release gate runs. Violation (#115): a vague reopen finding made the repair
+    //                "fix the test, not the code" — it gutted acceptance.spec.ts (deleted AC1–AC7)
+    //                and merged it instead of fixing the app. The verification harness is a
+    //                contract the platform must never touch.
+    private static readonly string[] ProtectedPathPrefixes = [".github/", "tests/e2e/"];
+
     internal static bool IsProtectedPath(string path) =>
-        path.StartsWith(".github/", StringComparison.OrdinalIgnoreCase);
+        ProtectedPathPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Repairs must be minimal diffs against the findings, never refactors. Keep only files
