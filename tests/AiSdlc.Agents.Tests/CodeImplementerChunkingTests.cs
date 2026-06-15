@@ -183,6 +183,7 @@ public sealed class CodeImplementerChunkingTests
         Assert.Contains("ClerkProvider", contract);
         Assert.Contains("data-testid=\"signed-in\"", contract);
         Assert.Contains(".cl-formButtonPrimary", contract);
+        Assert.Contains("VITE_CLERK_PUBLISHABLE_KEY", contract); // publishableKey type-safety (TS2769)
         // and it travels into the batch prompts too
         Assert.True(provider.Requests[1].ContextDocuments.ContainsKey(CodeImplementerAgent.AuthContractLabel));
     }

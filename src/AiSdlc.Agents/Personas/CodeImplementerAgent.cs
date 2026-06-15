@@ -130,6 +130,12 @@ public sealed class CodeImplementerAgent : IAgent
           LoginPage or any custom auth UI that replaces the Clerk components.
         - The signed-in application shell MUST render an element with data-testid="signed-in".
         - The Clerk modal's primary submit button MUST keep the class .cl-formButtonPrimary.
+        - TYPE SAFETY: ClerkProvider's `publishableKey` prop requires a `string`, but
+          `import.meta.env.VITE_CLERK_PUBLISHABLE_KEY` is typed `string | undefined`. Passing it
+          directly fails the build with `TS2769: No overload matches this call`. Fix it BOTH ways:
+          (1) declare `readonly VITE_CLERK_PUBLISHABLE_KEY: string` inside the `ImportMetaEnv`
+          interface in `src/vite-env.d.ts`, and (2) after guarding for a missing key, pass it with
+          a non-null assertion, e.g. `publishableKey={clerkPublishableKey!}`.
 
         You may restyle freely WITHIN the Clerk components, but never substitute a custom auth
         flow for Clerk's.
