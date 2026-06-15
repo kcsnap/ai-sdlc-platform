@@ -100,9 +100,13 @@ public sealed class CiRepairLoopTests
     [Theory]
     [InlineData(".github/workflows/deploy.yml", true)]
     [InlineData(".github/CODEOWNERS", true)]
+    [InlineData("tests/e2e/specs/acceptance.spec.ts", true)] // verification harness — Yorrixx-owned (#115)
+    [InlineData("tests/e2e/specs/auth.spec.ts", true)]       // immutable auth contract spec
+    [InlineData("tests/e2e/playwright.config.ts", true)]
     [InlineData("src/api/Program.cs", false)]
+    [InlineData("src/frontend/src/App.test.tsx", false)]     // the app's own unit tests are fair game
     [InlineData("github-helper/notes.md", false)]
-    public void Github_directory_is_protected(string path, bool expectProtected)
+    public void Platform_owned_paths_are_protected(string path, bool expectProtected)
     {
         Assert.Equal(expectProtected, AgentActivityFunctions.IsProtectedPath(path));
     }
