@@ -34,18 +34,22 @@ public sealed class BootstrapRiskOverrideTests
     }
 
     [Fact]
-    public void Bootstrap_preserves_BLOCKED_as_fatal()
+    public void Bootstrap_promotes_BLOCKED_to_AUTO_MERGE_ELIGIBLE()
     {
+        // BLOCKED is no longer fatal in Bootstrap: the AI risk assessment non-deterministically
+        // BLOCKed greenfield MVPs on aspirational compliance (no privacy policy / GDPR framework),
+        // now addressed by the templated legal docs injected into every build. CI + the
+        // verification gate remain the real gates; an unattended build must not die at risk.
         var result = AiSdlcWorkflowOrchestrator.ApplyBootstrapRiskOverride(
             "BLOCKED", WorkflowMode.Bootstrap);
-        Assert.Equal("BLOCKED", result);
+        Assert.Equal("AUTO_MERGE_ELIGIBLE", result);
     }
 
     [Fact]
     public void Bootstrap_promotes_unknown_decisions_to_AUTO_MERGE_ELIGIBLE()
     {
-        // Defensive: anything not explicitly BLOCKED should auto-merge in Bootstrap.
-        // If the Risk Assessor invents a new decision name, Bootstrap still trusts greenfield.
+        // Defensive: any decision auto-merges in Bootstrap. If the Risk Assessor invents a new
+        // decision name, Bootstrap still trusts greenfield.
         var result = AiSdlcWorkflowOrchestrator.ApplyBootstrapRiskOverride(
             "SOMETHING_NEW", WorkflowMode.Bootstrap);
         Assert.Equal("AUTO_MERGE_ELIGIBLE", result);

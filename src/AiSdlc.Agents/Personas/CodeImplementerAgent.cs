@@ -135,6 +135,25 @@ public sealed class CodeImplementerAgent : IAgent
         flow for Clerk's.
         """;
 
+    // The platform commits static Privacy Policy + Terms of Service templates into every build
+    // (no AI generation). The generated site must LINK them so they're reachable — but must not
+    // author legal prose. This keeps "legal docs present and linked, every time" without spending
+    // tokens regenerating the documents.
+    internal const string LegalLinksLabel = "Required Legal Links (DO NOT BREAK)";
+    internal static readonly string LegalLinksDoc = $"""
+        The platform automatically adds two static legal pages to this app at build time:
+        - Privacy Policy → {LegalDocumentTemplates.PrivacyPolicyUrl}
+        - Terms of Service → {LegalDocumentTemplates.TermsOfServiceUrl}
+
+        Requirements:
+        - The app's main layout MUST render a footer (visible on the signed-in app) that links to
+          both URLs above, e.g. <a href="{LegalDocumentTemplates.PrivacyPolicyUrl}">Privacy Policy</a>
+          and <a href="{LegalDocumentTemplates.TermsOfServiceUrl}">Terms of Service</a>.
+        - These are plain static files served from /public — link to the absolute paths above; do
+          NOT create React routes/components for them and do NOT write or rewrite the legal text
+          yourself (the platform owns those files).
+        """;
+
     private const string RetryPrompt =
         "Your previous response contained no `<file path=\"...\">` blocks. " +
         "You MUST wrap every file in `<file path=\"...\">` tags. " +
@@ -371,6 +390,7 @@ public sealed class CodeImplementerAgent : IAgent
     {
         var docs = new Dictionary<string, string>();
         docs[AuthContractLabel] = AuthContractDoc; // pinned stack — applies to every user-app
+        docs[LegalLinksLabel]   = LegalLinksDoc;   // platform injects the docs; site must link them
         AddIfPresent(docs, ctx, "repoContext",       "Repository Context");
         AddIfPresent(docs, ctx, "ownerBrief",       "Approved Product Brief");
         AddIfPresent(docs, ctx, "analystOutput",    "Business Analysis");

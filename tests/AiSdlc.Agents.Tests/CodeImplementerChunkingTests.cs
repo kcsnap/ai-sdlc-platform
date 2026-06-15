@@ -188,6 +188,23 @@ public sealed class CodeImplementerChunkingTests
     }
 
     [Fact]
+    public async Task Legal_links_contract_reaches_generation_prompts()
+    {
+        // The platform injects static legal pages; the site must link them every time.
+        var provider = new ScriptedModelProvider(
+            _ => Manifest,
+            req => FileBlocksFor(RequestedPaths(req)),
+            req => FileBlocksFor(RequestedPaths(req)));
+
+        await new CodeImplementerAgent(provider).ExecuteAsync(MakeRequest(), CancellationToken.None);
+
+        var legal = provider.Requests[0].ContextDocuments[CodeImplementerAgent.LegalLinksLabel];
+        Assert.Contains(AiSdlc.Shared.LegalDocumentTemplates.PrivacyPolicyUrl, legal);
+        Assert.Contains(AiSdlc.Shared.LegalDocumentTemplates.TermsOfServiceUrl, legal);
+        Assert.Contains("footer", legal, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Auth_contract_reaches_repair_prompts()
     {
         var provider = new ScriptedModelProvider(
