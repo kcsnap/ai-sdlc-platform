@@ -8,7 +8,8 @@ public sealed class CiRepairLoopTests
 {
     [Theory]
     [InlineData(1, 0, 0, true)]   // concrete failure, attempts available
-    [InlineData(1, 0, 2, false)]  // attempts exhausted
+    [InlineData(1, 0, 2, true)]   // mid-budget (MaxCiRepairAttempts is 4) — still actionable
+    [InlineData(1, 0, 4, false)]  // attempts exhausted
     [InlineData(0, 2, 0, false)]  // pure pending-timeout — no findings to act on
     [InlineData(1, 1, 0, true)]   // fast-fail build + slow e2e at budget — actionable
     [InlineData(0, 0, 0, false)]  // nothing failed
