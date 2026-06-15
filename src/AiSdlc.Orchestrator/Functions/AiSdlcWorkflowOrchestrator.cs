@@ -488,13 +488,14 @@ public static class AiSdlcWorkflowOrchestrator
                         agentContext.Repository, defaultBranch, branchName, implCommitSha, fileChanges.Count)));
 
             // ── Step 11b: Product Owner reviews committed content ──────────────
-            // SKIPPED in resume mode (#102): the review only sees the repaired files but
-            // judges them against the full brief, so components living elsewhere on the
-            // branch get flagged as missing CRITICALs — its fix loop then rewrites code
-            // against those hallucinated gaps and the run dies before the CI gate. A
-            // resume run is a surgical CI repair of an already-reviewed implementation;
-            // like the in-gate repair loop (Step 12a), CI is its sole arbiter.
-            if (!resumeMode)
+            // SKIPPED for ALL repair runs — resume (#102) AND reopen-repair (#118): the review
+            // judges the repaired files against the full charter brief, so a narrow fix gets
+            // flagged for "missing" features/components that already exist elsewhere (v003: an
+            // AuthGate fix rejected for not "implementing the acceptance tests"), and the run
+            // dies before the CI gate. A repair is a surgical fix of an already-reviewed app;
+            // like the in-gate repair loop (Step 12a), CI is its sole arbiter. Fresh first
+            // builds are still reviewed.
+            if (!resumeMode && !AgentActivityFunctions.IsRepairRun(agentContext.Metadata))
             {
                 var reviewFilePaths = fileChanges.Select(f => f.Path).ToArray();
                 var branchReviewResult = await RunStageWithRecoveryAsync(context, agentContext, "Implementation Review",

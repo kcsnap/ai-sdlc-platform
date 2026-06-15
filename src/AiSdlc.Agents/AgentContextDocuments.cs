@@ -11,6 +11,25 @@ public static class AgentContextDocuments
     public const string OperatingModeDocumentName = "Operating Mode";
     public const string VerificationFindingsDocumentName = "Verification Findings";
     public const string CiFindingsDocumentName = "CI Failure Findings";
+    public const string RepairModeDocumentName = "Repair Mode (targeted fix)";
+
+    // Reaches every agent via AddStandard. Without it, a reopen-repair runs the full planning
+    // pipeline (Strategist/BA/Architect) which re-plans the whole app from the charter and
+    // overrides a narrow finding — v003: an AuthGate finding got reframed as "implement the
+    // acceptance tests", which then dead-locked against the (already complete, protected) test
+    // specs. This pins the whole pipeline to the findings.
+    private const string RepairModeInstructions = """
+        This run is a TARGETED REPAIR of an existing, already-deployed application — NOT a fresh
+        build. Address ONLY the verification / CI findings provided in this context.
+
+        - The app, its features, its pages, and its test files ALREADY EXIST and are complete.
+          Do NOT re-plan or re-implement existing functionality, and do NOT treat existing code
+          or tests as missing or as stubs to be written.
+        - Scope every output strictly to fixing the stated findings against the existing code.
+          If the findings name specific files, change only those and their direct dependencies.
+        - Do NOT expand scope to "completing" the app, implementing acceptance tests, or adding
+          features the findings did not ask for.
+        """;
 
     private const string VerificationFindingsPreamble =
         "This issue was REOPENED because the previously released build failed downstream " +
@@ -48,17 +67,23 @@ public static class AgentContextDocuments
         // Fresh CI findings take precedence: in a reopened run whose repair then fails CI,
         // the stale reopen findings describe already-fixed defects and must not compete
         // with the current compiler output.
-        var ciFindings = ReadMeta(context, "ciFindings");
+        var ciFindings     = ReadMeta(context, "ciFindings");
+        var reopenFindings = ReadMeta(context, "reopenFindings");
         if (!string.IsNullOrWhiteSpace(ciFindings))
         {
             contextDocs[CiFindingsDocumentName] = CiFindingsPreamble + ciFindings;
         }
-        else
+        else if (!string.IsNullOrWhiteSpace(reopenFindings))
         {
-            var findings = ReadMeta(context, "reopenFindings");
-            if (!string.IsNullOrWhiteSpace(findings))
-                contextDocs[VerificationFindingsDocumentName] = VerificationFindingsPreamble + findings;
+            contextDocs[VerificationFindingsDocumentName] = VerificationFindingsPreamble + reopenFindings;
         }
+
+        // A repair run (findings + existing source) is a surgical fix — pin the WHOLE pipeline to
+        // the findings so the planning agents don't re-plan the app from the charter and bury a
+        // narrow finding.
+        var hasFindings = !string.IsNullOrWhiteSpace(ciFindings) || !string.IsNullOrWhiteSpace(reopenFindings);
+        if (hasFindings && !string.IsNullOrWhiteSpace(ReadMeta(context, "existingSource")))
+            contextDocs[RepairModeDocumentName] = RepairModeInstructions;
     }
 
     private static string ReadMeta(AgentContext context, string key) =>
