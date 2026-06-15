@@ -1275,9 +1275,12 @@ public static class AiSdlcWorkflowOrchestrator
     internal static bool ShouldKeepPollingChecks(ChecksState state, int poll) =>
         state.Pending > 0 || (state.Total == 0 && poll < ZeroCheckGracePolls);
 
-    // Each attempt ≈ one surgical model call + a handful of GitHub calls. Two is the
-    // observed convergence horizon for compiler-mechanical failures (#95).
-    internal const int MaxCiRepairAttempts = 2;
+    // Each attempt ≈ one surgical model call + a handful of GitHub calls. Two was too shallow
+    // for multi-file TypeScript error sets: v003 (fd0fc752) drove build-api red→green and
+    // build-frontend down to 4 concrete TS errors but ran out of attempts mid-convergence.
+    // Four gives the loop room to finish deeper-but-still-mechanical error sets; the same-SHA
+    // no-op guard still exits early when a repair stops making progress, so this can't spin.
+    internal const int MaxCiRepairAttempts = 4;
 
     // Repair only on concrete failures: a pure pending-timeout has no findings to act on,
     // and a blind attempt is exactly the regeneration anti-pattern this loop replaces.
