@@ -168,6 +168,41 @@ public sealed class CodeImplementerChunkingTests
     }
 
     [Fact]
+    public async Task Auth_contract_reaches_greenfield_generation_prompts()
+    {
+        // Greenfield never sees the seeded Clerk scaffold — the contract must be injected so the
+        // implementer doesn't replace the Clerk auth shell with a custom LoginPage.
+        var provider = new ScriptedModelProvider(
+            _ => Manifest,
+            req => FileBlocksFor(RequestedPaths(req)),
+            req => FileBlocksFor(RequestedPaths(req)));
+
+        await new CodeImplementerAgent(provider).ExecuteAsync(MakeRequest(), CancellationToken.None);
+
+        var contract = provider.Requests[0].ContextDocuments[CodeImplementerAgent.AuthContractLabel];
+        Assert.Contains("ClerkProvider", contract);
+        Assert.Contains("data-testid=\"signed-in\"", contract);
+        Assert.Contains(".cl-formButtonPrimary", contract);
+        // and it travels into the batch prompts too
+        Assert.True(provider.Requests[1].ContextDocuments.ContainsKey(CodeImplementerAgent.AuthContractLabel));
+    }
+
+    [Fact]
+    public async Task Auth_contract_reaches_repair_prompts()
+    {
+        var provider = new ScriptedModelProvider(
+            _ => "<file path=\"src/App.tsx\">\nconst fixed = true;\n</file>");
+
+        var request = MakeRequest();
+        request.Context.Metadata["reopenFindings"] = "login flow broken";
+        request.Context.Metadata["existingSource"] = "<file path=\"src/App.tsx\">\nconst broken = Foo;\n</file>";
+
+        await new CodeImplementerAgent(provider).ExecuteAsync(request, CancellationToken.None);
+
+        Assert.True(provider.Requests[0].ContextDocuments.ContainsKey(CodeImplementerAgent.AuthContractLabel));
+    }
+
+    [Fact]
     public async Task No_manifest_falls_back_to_single_shot()
     {
         var provider = new ScriptedModelProvider(

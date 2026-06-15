@@ -300,10 +300,25 @@ public sealed class AgentActivityFunctions
 
     internal static bool IsImplicatedByFindings(string path, string findingsText)
     {
+        if (string.IsNullOrEmpty(findingsText)) return false;
         if (findingsText.Contains(path, StringComparison.OrdinalIgnoreCase))
             return true;
         var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
         return findingsText.Contains(fileName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// True when this run is a repair (reopen verification findings or in-run CI findings) over
+    /// existing source — the orchestrator uses this to apply <see cref="FilterRepairChanges"/> to
+    /// the implementer output, mirroring the agent-side gate
+    /// (<c>CodeImplementerAgent.IsRepairRequest</c>). Without it, reopen-driven repairs commit
+    /// their output unfiltered and can smuggle in a full regeneration.
+    /// </summary>
+    internal static bool IsRepairRun(IReadOnlyDictionary<string, object> metadata)
+    {
+        static bool Has(IReadOnlyDictionary<string, object> m, string key) =>
+            m.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(Convert.ToString(v));
+        return (Has(metadata, "reopenFindings") || Has(metadata, "ciFindings")) && Has(metadata, "existingSource");
     }
 
     // Caps keep the findings prompt-sized; truncation drops whole-check sections rather
@@ -370,7 +385,10 @@ public sealed class AgentActivityFunctions
     // and stop at a cumulative cap. The bundle is offloaded to the context store and the
     // REF is returned — agent execution resolves metadata refs before building prompts.
     internal const int RepairSourceMaxFileBytes  = 40_000;
-    internal const int RepairSourceTotalBudget   = 160_000;
+    // Large enough to hold a whole generated user-app: a 160KB cap handed the repair a partial
+    // codebase, which the model then "completed" by regenerating the missing files — namespace
+    // drift and hallucinated deps followed (#100 evidence: 412-error reopen regen on 624d97a2).
+    internal const int RepairSourceTotalBudget   = 512_000;
 
     private static readonly string[] RepairSourceExcludedExtensions =
         [".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".woff", ".woff2", ".ttf", ".zip", ".dll", ".pdf", ".map"];
@@ -387,7 +405,7 @@ public sealed class AgentActivityFunctions
         // strictly sequential and the ref is resolved before any later overwrite.
         var branch = input.Branch ?? await _gitHub.GetDefaultBranchAsync(input.Repository, cancellationToken);
         var tree   = await _gitHub.GetBranchFileTreeAsync(input.Repository, branch, cancellationToken);
-        var paths  = SelectRepairSourcePaths(tree);
+        var paths  = SelectRepairSourcePaths(tree, input.FindingsText);
 
         var fetched = await Task.WhenAll(paths.Select(async p =>
             (Path: p, Content: await _gitHub.GetBranchFileContentAsync(input.Repository, p, branch, cancellationToken))));
@@ -409,20 +427,32 @@ public sealed class AgentActivityFunctions
         return await _contextStore.OffloadAsync(input.RunId, "existing-source", sb.ToString(), cancellationToken);
     }
 
-    internal static IReadOnlyList<string> SelectRepairSourcePaths(IReadOnlyList<RepoTreeEntry> tree)
+    internal static IReadOnlyList<string> SelectRepairSourcePaths(
+        IReadOnlyList<RepoTreeEntry> tree, string? findingsText = null)
     {
+        static bool Eligible(RepoTreeEntry entry)
+        {
+            if (entry.Size > RepairSourceMaxFileBytes) return false;
+            var fileName = entry.Path.Contains('/') ? entry.Path[(entry.Path.LastIndexOf('/') + 1)..] : entry.Path;
+            if (RepairSourceExcludedNames.Contains(fileName, StringComparer.OrdinalIgnoreCase)) return false;
+            if (RepairSourceExcludedExtensions.Any(ext => entry.Path.EndsWith(ext, StringComparison.OrdinalIgnoreCase))) return false;
+            if (RepairSourceExcludedPrefixes.Any(prefix => entry.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))) return false;
+            return true;
+        }
+
+        // Findings-implicated files first so the files the repair must touch are guaranteed in
+        // the bundle even when the whole app exceeds the budget; OrderBy is stable, so ties keep
+        // tree order and non-implicated files still fill the remaining budget.
+        var eligible = tree.Where(Eligible);
+        var ordered  = string.IsNullOrEmpty(findingsText)
+            ? eligible
+            : eligible.OrderByDescending(e => IsImplicatedByFindings(e.Path, findingsText));
+
         var selected = new List<string>();
         long budget = RepairSourceTotalBudget;
-
-        foreach (var entry in tree)
+        foreach (var entry in ordered)
         {
-            if (entry.Size > RepairSourceMaxFileBytes) continue;
-            var fileName = entry.Path.Contains('/') ? entry.Path[(entry.Path.LastIndexOf('/') + 1)..] : entry.Path;
-            if (RepairSourceExcludedNames.Contains(fileName, StringComparer.OrdinalIgnoreCase)) continue;
-            if (RepairSourceExcludedExtensions.Any(ext => entry.Path.EndsWith(ext, StringComparison.OrdinalIgnoreCase))) continue;
-            if (RepairSourceExcludedPrefixes.Any(prefix => entry.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))) continue;
             if (entry.Size > budget) continue;
-
             selected.Add(entry.Path);
             budget -= entry.Size;
         }
