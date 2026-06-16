@@ -50,19 +50,21 @@ The platform changes themselves stay small; the gate is the discipline.
 
 | Path | Owner | In manifest? | Protected? |
 |---|---|---|---|
-| `src/frontend/src/main.tsx` (renders `<AppShell/>`) | Shell | no | **yes** |
-| `src/frontend/src/app/AppShell.tsx` (ClerkProvider + AuthGate + layout + footer/legal links + error boundary + loading; consolidates today's `App.tsx` + `pages/AuthGate.tsx`) | Shell | no | **yes** |
-| `src/frontend/src/lib/api.ts` (`apiUrl` client — kept; deploy workflow + contract reference it) | Shell | no | **yes** |
-| `src/frontend/src/vite-env.d.ts` (the `VITE_CLERK_PUBLISHABLE_KEY: string` fix) | Shell | no | **yes** |
-| `src/frontend/src/app/routes.tsx` | **AI** | yes | no |
-| `src/frontend/src/app/nav.ts` (list the shell consumes) | **AI** | yes | no |
-| `src/frontend/src/theme.ts` / Clerk `appearance` | **AI** | yes | no |
-| `src/frontend/src/features/**` (pages, components) | **AI** | yes | no |
-| `src/api/Auth/ClerkAuthHandler.cs` | Shell | no | **yes** |
-| `src/api/Data/RepositoryBase.cs` + repo interfaces | Shell | no | **yes** |
+| `src/frontend/src/main.tsx` (ClerkProvider wrapping `<AppShell/>`) | Shell | no | **yes** |
+| `src/frontend/src/app/AppShell.tsx` (AuthGate: SignedOut→`Sign up`/`Sign in` modal buttons, SignedIn→`data-testid="signed-in"` layout + nav + `<AppRoutes/>` + footer/legal links + error boundary + loading; replaces the now-deleted `App.tsx`) | Shell | no | **yes** |
+| `src/frontend/src/lib/api.ts` (`apiUrl` client; reads `VITE_API_BASE_URL`) | Shell | no | **yes** |
+| `src/frontend/src/vite-env.d.ts` (`VITE_CLERK_PUBLISHABLE_KEY: string` + `VITE_API_BASE_URL?: string`) | Shell | no | **yes** |
+| `src/frontend/src/app/routes.tsx` (ships placeholder `<AppRoutes/>`) | **AI** | yes | no |
+| `src/frontend/src/app/nav.ts` (`navItems` the shell renders; empty default) | **AI** | yes | no |
+| `src/frontend/src/theme.ts` / Clerk `appearance` (AI-created) | **AI** | yes | no |
+| `src/frontend/src/features/**`, `components/ui/**`, `lib/utils.ts` | **AI** | yes | no |
 | `src/api/Program.cs` (immutable; calls `FeatureRegistration.AddFeatures(builder.Services)`) | Shell | no | **yes** |
-| `src/api/Features/FeatureRegistration.cs` (template seeds a no-op stub; AI fills it) | **AI** | yes | no |
-| `src/api/Features/**` (controllers, domain models, typed queries) | **AI** | yes | no |
+| `src/api/Auth/ClerkJwtMiddleware.cs`, `src/api/Auth/ClerkTokenValidator.cs` (`Api.Auth`) | Shell | no | **yes** |
+| `src/api/Data/CosmosClientFactory.cs` (Cosmos client infra, `Api.Data`) | Shell | no | **yes** |
+| `src/api/Functions/HealthFunction.cs`, `src/api/host.json`, `src/api/Api.csproj` | Shell | no | **yes** |
+| `src/api/Features/FeatureRegistration.cs` (`Api.Features`; static `void AddFeatures(IServiceCollection)`; ships sample `items` registered) | **AI** | yes | no |
+| `src/api/Features/**` (new feature services) | **AI** | yes | no |
+| `src/api/Data/CosmosItemStore.cs`, `src/api/Functions/ItemsFunction.cs` (sample `items` feature — AI replaces) | **AI** | yes | no |
 | `tests/e2e/helpers/auth.ts` (shared register/signOut/signIn helper) | Shell | no | **yes** |
 | `tests/e2e/specs/auth.spec.ts` (drives the shell by selector) | Shell | no | **yes** |
 | `tests/e2e/specs/acceptance.spec.ts` (charter-derived per-app overlay) | **AI** | yes | **yes-prefix, exempted** |
@@ -81,11 +83,13 @@ it**, or platform must change code. Division of labour is unchanged from today.
    components — that is what protects the immutable `auth.spec.ts` selectors.
 2. **Backend DI** — `Program.cs` is the backend's `App.tsx`: it wires feature DI, so it can't be
    frozen outright. The seam is a **plain AI-owned static** `FeatureRegistration.AddFeatures` (not a
-   C# `partial` method — `void`/visibility constraints make those fragile). The template seeds a
-   no-op stub at `src/api/Features/FeatureRegistration.cs`; the immutable `Program.cs` calls
+   C# `partial` method — `void`/visibility constraints make those fragile). The template seeds the
+   stub at `src/api/Features/FeatureRegistration.cs` (`namespace Api.Features`,
+   `public static void AddFeatures(IServiceCollection services)`, shipping the sample `items` feature
+   registered so the template builds green); the immutable `Program.cs` calls
    `FeatureRegistration.AddFeatures(builder.Services)`. Because create-from-template preserves the
-   template's root namespace, the AI's filled-in version resolves against `Program.cs`'s `using` with
-   no rename.
+   template's root namespace (`Api`), the AI's filled-in version resolves against `Program.cs`'s `using`
+   with no rename.
 
 ## 3. Platform code changes (this repo, one PR, behind the lockstep gate)
 
@@ -93,6 +97,11 @@ it**, or platform must change code. Division of labour is unchanged from today.
    new `ShellScaffoldPaths` set alongside `ProtectedPathPrefixes`, as a single source of truth. The
    existing filters at `:388` / `:548` and `FilterRepairChanges` pick it up for free. `IsAcceptanceSpec`
    already exempts `acceptance.spec.ts`; verify the new shell paths against the final template tree.
+   **API-side protection is file-level, not prefix-level:** protect `src/api/Program.cs`,
+   `src/api/Auth/` (prefix), `src/api/Data/CosmosClientFactory.cs`, `src/api/Functions/HealthFunction.cs`,
+   `src/api/host.json`, `src/api/Api.csproj` — but **not** `src/api/Data/` or `src/api/Functions/`
+   wholesale, because the sample `items` feature (`Data/CosmosItemStore.cs`, `Functions/ItemsFunction.cs`)
+   co-locates with infra and must stay AI-replaceable.
 
 2. **`CodeImplementerAgent` — reframe the contract (the big lever).**
    - Replace `AuthContractDoc` ("here is how to build auth", which still produced `@clerk/react` and
@@ -127,21 +136,20 @@ This is template/Yorrixx-owned, recorded here for shared context (no platform co
 ## 5. Sequencing
 
 1. **Source-of-truth + path contract** — **DONE** (this document; agreed 2026-06-16).
-2. **Step #1 (proof, template-internal)** — Yorrixx: `tests/e2e/helpers/auth.ts` + refactor
-   `auth.spec.ts` to import it. Kills the flaky homegrown `registerUser`; proves the extraction and
-   template CI (which runs .NET + frontend build/test, not e2e — so green-safe). **Template PR
-   `kcsnap/ai-sdlc-react-dotnet-template#1` is up for platform review/merge.** Note: this proves the
-   refactor, not generation — the first true end-to-end proof needs the seeding switch + one
-   generated app.
-3. **Step #2 (frontend shell)** — Yorrixx re-authors `AppShell` + `routes.tsx` split, `nav.ts`,
-   `lib/api.ts`, `vite-env.d.ts`, in parallel with speccing the `EnsureUserAppRepoAsync`
-   create-from-template switch.
-4. **Step #3 (backend + seeding switch)** — Yorrixx: Cosmos `RepositoryBase`, `Program.cs` +
-   `FeatureRegistration` no-op stub, the seeding switch itself, drift-restore for the shell paths.
-5. **Platform protect+reframe** — ships in the **same release** as the template-shell + seeding-switch
-   landing green (the §1 lockstep gate). Platform W2 code is **not** written until the tree is locked
-   (now) and the gate conditions are in sight.
-6. **Graduate to `@yorrixx/app-kit`** (npm on GitHub Packages) later, once the shell set stabilises.
+2. **Step #1 (proof, template-internal)** — **DONE.** Template PR `ai-sdlc-react-dotnet-template#1`
+   merged: `tests/e2e/helpers/auth.ts` + immutable `auth.spec.ts` importing it. Killed the flaky
+   homegrown `registerUser`. Proves the refactor, not generation.
+3. **Step #2 (frontend shell)** — **DONE.** Template PR `#2` merged: `AppShell` + `routes.tsx`/`nav.ts`
+   split, `vite-env.d.ts`, legal pages; `App.tsx` deleted, `main.tsx` mounts `AppShell`.
+4. **Step #3 (backend seam)** — **DONE.** Template PR `#3` merged: `Api.Features.FeatureRegistration`
+   static seam + immutable `Program.cs`. Template `main` now carries the full shell.
+5. **Step #4 (seeding switch)** — **NEXT, Yorrixx:** `EnsureUserAppRepoAsync` → generate-from-template;
+   `UserAppScaffold.cs` reduced to overlays; drift-restore expanded to the shell paths;
+   `DeployWorkflowTemplate` flipped to `VITE_API_BASE_URL` (see §8). Landing green is the platform trigger.
+6. **Platform protect+reframe** — ships in the **same release** as the seeding switch landing green (the
+   §1 lockstep gate). The tree is now locked, so platform code can be pre-staged (draft) and held until
+   the trigger.
+7. **Graduate to `@yorrixx/app-kit`** (npm on GitHub Packages) later, once the shell set stabilises.
 
 ## 6. Risks on the record
 
@@ -190,11 +198,10 @@ drift-restore is the backstop against *non-AI* mutation, a separate mechanism.)
 - **(b) `deploy.yml` stays Yorrixx-generated per-app** — it needs per-app OIDC/resource values and is
   under the always-immutable `.github/`. Must be **excluded from the template-drift-restore set** (see
   above).
-- **(c) `.ai-sdlc.yml` provenance — OPEN.** The platform reads it at RepoIndex; it drives
-  `allow_low_risk_auto_merge` → the orchestrator's `allowAutoMerge` (brief auto-approve + bootstrap
-  risk path), so every user-app must carry it. **Recommendation:** template-static (part of the
-  immutable shell, drift-restored) if the config is uniform across yorrixx-apps; per-app overlay only
-  if any value genuinely varies. Yorrixx to confirm.
+- **(c) `.ai-sdlc.yml` provenance — RESOLVED: template-static.** Yorrixx confirmed 2026-06-16. It ships
+  from the template as part of the immutable shell (drift-restored), since the config is uniform across
+  yorrixx-apps. The platform reads it at RepoIndex; it drives `allow_low_risk_auto_merge` → the
+  orchestrator's `allowAutoMerge` (brief auto-approve + bootstrap risk path).
 
 **Platform dependency:** `.yorrixx/charter.json` must exist at run start — applying overlays at
 create-time satisfies this. Charter-derived throwing `acceptance.spec.ts` stubs are compatible with the
