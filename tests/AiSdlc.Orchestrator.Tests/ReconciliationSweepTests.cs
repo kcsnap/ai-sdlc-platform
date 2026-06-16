@@ -89,6 +89,64 @@ public sealed class ReconciliationSweepTests
     }
 
     [Fact]
+    public void Wedged_running_instance_past_threshold_qualifies_for_reclamation()
+    {
+        // v004 baseline: a heavy build hung on a rate-limited model call and sat in Running with a
+        // frozen lastUpdatedTime, never failing — exactly what this rescues.
+        var labels = new[] { GitHubWebhookProcessor.BootstrapLabel, "ai-sdlc:analysis-ready" };
+        Assert.True(ReconciliationSweepFunction.ShouldRestartStuckRunning(
+            OrchestrationRuntimeStatus.Running, Now.AddMinutes(-25), Now, labels));
+    }
+
+    [Fact]
+    public void Merely_slow_running_instance_is_left_alone()
+    {
+        // A single rate-limited model call can legitimately run a few minutes — below the
+        // wedge threshold it is slow, not stuck.
+        var labels = new[] { GitHubWebhookProcessor.BootstrapLabel };
+        Assert.False(ReconciliationSweepFunction.ShouldRestartStuckRunning(
+            OrchestrationRuntimeStatus.Running, Now.AddMinutes(-10), Now, labels));
+    }
+
+    [Fact]
+    public void Stale_running_instance_is_left_alone()
+    {
+        // Past MaxRestartableAge it is an abandoned build — restarting burns spend on no one,
+        // same policy as the Failed path.
+        var labels = new[] { GitHubWebhookProcessor.BootstrapLabel };
+        Assert.False(ReconciliationSweepFunction.ShouldRestartStuckRunning(
+            OrchestrationRuntimeStatus.Running, Now.AddHours(-7), Now, labels));
+    }
+
+    [Theory]
+    [InlineData("ai-sdlc:awaiting-brief-approval")]
+    [InlineData("ai-sdlc:awaiting-human-review")]
+    [InlineData("AI-SDLC:Awaiting-Human-Review")] // gates are matched case-insensitively
+    public void Running_instance_parked_at_a_human_gate_is_never_reclaimed(string awaitingLabel)
+    {
+        // These gates leave the orchestration in Running with a frozen lastUpdatedTime for as long
+        // as the human takes — the awaiting-* label is what keeps the sweep off them.
+        var labels = new[] { GitHubWebhookProcessor.BootstrapLabel, awaitingLabel };
+        Assert.False(ReconciliationSweepFunction.ShouldRestartStuckRunning(
+            OrchestrationRuntimeStatus.Running, Now.AddMinutes(-30), Now, labels));
+    }
+
+    [Theory]
+    [InlineData(OrchestrationRuntimeStatus.Failed)]
+    [InlineData(OrchestrationRuntimeStatus.Completed)]
+    [InlineData(OrchestrationRuntimeStatus.Pending)]
+    [InlineData(OrchestrationRuntimeStatus.Terminated)]
+    [InlineData(OrchestrationRuntimeStatus.Suspended)]
+    public void Non_running_statuses_are_never_treated_as_wedged(OrchestrationRuntimeStatus status)
+    {
+        // Failed has its own path; Terminated/Suspended are operator actions; the wedge rescue
+        // only ever fires on a genuinely-Running instance.
+        var labels = new[] { GitHubWebhookProcessor.BootstrapLabel };
+        Assert.False(ReconciliationSweepFunction.ShouldRestartStuckRunning(
+            status, Now.AddMinutes(-30), Now, labels));
+    }
+
+    [Fact]
     public void Comment_over_github_limit_is_truncated_with_notice()
     {
         var oversized = new string('x', AgentActivityFunctions.GitHubCommentMaxChars + 5000);
