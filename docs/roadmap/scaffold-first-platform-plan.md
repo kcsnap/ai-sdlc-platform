@@ -160,3 +160,43 @@ This is template/Yorrixx-owned, recorded here for shared context (no platform co
   `UserAppScaffold.cs` per-app overlays, `APP_ID8` injection, provisioning, drift-restore.
 - **Platform (this repo):** protected-paths for the shell (`ShellScaffoldPaths`), the Code Implementer
   reframe (`ScaffoldContractDoc` + the backend-seam hard line), the manifest exclusion, the seam contract.
+
+## 8. Seeding switch — create-from-template (Yorrixx spec, 2026-06-16)
+
+**Target.** `EnsureUserAppRepoAsync` moves from `client.Repository.Create` + `UpsertScaffoldFilesAsync`
+(code-gen every file) to **generate-from-template** (`POST /repos/{owner}/{repo}/generate`, Octokit
+`Repository.Generate`, source = `kcsnap/ai-sdlc-react-dotnet-template`). Every user-app starts as a
+full copy of the tested shell. `UserAppScaffold.cs` shrinks to **per-app overlays applied after
+generate**.
+
+| Comes from the template (Yorrixx stops emitting) | Per-app overlay (Yorrixx generates, applied post-generate) |
+|---|---|
+| shell source, `auth.spec.ts`, `tests/e2e/helpers/**`, `playwright.config`, `ci.yml`, `verify.yml`, `Program.cs`, `RepositoryBase`, `FeatureRegistration` stub | `.yorrixx/charter.json` + `yorrixx.spec.md`, `.github/workflows/deploy.yml`, `.yorrixx/platform-contract.md`, `tests/e2e/specs/acceptance.spec.ts` (charter-derived throwing stubs), any per-app Clerk/legal injectables |
+
+**Drift-restore (Yorrixx `EnsureSeededWorkflowsAsync`)** expands to the shell paths — re-fetch the
+immutable shell files from the template at verification start so a build can't quietly mutate them.
+**Hard constraint:** the restore set is the immutable shell files **only** and **excludes every
+per-app overlay** (`deploy.yml`, `acceptance.spec.ts`, `.yorrixx/charter.json`, `platform-contract.md`)
+— restoring those would clobber per-app OIDC/charter values. (Independently, the platform's
+`IsProtectedPath` already blocks the Code Implementer from touching `.github/` and the shell, so
+drift-restore is the backstop against *non-AI* mutation, a separate mechanism.)
+
+**Coordination decisions:**
+- **(a) Frontend API env var → `VITE_API_BASE_URL`** (template's name wins over Yorrixx's current
+  `VITE_API_URL`). No platform code references either name (grep-confirmed), so this is
+  template/Yorrixx-only: Yorrixx bakes `VITE_API_BASE_URL` into `DeployWorkflowTemplate`; the shell's
+  `lib/api.ts` + `vite-env.d.ts` declare it; the platform `ScaffoldContractDoc` references it and
+  directs the AI to use the `lib/api.ts` client, never read the env var directly.
+- **(b) `deploy.yml` stays Yorrixx-generated per-app** — it needs per-app OIDC/resource values and is
+  under the always-immutable `.github/`. Must be **excluded from the template-drift-restore set** (see
+  above).
+- **(c) `.ai-sdlc.yml` provenance — OPEN.** The platform reads it at RepoIndex; it drives
+  `allow_low_risk_auto_merge` → the orchestrator's `allowAutoMerge` (brief auto-approve + bootstrap
+  risk path), so every user-app must carry it. **Recommendation:** template-static (part of the
+  immutable shell, drift-restored) if the config is uniform across yorrixx-apps; per-app overlay only
+  if any value genuinely varies. Yorrixx to confirm.
+
+**Platform dependency:** `.yorrixx/charter.json` must exist at run start — applying overlays at
+create-time satisfies this. Charter-derived throwing `acceptance.spec.ts` stubs are compatible with the
+platform: the implementer authors over them on build #1 (un-gated), and `IsAcceptanceSpecRegression`
+runs only on repair against the build-#1 version, not the stub.
