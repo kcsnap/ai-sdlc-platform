@@ -73,4 +73,4 @@ v004 was a **fresh app built from scratch with every 2026-06-15 fix live** (#104
 - The full 2026-06-15 → 06-16 saga is in memory: `project_yorrixx_apps_webhook_wiring.md` (incident-by-incident) and `project_code_implementer_review_pending.md`.
 - Open platform issue: **#106** (implementation review approves truncated/incomplete work — deferred).
 - Deploy discipline: **never push orchestrator sequence changes while a bootstrap run is mid-flight** (replay break; the sweep rescues but it's wasteful). CI: `TreatWarningsAsErrors` is on. There's an intermittent redaction-regex flake history — bumped to a 2s timeout in #119, re-run failed jobs if it recurs.
-- See also `developer-approach-and-local-future.md` (the operating model + the fully-local future state).
+- See also `developer-approach.md` (the operating model) and `local-first-future.md` (the fully-local future state).
