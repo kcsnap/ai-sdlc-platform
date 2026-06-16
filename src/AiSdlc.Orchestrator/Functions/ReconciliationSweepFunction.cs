@@ -12,14 +12,19 @@ namespace AiSdlc.Orchestrator.Functions;
 
 /// <summary>
 /// Self-healing net under the webhook intake. Periodically scans the configured GitHub
-/// organisation for open issues still labeled ai-sdlc:bootstrap and rescues two failure modes:
+/// organisation for open issues still labeled ai-sdlc:bootstrap and rescues three failure modes:
 /// 1. No orchestration record at all — the delivery was lost end-to-end (missing repo webhook,
 ///    dropped 5xx delivery, queue poison). The run is started fresh.
 /// 2. An orchestration record in runtime status Failed — the run crashed silently mid-chain
 ///    (a graceful business failure posts a terminal marker and completes, so Failed means no
 ///    one was ever told). The run is restarted under the same instance ID, at most
 ///    MaxSilentFailureRestarts times, after which the failure is surfaced loudly instead.
-/// Runs in status Running are never touched: they may legitimately be waiting on human approval.
+/// 3. An orchestration wedged in runtime status Running — its lastUpdatedTime is frozen well
+///    past StuckRunningThreshold with no progress (e.g. a model call hung behind the rate
+///    limiter, as in the v004 baseline). It is terminated, purged and restarted under the same
+///    bounded restart budget as mode 2. Runs legitimately parked at a human-approval gate also
+///    sit in Running with a frozen lastUpdatedTime, but every such gate carries an
+///    ai-sdlc:awaiting-* label and is excluded — see ShouldRestartStuckRunning.
 /// Disabled unless the ReconciliationOrg app setting is present.
 /// </summary>
 public sealed class ReconciliationSweepFunction
@@ -38,6 +43,24 @@ public sealed class ReconciliationSweepFunction
     // path, so old runs stay quietly parked. First observed 2026-06-11: the sweep resurrected
     // days-old failed runs org-wide on its first deployment.
     internal static readonly TimeSpan MaxRestartableAge = TimeSpan.FromHours(6);
+
+    // A Running instance whose lastUpdatedTime has been frozen past this threshold is treated as
+    // wedged (the v004 baseline: a 50-file build + 3 repairs hung on a rate-limited attempt-4 model
+    // call and never failed). The threshold sits above the worst legitimate in-activity stall — a
+    // single rate-limited model call can take ~90s at the limiter's MaxDelay, plus Durable
+    // activity-retry backoff — so a merely-slow run is never mistaken for a wedged one.
+    internal static readonly TimeSpan StuckRunningThreshold = TimeSpan.FromMinutes(20);
+
+    // Human-approval gates (brief, risk, merge) also leave the orchestration in Running with a
+    // frozen lastUpdatedTime for as long as the human takes. Each such gate labels the issue
+    // ai-sdlc:awaiting-* before it waits, so this prefix distinguishes a deliberate park from a
+    // wedge. Forward-compatible: any future awaiting-* gate is excluded automatically.
+    internal const string AwaitingLabelPrefix = "ai-sdlc:awaiting-";
+
+    // Terminating a Running instance is enqueued asynchronously, so it cannot be purged until the
+    // termination lands. Poll a bounded number of times before purging rather than racing it.
+    private const int ReclaimTerminationPollAttempts = 10;
+    private static readonly TimeSpan ReclaimTerminationPollInterval = TimeSpan.FromSeconds(3);
 
     internal const string RestartCountMetadataKey = "reconciliationRestarts";
 
@@ -114,33 +137,65 @@ public sealed class ReconciliationSweepFunction
             return true;
         }
 
-        if (!ShouldRestartSilentFailure(existing.RuntimeStatus, existing.LastUpdatedAt, DateTimeOffset.UtcNow))
+        var now    = DateTimeOffset.UtcNow;
+        var failed = ShouldRestartSilentFailure(existing.RuntimeStatus, existing.LastUpdatedAt, now);
+        var wedged = ShouldRestartStuckRunning(existing.RuntimeStatus, existing.LastUpdatedAt, now, hit.Labels);
+        if (!failed && !wedged)
             return false;
+
+        // A wedged instance is still Running and must be terminated before it can be purged.
+        var wasRunning = existing.RuntimeStatus == OrchestrationRuntimeStatus.Running;
 
         if (hit.Labels.Any(l => l.Equals(ExhaustedLabel, StringComparison.OrdinalIgnoreCase)))
         {
             // A previous give-up labeled the issue but crashed before purging — finish the job
             // without re-posting comments.
-            await durableClient.PurgeInstanceAsync(instanceId, cancellation: cancellationToken);
+            await ReclaimInstanceAsync(durableClient, instanceId, wasRunning, cancellationToken);
             return false;
         }
 
         var attempts = ReadRestartCount(TryReadInput(existing));
         if (attempts >= MaxSilentFailureRestarts)
         {
-            await GiveUpAsync(hit, instanceId, attempts, durableClient, cancellationToken);
+            await GiveUpAsync(hit, instanceId, attempts, wasRunning, durableClient, cancellationToken);
             return false;
         }
 
-        await durableClient.PurgeInstanceAsync(instanceId, cancellation: cancellationToken);
+        await ReclaimInstanceAsync(durableClient, instanceId, wasRunning, cancellationToken);
         await StartAsync(hit, instanceId, restartAttempt: attempts + 1, durableClient, cancellationToken);
+
+        var kind = wedged ? "wedged (stuck-Running)" : "silently-failed";
         await WriteSweepAuditAsync(hit, instanceId, "reconciliation.restarted",
-            $"Restarted silently-failed run for issue #{hit.Number} (attempt {attempts + 1} of {MaxSilentFailureRestarts}).",
+            $"Restarted {kind} run for issue #{hit.Number} (attempt {attempts + 1} of {MaxSilentFailureRestarts}).",
             cancellationToken);
         _logger.LogWarning(
-            "Reconciliation restarted silently-failed orchestration {InstanceId} for {Repository}#{Number} " +
-            "(attempt {Attempt} of {Max}).", instanceId, hit.Repository, hit.Number, attempts + 1, MaxSilentFailureRestarts);
+            "Reconciliation restarted {Kind} orchestration {InstanceId} for {Repository}#{Number} " +
+            "(attempt {Attempt} of {Max}).", kind, instanceId, hit.Repository, hit.Number, attempts + 1, MaxSilentFailureRestarts);
         return true;
+    }
+
+    /// <summary>
+    /// Terminates a wedged Running instance (waiting for the asynchronous termination to land)
+    /// and then purges it, so its instance ID is free to be restarted. A non-Running instance is
+    /// already terminal and is purged directly.
+    /// </summary>
+    private static async Task ReclaimInstanceAsync(
+        DurableTaskClient durableClient, string instanceId, bool wasRunning, CancellationToken cancellationToken)
+    {
+        if (wasRunning)
+        {
+            await durableClient.TerminateInstanceAsync(instanceId, cancellation: cancellationToken);
+
+            for (var attempt = 0; attempt < ReclaimTerminationPollAttempts; attempt++)
+            {
+                var meta = await durableClient.GetInstanceAsync(instanceId, cancellation: cancellationToken);
+                if (meta is null || meta.IsCompleted)
+                    break;
+                await Task.Delay(ReclaimTerminationPollInterval, cancellationToken);
+            }
+        }
+
+        await durableClient.PurgeInstanceAsync(instanceId, cancellation: cancellationToken);
     }
 
     private static async Task StartAsync(
@@ -165,7 +220,7 @@ public sealed class ReconciliationSweepFunction
     }
 
     private async Task GiveUpAsync(
-        OrgIssueSearchHit hit, string instanceId, int attempts,
+        OrgIssueSearchHit hit, string instanceId, int attempts, bool wasRunning,
         DurableTaskClient durableClient, CancellationToken cancellationToken)
     {
         // Label first: it blocks both sweep paths, so a crash anywhere below cannot loop or
@@ -183,7 +238,7 @@ public sealed class ReconciliationSweepFunction
             $"Gave up on issue #{hit.Number} after {attempts} automatic restart(s) — run keeps crashing silently.",
             cancellationToken);
 
-        await durableClient.PurgeInstanceAsync(instanceId, cancellation: cancellationToken);
+        await ReclaimInstanceAsync(durableClient, instanceId, wasRunning, cancellationToken);
         _logger.LogError(
             "Reconciliation gave up on {InstanceId} for {Repository}#{Number} after {Attempts} restart(s) — " +
             "marked failed.", instanceId, hit.Repository, hit.Number, attempts);
@@ -216,6 +271,28 @@ public sealed class ReconciliationSweepFunction
         status == OrchestrationRuntimeStatus.Failed
         && nowUtc - lastUpdatedAt >= FreshIssueGrace
         && nowUtc - lastUpdatedAt <= MaxRestartableAge;
+
+    /// <summary>
+    /// A run wedged in status Running qualifies for reclamation when its lastUpdatedTime has been
+    /// frozen between StuckRunningThreshold (long enough to clear a legitimately slow rate-limited
+    /// model call + Durable retries) and MaxRestartableAge (beyond which it is a stale, abandoned
+    /// build — like the Failed path). A run parked at a human-approval gate is also Running with a
+    /// frozen lastUpdatedTime, but every gate labels the issue ai-sdlc:awaiting-* first, so those
+    /// are excluded and never reclaimed out from under a waiting human.
+    /// </summary>
+    public static bool ShouldRestartStuckRunning(
+        OrchestrationRuntimeStatus status, DateTimeOffset lastUpdatedAt, DateTimeOffset nowUtc,
+        IReadOnlyList<string> labels)
+    {
+        if (status != OrchestrationRuntimeStatus.Running)
+            return false;
+
+        var frozenFor = nowUtc - lastUpdatedAt;
+        if (frozenFor < StuckRunningThreshold || frozenFor > MaxRestartableAge)
+            return false;
+
+        return !labels.Any(l => l.StartsWith(AwaitingLabelPrefix, StringComparison.OrdinalIgnoreCase));
+    }
 
     internal static int ReadRestartCount(AgentContext? input)
     {
