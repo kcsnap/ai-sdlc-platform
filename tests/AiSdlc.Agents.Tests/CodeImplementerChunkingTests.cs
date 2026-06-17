@@ -191,6 +191,8 @@ public sealed class CodeImplementerChunkingTests
         Assert.Contains("RepositoryBase", contract);                    // data-access base (v006)
         Assert.Contains("CANNOT add NuGet packages", contract);         // no unreferenced deps (v006 SendGrid)
         Assert.Contains("stub", contract);                              // stub external integrations
+        Assert.Contains("MUTABLE POCOs", contract);                     // model convention (v007 CS8852)
+        Assert.Contains("agrees with itself", contract);                // self-consistency (v007 CS1061)
         // and it travels into the batch prompts too
         Assert.True(provider.Requests[1].ContextDocuments.ContainsKey(CodeImplementerAgent.ScaffoldContractLabel));
     }

@@ -187,6 +187,13 @@ public sealed class CodeImplementerAgent : IAgent
           no-op/logging stub implementation so the app COMPILES — wiring the real provider is a later,
           human step. The same applies on the frontend: only add a package.json dependency you actually
           import, and prefer the shipped libraries.
+        - Models & self-consistency: feature models are MUTABLE POCOs — `public T Prop { get; set; }`,
+          NOT init-only properties or positional records — so an entity read from the store can be
+          updated by assignment (`coach.Name = x`) and saved. Generate code that agrees with itself:
+          only call methods and properties you actually define, use the SAME class and method names in
+          every file that references them, and match argument types. The API builds with
+          TreatWarningsAsErrors, so a call to an undefined method, an init-only mutation (CS8852), or a
+          type mismatch fails the build.
         - Acceptance tests: author tests/e2e/specs/acceptance.spec.ts over the seeded throwing stubs —
           replace each stub body with a real Playwright test for that acceptance criterion (the
           criteria are the contract). Never delete or skip a test. This is the ONE file under
