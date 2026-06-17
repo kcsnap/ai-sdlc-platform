@@ -26,8 +26,8 @@ public sealed class CodeImplementerAgent : IAgent
     private const string ManifestSystemPrompt = """
         You are the Code Implementer planning stage in an AI-driven SDLC pipeline.
 
-        Plan the COMPLETE set of files needed to implement the feature based on the brief,
-        business analysis, architecture review, and implementation specification provided.
+        Plan the set of FEATURE files needed to implement the request, on top of the fixed shell
+        described in the Scaffold Contract. The shell already exists and compiles.
 
         Rules:
         - Output ONLY a manifest block — no prose, no explanation, nothing outside it:
@@ -36,10 +36,17 @@ public sealed class CodeImplementerAgent : IAgent
           <item path="relative/path/from/repo/root">one-line purpose of the file</item>
           </manifest>
 
-        - List every file required for a complete, runnable implementation — if an entrypoint
-          or import will reference a file, that file MUST be in the manifest.
-        - Keep the design modular: prefer many focused files over few large ones, and keep the
-          total under 40 files.
+        - Plan ONLY feature files. NEVER list a shell/infra file — they already exist and any you
+          list will be discarded. Do NOT list: src/frontend/src/main.tsx, app/AppShell.tsx,
+          lib/api.ts, vite-env.d.ts; src/api/Program.cs, src/api/Auth/**,
+          src/api/Data/CosmosClientFactory.cs, src/api/Functions/HealthFunction.cs, host.json,
+          Api.csproj; anything under .github/ or tests/e2e/.
+        - DO list the feature slots you fill: src/frontend/src/app/routes.tsx,
+          src/frontend/src/app/nav.ts, src/frontend/src/theme.ts, src/frontend/src/features/**,
+          and src/api/Features/** including src/api/Features/FeatureRegistration.cs.
+        - List every feature file required for a complete, runnable implementation — if an import
+          will reference a file, that file MUST be in the manifest.
+        - Keep the design modular: prefer many focused files over few large ones.
         """;
 
     private const string BatchSystemPrompt = """
@@ -101,8 +108,11 @@ public sealed class CodeImplementerAgent : IAgent
           not a repair, and it breaks every other file that references the old name.
         - NEVER create new files unless an error explicitly requires one (e.g. a missing
           module the findings name).
-        - NEVER touch anything under .github/ — CI/CD workflows are owned by the host
-          platform and are read-only.
+        - NEVER touch the immutable shell or platform files (see the Scaffold Contract): anything
+          under .github/ or tests/e2e/ (except tests/e2e/specs/acceptance.spec.ts), and the app
+          shell — main.tsx, app/AppShell.tsx, lib/api.ts, vite-env.d.ts, src/api/Program.cs,
+          src/api/Auth/**, Data/CosmosClientFactory.cs, Functions/HealthFunction.cs, host.json,
+          Api.csproj. They are read-only.
         - Output ONLY the files that need to change, each as a complete file using EXACTLY:
 
           <file path="relative/path/from/repo/root">
@@ -115,58 +125,57 @@ public sealed class CodeImplementerAgent : IAgent
         - The literal text </file> must never appear inside file content.
         """;
 
-    // Every user-app is the pinned React + shared-Clerk stack (ADR-0002). The seeded scaffold
-    // ships a Clerk auth shell that the immutable verification suite (auth.spec.ts) drives by
-    // exact selector. Greenfield generation never sees the scaffold, so without this it emits
-    // its own LoginPage and clobbers the contract — breaking auth and cascading to every
-    // acceptance test. This doc travels into every generation/repair prompt.
-    internal const string AuthContractLabel = "Authentication Contract (DO NOT BREAK)";
-    internal const string AuthContractDoc = """
-        The app uses Clerk for authentication and the verification suite (auth.spec.ts) drives
-        it by exact selector. This is a HARD CONTRACT — preserve all of it:
+    // Scaffold-first (#131): every user-app is created by copying the template repo
+    // (kcsnap/ai-sdlc-react-dotnet-template), so a tested, compiling shell already exists — auth,
+    // layout, the API client, the Cosmos client, and the DI seam are all wired. The Code
+    // Implementer's job is to FILL FEATURE SLOTS, never to re-author the shell. This contract
+    // replaces the old "describe how to build auth" doc, which still produced wrong imports
+    // (@clerk/react) and RedirectToSignIn in the v004 baseline. It travels into every
+    // generation/repair prompt and is enforced by IsProtectedPath on the orchestrator side.
+    internal const string ScaffoldContractLabel = "Scaffold Contract (DO NOT BREAK)";
+    internal const string ScaffoldContractDoc = """
+        This app is built on a FIXED, pre-existing shell copied from the platform template. The
+        shell already COMPILES and already wires authentication, layout, the API client, the Cosmos
+        client, and the dependency-injection seam. Do NOT author, modify, rename, or recreate any
+        shell file — they are immutable and will be discarded if you emit them.
 
-        - Keep <ClerkProvider> wrapping the application. Never remove or replace it.
-        - SIGNED-OUT ENTRY: when the user is not signed in, the app MUST render a visible
-          <button> (role=button) whose accessible name matches "Sign up" AND another whose name
-          matches "Sign in", each opening the Clerk MODAL. Use Clerk's <SignUpButton mode="modal">
-          and <SignInButton mode="modal"> — their default rendering produces buttons labelled
-          exactly "Sign up" / "Sign in". Do NOT use <RedirectToSignIn /> or <RedirectToSignUp />
-          as the entry point (they render no button and navigate away, so the test finds nothing),
-          do NOT relabel the buttons ("Get Started", "Register", "Login"), and do NOT render them
-          as links/anchors — the immutable auth.spec.ts drives them via
-          getByRole('button', { name: /sign up/i }) and getByRole('button', { name: /sign in/i }).
-        - Do NOT build a custom email/password LoginPage or any custom auth UI that replaces the
-          Clerk components.
-        - The signed-in application shell MUST render an element with data-testid="signed-in".
-        - The Clerk modal's primary submit button MUST keep the class .cl-formButtonPrimary.
-        - TYPE SAFETY: ClerkProvider's `publishableKey` prop requires a `string`, but
-          `import.meta.env.VITE_CLERK_PUBLISHABLE_KEY` is typed `string | undefined`. Passing it
-          directly fails the build with `TS2769: No overload matches this call`. Fix it BOTH ways:
-          (1) declare `readonly VITE_CLERK_PUBLISHABLE_KEY: string` inside the `ImportMetaEnv`
-          interface in `src/vite-env.d.ts`, and (2) after guarding for a missing key, pass it with
-          a non-null assertion, e.g. `publishableKey={clerkPublishableKey!}`.
+        Immutable shell files (they already exist — import from them, never recreate them):
+        - Frontend: src/frontend/src/main.tsx, src/frontend/src/app/AppShell.tsx,
+          src/frontend/src/lib/api.ts, src/frontend/src/vite-env.d.ts
+        - Backend: src/api/Program.cs, src/api/Auth/** (ClerkJwtMiddleware, ClerkTokenValidator),
+          src/api/Data/CosmosClientFactory.cs, src/api/Functions/HealthFunction.cs,
+          src/api/host.json, src/api/Api.csproj
 
-        You may restyle freely WITHIN the Clerk components, but never substitute a custom auth
-        flow for Clerk's.
-        """;
+        AUTHENTICATION IS ALREADY DONE — do not touch it. main.tsx wraps the app in <ClerkProvider>
+        and app/AppShell.tsx renders the auth gate the immutable verification suite (auth.spec.ts)
+        drives: signed-out shows the Clerk modal "Sign up" / "Sign in" buttons; signed-in renders a
+        shell marked data-testid="signed-in". Never add another ClerkProvider, never build a custom
+        LoginPage or email/password form, never use <RedirectToSignIn>. There is nothing for you to
+        do for auth.
 
-    // The platform commits static Privacy Policy + Terms of Service templates into every build
-    // (no AI generation). The generated site must LINK them so they're reachable — but must not
-    // author legal prose. This keeps "legal docs present and linked, every time" without spending
-    // tokens regenerating the documents.
-    internal const string LegalLinksLabel = "Required Legal Links (DO NOT BREAK)";
-    internal static readonly string LegalLinksDoc = $"""
-        The platform automatically adds two static legal pages to this app at build time:
-        - Privacy Policy → {LegalDocumentTemplates.PrivacyPolicyUrl}
-        - Terms of Service → {LegalDocumentTemplates.TermsOfServiceUrl}
+        WHERE YOU WRITE:
+        - Frontend routing: src/frontend/src/app/routes.tsx — export `AppRoutes`; the shell renders
+          it inside the signed-in layout. Add react-router-dom here if you need client routing.
+        - Frontend nav: src/frontend/src/app/nav.ts — export `navItems` (the shell renders them).
+        - Frontend pages/components: src/frontend/src/features/** (and components/ui/** as needed).
+        - Styling: src/frontend/src/theme.ts and/or Clerk `appearance` — data-driven only. Never
+          edit the shell components to restyle.
+        - API calls: import { apiUrl } from "@/lib/api" and use it. The client already reads the
+          deployed API base URL. Never read import.meta.env directly and never create another client.
+        - Backend features: src/api/Features/** — your controllers/functions and their services.
+          Use the already-registered Cosmos client (CosmosClientFactory). The sample `items` feature
+          (src/api/Data/CosmosItemStore.cs, src/api/Functions/ItemsFunction.cs) is a pattern you may
+          replace with the app's real features.
 
-        Requirements:
-        - The app's main layout MUST render a footer (visible on the signed-in app) that links to
-          both URLs above, e.g. <a href="{LegalDocumentTemplates.PrivacyPolicyUrl}">Privacy Policy</a>
-          and <a href="{LegalDocumentTemplates.TermsOfServiceUrl}">Terms of Service</a>.
-        - These are plain static files served from /public — link to the absolute paths above; do
-          NOT create React routes/components for them and do NOT write or rewrite the legal text
-          yourself (the platform owns those files).
+        BACKEND DI SEAM — HARD CONTRACT. Register every feature service in
+        src/api/Features/FeatureRegistration.cs by editing the body of `AddFeatures`. You MUST keep
+        the exact namespace `Api.Features`, the class `FeatureRegistration`, and the signature
+        `public static void AddFeatures(IServiceCollection services)`. The immutable Program.cs calls
+        it; renaming or removing it breaks the build.
+
+        LEGAL: a footer linking the Privacy Policy and Terms of Service already exists in the shell
+        layout, and the platform provides those pages. Do NOT add legal links and do NOT author legal
+        pages or prose.
         """;
 
     private const string RetryPrompt =
@@ -404,8 +413,7 @@ public sealed class CodeImplementerAgent : IAgent
     private static Dictionary<string, string> BuildContextDocs(AgentContext ctx)
     {
         var docs = new Dictionary<string, string>();
-        docs[AuthContractLabel] = AuthContractDoc; // pinned stack — applies to every user-app
-        docs[LegalLinksLabel]   = LegalLinksDoc;   // platform injects the docs; site must link them
+        docs[ScaffoldContractLabel] = ScaffoldContractDoc; // pinned shell — applies to every user-app
         AddIfPresent(docs, ctx, "repoContext",       "Repository Context");
         AddIfPresent(docs, ctx, "ownerBrief",       "Approved Product Brief");
         AddIfPresent(docs, ctx, "analystOutput",    "Business Analysis");
