@@ -193,6 +193,8 @@ public sealed class CodeImplementerChunkingTests
         Assert.Contains("stub", contract);                              // stub external integrations
         Assert.Contains("MUTABLE POCOs", contract);                     // model convention (v007 CS8852)
         Assert.Contains("agrees with itself", contract);                // self-consistency (v007 CS1061)
+        Assert.Contains("components/ui/", contract);                    // shipped shadcn palette (template #7)
+        Assert.Contains("Api.Email.IEmailSender", contract);            // use shipped email, don't stub
         // and it travels into the batch prompts too
         Assert.True(provider.Requests[1].ContextDocuments.ContainsKey(CodeImplementerAgent.ScaffoldContractLabel));
     }
