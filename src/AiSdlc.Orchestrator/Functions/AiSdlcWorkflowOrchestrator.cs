@@ -1316,9 +1316,12 @@ public static class AiSdlcWorkflowOrchestrator
     // Each attempt ≈ one surgical model call + a handful of GitHub calls. Two was too shallow
     // for multi-file TypeScript error sets: v003 (fd0fc752) drove build-api red→green and
     // build-frontend down to 4 concrete TS errors but ran out of attempts mid-convergence.
-    // Four gives the loop room to finish deeper-but-still-mechanical error sets; the same-SHA
-    // no-op guard still exits early when a repair stops making progress, so this can't spin.
-    internal const int MaxCiRepairAttempts = 4;
+    // Six gives the loop room to reconcile the diffuse intra-feature coherence sets seen once the
+    // scaffold/convention/dependency layers were fixed: v007 (e3dd3b48) exhausted four attempts on
+    // ~34 self-consistency errors (CS8852 init-vs-mutation, CS1061 calls to undefined methods)
+    // spread across a 56-file app. The same-SHA no-op guard still exits early when a repair stops
+    // making progress, so a higher cap can't spin; the stuck-Running sweep (#129) backstops a wedge.
+    internal const int MaxCiRepairAttempts = 6;
 
     // Repair only on concrete failures: a pure pending-timeout has no findings to act on,
     // and a blind attempt is exactly the regeneration anti-pattern this loop replaces.
