@@ -164,18 +164,29 @@ public sealed class CodeImplementerAgent : IAgent
           edit the shell components to restyle.
         - API calls: import { apiUrl } from "@/lib/api" and use it. The client already reads the
           deployed API base URL. Never read import.meta.env directly and never create another client.
-        - Backend features: src/api/Features/** — your controllers/functions and their services.
-          Cosmos data access — copy the sample src/api/Data/CosmosItemStore.cs pattern EXACTLY:
-            * `using Microsoft.Azure.Cosmos;` — NOT `Azure.Cosmos` (that namespace does not exist).
-            * The container type is `Container` — NOT `CosmosContainer` (that type does not exist).
-              Query via `container.GetItemQueryIterator<T>(...)`; catch `CosmosException`.
-            * Inject the registered `CosmosClient` into your service and obtain the container via
-              `client.GetContainer(db, container)`. Only `CosmosClient` is registered (by
-              CosmosClientFactory) — do NOT take a `Container` as a constructor parameter.
-            * Reference shell types via their namespace: `using Api.Data;` (CosmosClientFactory),
-              `using Api.Auth;` (auth types).
-            * Declare each DTO/record/model ONCE across the codebase — never redefine a type in two files.
-          The sample `items` feature (CosmosItemStore.cs, Functions/ItemsFunction.cs) may be replaced.
+        - Backend feature code: src/api/Features/**, src/api/Models/**, src/api/Services/** (all
+          AI-owned). The sample `items` feature (Data/CosmosItemStore.cs, Functions/ItemsFunction.cs)
+          may be replaced.
+        - Data access — extend `Api.Data.RepositoryBase<T>` (one subclass per document type; inject the
+          registered `CosmosClient`; `T` must carry a string `id`, which is the partition key). See the
+          worked example `CosmosItemStore`. Do NOT open a raw `Container` yourself, do NOT take a
+          `Container` constructor parameter, and do NOT add a second database/container. Cosmos types:
+          `using Microsoft.Azure.Cosmos;` (NOT `Azure.Cosmos`); the container type is `Container` (NOT
+          `CosmosContainer`); catch `CosmosException`. Reference shell types via their namespace:
+          `using Api.Data;`, `using Api.Auth;`. Declare each model/record ONCE across the codebase.
+        - HTTP functions — follow the sample `HealthFunction`: `[Function("Name")]` +
+          `[HttpTrigger(...)] HttpRequest req` returning `IActionResult`, with
+          `using Microsoft.AspNetCore.Mvc;` and `using Microsoft.AspNetCore.Http;`. For configuration
+          use `IConfiguration` (`using Microsoft.Extensions.Configuration;`) or
+          `Environment.GetEnvironmentVariable(...)`.
+        - Dependencies — `Api.csproj` is IMMUTABLE: you CANNOT add NuGet packages. Use only the .NET
+          base class library and the packages the sample shell code already uses (Microsoft.Azure.Cosmos,
+          Microsoft.Azure.Functions.Worker, Microsoft.AspNetCore.Mvc/Http, Microsoft.Extensions.*).
+          Never `using` a third-party SDK that the shell does not already use. If a feature needs an
+          external service (email, SMS, payments, a third-party API), define an interface and a
+          no-op/logging stub implementation so the app COMPILES — wiring the real provider is a later,
+          human step. The same applies on the frontend: only add a package.json dependency you actually
+          import, and prefer the shipped libraries.
         - Acceptance tests: author tests/e2e/specs/acceptance.spec.ts over the seeded throwing stubs —
           replace each stub body with a real Playwright test for that acceptance criterion (the
           criteria are the contract). Never delete or skip a test. This is the ONE file under
