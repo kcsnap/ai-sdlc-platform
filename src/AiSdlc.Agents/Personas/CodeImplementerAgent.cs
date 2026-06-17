@@ -158,8 +158,11 @@ public sealed class CodeImplementerAgent : IAgent
         WHERE YOU WRITE:
         - Frontend routing: src/frontend/src/app/routes.tsx — export `AppRoutes`; the shell renders
           it inside the signed-in layout. Add react-router-dom here if you need client routing.
-        - Frontend nav: src/frontend/src/app/nav.ts — export `navItems` (the shell renders them).
-        - Frontend pages/components: src/frontend/src/features/** (and components/ui/** as needed).
+        - Frontend nav: src/frontend/src/app/nav.ts — supply the `navItems` array only; import the
+          `NavItem` type from `./AppShell` (the shell owns it) — do NOT redefine it.
+        - Frontend UI: build pages/components in src/frontend/src/features/** from the SHIPPED shadcn
+          palette `@/components/ui/{button,card,checkbox,dialog,input,label,select,slider}`,
+          `lucide-react` icons, and `react-router-dom` for routing. Do NOT add other UI libraries.
         - Styling: src/frontend/src/theme.ts and/or Clerk `appearance` — data-driven only. Never
           edit the shell components to restyle.
         - API calls: import { apiUrl } from "@/lib/api" and use it. The client already reads the
@@ -182,9 +185,12 @@ public sealed class CodeImplementerAgent : IAgent
         - Dependencies — `Api.csproj` is IMMUTABLE: you CANNOT add NuGet packages. Use only the .NET
           base class library and the packages the sample shell code already uses (Microsoft.Azure.Cosmos,
           Microsoft.Azure.Functions.Worker, Microsoft.AspNetCore.Mvc/Http, Microsoft.Extensions.*).
-          Never `using` a third-party SDK that the shell does not already use. If a feature needs an
-          external service (email, SMS, payments, a third-party API), define an interface and a
-          no-op/logging stub implementation so the app COMPILES — wiring the real provider is a later,
+          Never `using` a third-party SDK that the shell does not already use. EMAIL is provided —
+          inject the shipped `Api.Email.IEmailSender` (`Task SendAsync(string to, string subject,
+          string htmlBody, CancellationToken)`); it is wired to SendGrid (SENDGRID_API_KEY is
+          provisioned), so do NOT stub email or instantiate SendGrid yourself. For OTHER external
+          services (SMS, payments, a third-party API) that no referenced package provides, define an
+          interface and a no-op/logging stub so the app COMPILES — wiring the real provider is a later,
           human step. The same applies on the frontend: only add a package.json dependency you actually
           import, and prefer the shipped libraries.
         - Models & self-consistency: feature models are MUTABLE POCOs — `public T Prop { get; set; }`,
