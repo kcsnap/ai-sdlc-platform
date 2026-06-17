@@ -186,8 +186,28 @@ public sealed class CodeImplementerChunkingTests
         Assert.Contains("AddFeatures(IServiceCollection", contract);    // backend seam signature
         Assert.Contains("routes.tsx", contract);                        // a feature slot to fill
         Assert.Contains("@/lib/api", contract);                         // use the existing client
+        Assert.Contains("Microsoft.Azure.Cosmos", contract);            // pin the Cosmos API (v005 fix)
+        Assert.Contains("acceptance.spec.ts", contract);                // implementer authors the acceptance tests
         // and it travels into the batch prompts too
         Assert.True(provider.Requests[1].ContextDocuments.ContainsKey(CodeImplementerAgent.ScaffoldContractLabel));
+    }
+
+    [Fact]
+    public async Task Manifest_prompt_lets_the_planner_author_acceptance_spec()
+    {
+        // The reframe excludes tests/e2e/ from the plan, but acceptance.spec.ts is the one file the
+        // implementer must author over the seeded throwing stubs (v005 regression fix).
+        var provider = new ScriptedModelProvider(
+            _ => Manifest,
+            req => FileBlocksFor(RequestedPaths(req)),
+            req => FileBlocksFor(RequestedPaths(req)));
+
+        await new CodeImplementerAgent(provider).ExecuteAsync(MakeRequest(), CancellationToken.None);
+
+        // Requests[0] is the manifest-planning call.
+        var manifestPrompt = provider.Requests[0].SystemPrompt;
+        Assert.Contains("tests/e2e/specs/acceptance.spec.ts", manifestPrompt);
+        Assert.Contains("EXCEPT", manifestPrompt);  // tests/e2e/ excluded EXCEPT acceptance.spec.ts
     }
 
     [Fact]

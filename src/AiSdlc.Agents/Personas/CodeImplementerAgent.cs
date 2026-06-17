@@ -40,10 +40,12 @@ public sealed class CodeImplementerAgent : IAgent
           list will be discarded. Do NOT list: src/frontend/src/main.tsx, app/AppShell.tsx,
           lib/api.ts, vite-env.d.ts; src/api/Program.cs, src/api/Auth/**,
           src/api/Data/CosmosClientFactory.cs, src/api/Functions/HealthFunction.cs, host.json,
-          Api.csproj; anything under .github/ or tests/e2e/.
+          Api.csproj; anything under .github/, and anything under tests/e2e/ EXCEPT
+          tests/e2e/specs/acceptance.spec.ts.
         - DO list the feature slots you fill: src/frontend/src/app/routes.tsx,
           src/frontend/src/app/nav.ts, src/frontend/src/theme.ts, src/frontend/src/features/**,
-          and src/api/Features/** including src/api/Features/FeatureRegistration.cs.
+          src/api/Features/** including src/api/Features/FeatureRegistration.cs, and
+          tests/e2e/specs/acceptance.spec.ts (author it over the seeded throwing stubs).
         - List every feature file required for a complete, runnable implementation — if an import
           will reference a file, that file MUST be in the manifest.
         - Keep the design modular: prefer many focused files over few large ones.
@@ -163,9 +165,21 @@ public sealed class CodeImplementerAgent : IAgent
         - API calls: import { apiUrl } from "@/lib/api" and use it. The client already reads the
           deployed API base URL. Never read import.meta.env directly and never create another client.
         - Backend features: src/api/Features/** — your controllers/functions and their services.
-          Use the already-registered Cosmos client (CosmosClientFactory). The sample `items` feature
-          (src/api/Data/CosmosItemStore.cs, src/api/Functions/ItemsFunction.cs) is a pattern you may
-          replace with the app's real features.
+          Cosmos data access — copy the sample src/api/Data/CosmosItemStore.cs pattern EXACTLY:
+            * `using Microsoft.Azure.Cosmos;` — NOT `Azure.Cosmos` (that namespace does not exist).
+            * The container type is `Container` — NOT `CosmosContainer` (that type does not exist).
+              Query via `container.GetItemQueryIterator<T>(...)`; catch `CosmosException`.
+            * Inject the registered `CosmosClient` into your service and obtain the container via
+              `client.GetContainer(db, container)`. Only `CosmosClient` is registered (by
+              CosmosClientFactory) — do NOT take a `Container` as a constructor parameter.
+            * Reference shell types via their namespace: `using Api.Data;` (CosmosClientFactory),
+              `using Api.Auth;` (auth types).
+            * Declare each DTO/record/model ONCE across the codebase — never redefine a type in two files.
+          The sample `items` feature (CosmosItemStore.cs, Functions/ItemsFunction.cs) may be replaced.
+        - Acceptance tests: author tests/e2e/specs/acceptance.spec.ts over the seeded throwing stubs —
+          replace each stub body with a real Playwright test for that acceptance criterion (the
+          criteria are the contract). Never delete or skip a test. This is the ONE file under
+          tests/e2e/ you write; everything else there is immutable.
 
         BACKEND DI SEAM — HARD CONTRACT. Register every feature service in
         src/api/Features/FeatureRegistration.cs by editing the body of `AddFeatures`. You MUST keep
