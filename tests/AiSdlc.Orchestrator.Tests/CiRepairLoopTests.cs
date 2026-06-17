@@ -103,7 +103,27 @@ public sealed class CiRepairLoopTests
     [InlineData("tests/e2e/specs/auth.spec.ts", true)]       // immutable auth contract spec
     [InlineData("tests/e2e/playwright.config.ts", true)]
     [InlineData("tests/e2e/specs/acceptance.spec.ts", false)] // platform AUTHORS this once on first build
-    [InlineData("src/api/Program.cs", false)]
+    // Scaffold-first (#131): the immutable app shell is protected …
+    [InlineData("src/frontend/src/main.tsx", true)]
+    [InlineData("src/frontend/src/app/AppShell.tsx", true)]
+    [InlineData("src/frontend/src/lib/api.ts", true)]
+    [InlineData("src/frontend/src/vite-env.d.ts", true)]
+    [InlineData("src/api/Program.cs", true)]
+    [InlineData("src/api/Auth/ClerkJwtMiddleware.cs", true)]
+    [InlineData("src/api/Auth/ClerkTokenValidator.cs", true)]
+    [InlineData("src/api/Data/CosmosClientFactory.cs", true)]
+    [InlineData("src/api/Functions/HealthFunction.cs", true)]
+    [InlineData("src/api/host.json", true)]
+    [InlineData("src/api/Api.csproj", true)]
+    // … but the feature slots and the AI-replaceable sample feature are NOT protected.
+    [InlineData("src/frontend/src/app/routes.tsx", false)]
+    [InlineData("src/frontend/src/app/nav.ts", false)]
+    [InlineData("src/frontend/src/theme.ts", false)]
+    [InlineData("src/frontend/src/features/booking/BookingPage.tsx", false)]
+    [InlineData("src/api/Features/FeatureRegistration.cs", false)]   // the DI seam the AI writes to
+    [InlineData("src/api/Features/Bookings/BookingFunction.cs", false)]
+    [InlineData("src/api/Data/CosmosItemStore.cs", false)]           // sample feature — AI-replaceable
+    [InlineData("src/api/Functions/ItemsFunction.cs", false)]        // sample feature — AI-replaceable
     [InlineData("src/frontend/src/App.test.tsx", false)]      // the app's own unit tests are fair game
     [InlineData("github-helper/notes.md", false)]
     public void Always_protected_paths_block_authoring_except_acceptance_spec(string path, bool expectProtected)

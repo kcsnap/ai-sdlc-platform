@@ -168,10 +168,10 @@ public sealed class CodeImplementerChunkingTests
     }
 
     [Fact]
-    public async Task Auth_contract_reaches_greenfield_generation_prompts()
+    public async Task Scaffold_contract_reaches_greenfield_generation_prompts()
     {
-        // Greenfield never sees the seeded Clerk scaffold — the contract must be injected so the
-        // implementer doesn't replace the Clerk auth shell with a custom LoginPage.
+        // Greenfield never sees the seeded shell — the contract must be injected so the implementer
+        // fills feature slots instead of re-authoring auth / the API client / the DI seam.
         var provider = new ScriptedModelProvider(
             _ => Manifest,
             req => FileBlocksFor(RequestedPaths(req)),
@@ -179,21 +179,22 @@ public sealed class CodeImplementerChunkingTests
 
         await new CodeImplementerAgent(provider).ExecuteAsync(MakeRequest(), CancellationToken.None);
 
-        var contract = provider.Requests[0].ContextDocuments[CodeImplementerAgent.AuthContractLabel];
-        Assert.Contains("ClerkProvider", contract);
+        var contract = provider.Requests[0].ContextDocuments[CodeImplementerAgent.ScaffoldContractLabel];
+        Assert.Contains("AppShell", contract);                          // shell is immutable, already exists
         Assert.Contains("data-testid=\"signed-in\"", contract);
-        Assert.Contains(".cl-formButtonPrimary", contract);
-        Assert.Contains("VITE_CLERK_PUBLISHABLE_KEY", contract); // publishableKey type-safety (TS2769)
-        Assert.Contains("SignUpButton", contract);               // signed-out entry must expose the modal triggers
-        Assert.Contains("RedirectToSignIn", contract);           // ...and forbid the redirect pattern that renders no button
+        Assert.Contains("Api.Features", contract);                      // backend seam namespace
+        Assert.Contains("AddFeatures(IServiceCollection", contract);    // backend seam signature
+        Assert.Contains("routes.tsx", contract);                        // a feature slot to fill
+        Assert.Contains("@/lib/api", contract);                         // use the existing client
         // and it travels into the batch prompts too
-        Assert.True(provider.Requests[1].ContextDocuments.ContainsKey(CodeImplementerAgent.AuthContractLabel));
+        Assert.True(provider.Requests[1].ContextDocuments.ContainsKey(CodeImplementerAgent.ScaffoldContractLabel));
     }
 
     [Fact]
-    public async Task Legal_links_contract_reaches_generation_prompts()
+    public async Task Scaffold_contract_defers_legal_to_the_shell()
     {
-        // The platform injects static legal pages; the site must link them every time.
+        // Legal links + pages now live in the shell footer (template-owned); the implementer must
+        // not author them.
         var provider = new ScriptedModelProvider(
             _ => Manifest,
             req => FileBlocksFor(RequestedPaths(req)),
@@ -201,14 +202,14 @@ public sealed class CodeImplementerChunkingTests
 
         await new CodeImplementerAgent(provider).ExecuteAsync(MakeRequest(), CancellationToken.None);
 
-        var legal = provider.Requests[0].ContextDocuments[CodeImplementerAgent.LegalLinksLabel];
-        Assert.Contains(AiSdlc.Shared.LegalDocumentTemplates.PrivacyPolicyUrl, legal);
-        Assert.Contains(AiSdlc.Shared.LegalDocumentTemplates.TermsOfServiceUrl, legal);
-        Assert.Contains("footer", legal, StringComparison.OrdinalIgnoreCase);
+        var contract = provider.Requests[0].ContextDocuments[CodeImplementerAgent.ScaffoldContractLabel];
+        Assert.Contains("Terms of Service", contract);
+        Assert.Contains("footer", contract, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do NOT add legal links", contract);
     }
 
     [Fact]
-    public async Task Auth_contract_reaches_repair_prompts()
+    public async Task Scaffold_contract_reaches_repair_prompts()
     {
         var provider = new ScriptedModelProvider(
             _ => "<file path=\"src/App.tsx\">\nconst fixed = true;\n</file>");
@@ -219,7 +220,7 @@ public sealed class CodeImplementerChunkingTests
 
         await new CodeImplementerAgent(provider).ExecuteAsync(request, CancellationToken.None);
 
-        Assert.True(provider.Requests[0].ContextDocuments.ContainsKey(CodeImplementerAgent.AuthContractLabel));
+        Assert.True(provider.Requests[0].ContextDocuments.ContainsKey(CodeImplementerAgent.ScaffoldContractLabel));
     }
 
     [Fact]

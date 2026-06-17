@@ -280,7 +280,31 @@ public sealed class AgentActivityFunctions
     public Task<OpenPullRequestInfo?> GetNewestOpenAiPrAsync([ActivityTrigger] string repository, CancellationToken cancellationToken) =>
         _gitHub.GetNewestOpenPullRequestByBranchPrefixAsync(repository, "ai/", cancellationToken);
 
-    private static readonly string[] ProtectedPathPrefixes = [".github/", "tests/e2e/"];
+    //   .github/      — CI/CD workflows (violation #98: a repair edited deploy.yml)
+    //   tests/e2e/    — the verification harness the release gate runs (auth.spec.ts, helpers,
+    //                   playwright.config.ts) EXCEPT acceptance.spec.ts (authored once, see below)
+    //   src/api/Auth/ — the immutable Clerk auth shell (ClerkJwtMiddleware, ClerkTokenValidator)
+    private static readonly string[] ProtectedPathPrefixes = [".github/", "tests/e2e/", "src/api/Auth/"];
+
+    // Scaffold-first (#131): the immutable app shell copied from the template repo
+    // (kcsnap/ai-sdlc-react-dotnet-template). The Code Implementer fills feature slots (routes.tsx,
+    // nav.ts, theme.ts, features/**, Features/**, Features/FeatureRegistration.cs) but must never
+    // author the shell — that is what keeps auth, the build, and the DI seam intact.
+    // File-level (not prefix-level) on the api side: the sample `items` feature
+    // (Data/CosmosItemStore.cs, Functions/ItemsFunction.cs) co-locates with infra under Data/ and
+    // Functions/ and must stay AI-replaceable, so only the specific infra files are pinned.
+    private static readonly string[] ShellScaffoldFiles =
+    [
+        "src/frontend/src/main.tsx",
+        "src/frontend/src/app/AppShell.tsx",
+        "src/frontend/src/lib/api.ts",
+        "src/frontend/src/vite-env.d.ts",
+        "src/api/Program.cs",
+        "src/api/Data/CosmosClientFactory.cs",
+        "src/api/Functions/HealthFunction.cs",
+        "src/api/host.json",
+        "src/api/Api.csproj",
+    ];
 
     // acceptance.spec.ts is the ONE verification-harness file the Code Implementer legitimately
     // authors — on the first build (replacing seeded stubs) and, on a repair, MAINTAINS without
@@ -289,13 +313,18 @@ public sealed class AgentActivityFunctions
     internal static bool IsAcceptanceSpec(string path) =>
         path.EndsWith("tests/e2e/specs/acceptance.spec.ts", StringComparison.OrdinalIgnoreCase);
 
-    // Always immutable — never authored or repaired. Seeded + drift-restored by Yorrixx:
-    //   .github/   — CI/CD workflows (violation #98: a repair edited deploy.yml)
-    //   tests/e2e/ — the verification harness (auth.spec.ts, playwright.config.ts, …) the release
-    //                gate runs — EXCEPT acceptance.spec.ts, which the platform authors once.
+    // Always immutable — never authored or repaired. Seeded by the template repo + drift-restored
+    // by Yorrixx: the CI/CD + e2e harness (ProtectedPathPrefixes) and the app shell
+    // (ShellScaffoldFiles), EXCEPT acceptance.spec.ts which the platform authors once.
     internal static bool IsProtectedPath(string path) =>
         !IsAcceptanceSpec(path) &&
-        ProtectedPathPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+        (ProtectedPathPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase))
+         || ShellScaffoldFiles.Any(f => PathMatchesShellFile(path, f)));
+
+    // Manifest/parser paths are repo-root-relative; tolerate an optional leading "./".
+    private static bool PathMatchesShellFile(string path, string shellFile) =>
+        path.Equals(shellFile, StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith("/" + shellFile, StringComparison.OrdinalIgnoreCase);
 
     // acceptance.spec.ts is NOT frozen on repair (#117 refined per Yorrixx): the platform authors
     // it on the first build and may MAINTAIN it on a repair (e.g. fix a selector / register helper).
