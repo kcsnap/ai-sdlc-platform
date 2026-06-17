@@ -188,6 +188,9 @@ public sealed class CodeImplementerChunkingTests
         Assert.Contains("@/lib/api", contract);                         // use the existing client
         Assert.Contains("Microsoft.Azure.Cosmos", contract);            // pin the Cosmos API (v005 fix)
         Assert.Contains("acceptance.spec.ts", contract);                // implementer authors the acceptance tests
+        Assert.Contains("RepositoryBase", contract);                    // data-access base (v006)
+        Assert.Contains("CANNOT add NuGet packages", contract);         // no unreferenced deps (v006 SendGrid)
+        Assert.Contains("stub", contract);                              // stub external integrations
         // and it travels into the batch prompts too
         Assert.True(provider.Requests[1].ContextDocuments.ContainsKey(CodeImplementerAgent.ScaffoldContractLabel));
     }
