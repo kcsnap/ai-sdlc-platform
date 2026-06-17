@@ -10,10 +10,18 @@ namespace AiSdlc.Shared;
 /// </summary>
 public static class LegalDocumentTemplates
 {
-    public const string PrivacyPolicyPath = "public/privacy-policy.html";
-    public const string TermsOfServicePath = "public/terms-of-service.html";
+    // Vite's publicDir for the user-app frontend (the frontend root is src/frontend). Only files
+    // placed here are served at the site root, e.g. /privacy-policy.html — which is what the shell's
+    // AppShell footer links to. Injecting at repo-root public/ was never served (#135). The template
+    // ships placeholders here so it builds and the footer resolves out-of-the-box; this per-app
+    // injection overwrites them with the real disclaimer + UK/EU-GDPR content. Legal pages are not
+    // in the immutable shell, so drift-restore does not revert the injection.
+    public const string FrontendPublicDir = "src/frontend/public/";
 
-    /// <summary>Relative URLs the generated site must link to (served as static files).</summary>
+    public const string PrivacyPolicyPath = FrontendPublicDir + "privacy-policy.html";
+    public const string TermsOfServicePath = FrontendPublicDir + "terms-of-service.html";
+
+    /// <summary>Relative URLs the generated site must link to (served from FrontendPublicDir at root).</summary>
     public const string PrivacyPolicyUrl = "/privacy-policy.html";
     public const string TermsOfServiceUrl = "/terms-of-service.html";
 

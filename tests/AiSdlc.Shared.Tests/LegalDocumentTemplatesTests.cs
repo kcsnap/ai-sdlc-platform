@@ -11,8 +11,10 @@ public sealed class LegalDocumentTemplatesTests
         var all = LegalDocumentTemplates.All;
 
         Assert.Equal(2, all.Count);
-        Assert.Contains(all, d => d.Path == "public/privacy-policy.html");
-        Assert.Contains(all, d => d.Path == "public/terms-of-service.html");
+        // Must land in Vite's publicDir (src/frontend/public/) so the files are served at site root,
+        // which is what the AppShell footer links to (#135).
+        Assert.Contains(all, d => d.Path == "src/frontend/public/privacy-policy.html");
+        Assert.Contains(all, d => d.Path == "src/frontend/public/terms-of-service.html");
         Assert.All(all, d => Assert.False(string.IsNullOrWhiteSpace(d.Content)));
     }
 
@@ -31,7 +33,8 @@ public sealed class LegalDocumentTemplatesTests
     [Fact]
     public void Link_urls_match_the_committed_file_paths()
     {
-        Assert.Equal(LegalDocumentTemplates.PrivacyPolicyUrl, "/" + LegalDocumentTemplates.PrivacyPolicyPath["public/".Length..]);
-        Assert.Equal(LegalDocumentTemplates.TermsOfServiceUrl, "/" + LegalDocumentTemplates.TermsOfServicePath["public/".Length..]);
+        var dir = LegalDocumentTemplates.FrontendPublicDir;
+        Assert.Equal(LegalDocumentTemplates.PrivacyPolicyUrl, "/" + LegalDocumentTemplates.PrivacyPolicyPath[dir.Length..]);
+        Assert.Equal(LegalDocumentTemplates.TermsOfServiceUrl, "/" + LegalDocumentTemplates.TermsOfServicePath[dir.Length..]);
     }
 }
