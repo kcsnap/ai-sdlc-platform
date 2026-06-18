@@ -193,3 +193,20 @@ Then confirm the generated user-app:
 3. **Proof:** the §7 Tier-1 charter (`NeedsAuth:false`) + a control (`NeedsAuth:true`) — both green; no-auth renders with no sign-in wall.
 
 **Status:** §3 agreed (with the Finding B correction). The platform may pre-stage the conditional `ScaffoldContractDoc` draft; it stays held until Yorrixx's variant is green + selected, per §6.
+
+---
+
+## 10. v010 finding (2026-06-18) — conditional auth must be **system-wide**, with a Yorrixx ask
+
+All three sides shipped (template PR #12, Yorrixx PR #76, platform PR #146/#145) and the first proof, **v010** (`yorrixx-apps/user-app-0946433f`, `NeedsAuth:false`, "1-page marketing site for athletes to search for 121 coaches"), was created.
+
+**Result:** the **no-auth shell seeded perfectly** (no `@clerk` dep, no `src/api/Auth/`, charter `NeedsAuth:false`). But the **build failed** — the generated app imported `@clerk/clerk-react` (not installed in the no-auth shell) → `TS2307` on `build-noauth` + `build-test`; the run then wedged (stuck-`Running`, terminated).
+
+**Root cause — not the seeding, not the implementer contract.** Conditionalising only the CodeImplementer's Scaffold Contract (#145) was **necessary but not sufficient**. The **Yorrixx-generated issue spec and the platform's upstream agents still mandate Clerk for a no-auth app.** Verbatim from the v010 issue's Definition of Done:
+> *"**Clerk is for future-proofing:** Auth is not a functional gate for v1 (charter: 'Needs auth: no'), **but Definition of Done requires Clerk modal buttons on the landing page**"* · *"`specs/auth.spec.ts` — **Immutable. Must pass as-is**"* · *"Frontend: … **Clerk React** … receives `VITE_CLERK_PUBLISHABLE_KEY`"*
+
+The implementer received **one** no-auth contract vs **six** documents (issue + 5 agent outputs) demanding Clerk, and built Clerk. The stale belief — *"`auth.spec.ts` is immutable and must pass ⇒ Clerk is required"* — is **true for the auth variant, false for the no-auth variant** (which has neither).
+
+**Platform fix (shipped to draft — issue #147, branch `feat/147-noauth-upstream-agents`):** a charter-derived **"Authentication Posture"** doc injected by `AgentContextDocuments.AddStandard` (reaches **every** agent, planning → implementation) when `needsAuth == false`, explicitly overriding any Clerk / `auth.spec.ts` / sign-in references in the request or prior docs. Tested across all 16 agents.
+
+**Yorrixx ask (the other half — please action):** the **charter→issue / Definition-of-Done generation must drop Clerk + `auth.spec.ts` requirements when `NeedsAuth:false`.** As-is, the generated issue body explicitly requires "Clerk modal buttons" and calls `auth.spec.ts` "immutable, must pass" for a no-auth app — which the whole pipeline then obeys. The platform posture doc counteracts it, but the clean fix is to stop emitting it. (Also confirm the no-auth `verify.yml` does not run `auth.spec.ts`.)
