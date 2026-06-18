@@ -96,6 +96,44 @@ public sealed class CharterContextDocumentTests
             $"{agent.Name} included 'Operating Mode' in Standard mode — it should only appear for Bootstrap.");
     }
 
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task NoAuth_charter_adds_authentication_posture_document(AgentFactory factory)
+    {
+        var recorder = new RecordingModelProvider();
+        var agent    = factory.Build(recorder);
+
+        var request = MakeRequest(agent.Name, withCharter: true);
+        request.Context.Metadata["needsAuth"] = "false";
+        await agent.ExecuteAsync(request, CancellationToken.None);
+
+        Assert.NotNull(recorder.LastRequest);
+        Assert.True(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.AuthPostureDocumentName),
+            $"{agent.Name} did not include 'Authentication Posture' for a NeedsAuth=false app.");
+        var posture = recorder.LastRequest.ContextDocuments[AgentContextDocuments.AuthPostureDocumentName];
+        Assert.Contains("NO AUTHENTICATION", posture);
+        Assert.Contains("auth.spec.ts", posture);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task Auth_charter_and_absent_flag_omit_authentication_posture_document(AgentFactory factory)
+    {
+        foreach (var needsAuth in new[] { "true", null })
+        {
+            var recorder = new RecordingModelProvider();
+            var agent    = factory.Build(recorder);
+
+            var request = MakeRequest(agent.Name, withCharter: true);
+            if (needsAuth is not null) request.Context.Metadata["needsAuth"] = needsAuth;
+            await agent.ExecuteAsync(request, CancellationToken.None);
+
+            Assert.NotNull(recorder.LastRequest);
+            Assert.False(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.AuthPostureDocumentName),
+                $"{agent.Name} included 'Authentication Posture' when needsAuth={needsAuth ?? "absent"} — it must only appear for an explicit false.");
+        }
+    }
+
     private static AgentExecutionRequest MakeRequest(string agentName, bool withCharter, WorkflowMode mode = WorkflowMode.Standard)
     {
         var metadata = new Dictionary<string, object>

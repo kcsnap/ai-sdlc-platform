@@ -12,6 +12,30 @@ public static class AgentContextDocuments
     public const string VerificationFindingsDocumentName = "Verification Findings";
     public const string CiFindingsDocumentName = "CI Failure Findings";
     public const string RepairModeDocumentName = "Repair Mode (targeted fix)";
+    public const string AuthPostureDocumentName = "Authentication Posture";
+
+    // The no-auth shell variant (Charter "Needs auth: no" / NeedsAuth=false) ships NO Clerk, NO
+    // src/api/Auth/, and NO tests/e2e/specs/auth.spec.ts. v010 showed the upstream spec + agents still
+    // treated auth.spec as immutable-must-pass and demanded Clerk modal "affordances" for a no-auth
+    // app → the implementer authored `@clerk/clerk-react` into a shell that doesn't install it →
+    // TS2307 build break. Conditionalising only the implementer's Scaffold Contract (#145) wasn't
+    // enough; this posture reaches EVERY agent (planning through implementation) and overrides any
+    // Clerk/auth references the request or earlier documents carry. (Pairs with the Yorrixx-side fix
+    // to stop the Definition-of-Done generation requiring Clerk for no-auth apps — see
+    // docs/roadmap/conditional-auth-yorrixx-brief.md.)
+    private const string NoAuthPostureInstructions = """
+        This application has NO AUTHENTICATION. The charter specifies "Needs auth: no", and it is built
+        on the no-auth shell variant, which ships NO Clerk, NO src/api/Auth/, and NO
+        tests/e2e/specs/auth.spec.ts.
+
+        THIS OVERRIDES ANY CONTRARY INSTRUCTION in the request, the charter, the Definition of Done, or
+        any earlier document. If anything mentions Clerk, ClerkProvider, @clerk/clerk-react,
+        VITE_CLERK_PUBLISHABLE_KEY, sign-in / sign-up / sign-out, a "signed-in" affordance, useUser(),
+        or auth.spec.ts, treat it as OBSOLETE for this app: do NOT carry it into your plan, design,
+        acceptance criteria, Definition of Done, tests, or code. There are no auth affordances to
+        render, require, or test. The frontend has no Clerk dependency installed, so any Clerk import
+        breaks the build. Plan, design, and verify this as a purely unauthenticated application.
+        """;
 
     // Reaches every agent via AddStandard. Without it, a reopen-repair runs the full planning
     // pipeline (Strategist/BA/Architect) which re-plans the whole app from the charter and
@@ -60,6 +84,12 @@ public static class AgentContextDocuments
         var charter = ReadMeta(context, "charter");
         if (!string.IsNullOrWhiteSpace(charter))
             contextDocs[CharterDocumentName] = charter;
+
+        // Only an explicit "false" selects the no-auth posture — mirrors the orchestrator, which sets
+        // needsAuth from Charter.Constraints.NeedsAuth (a charter that omits the key deserialises to
+        // false → no-auth). Absent metadata (no charter / off-path context) leaves auth apps untouched.
+        if (string.Equals(ReadMeta(context, "needsAuth"), "false", StringComparison.OrdinalIgnoreCase))
+            contextDocs[AuthPostureDocumentName] = NoAuthPostureInstructions;
 
         if (context.Mode == WorkflowMode.Bootstrap)
             contextDocs[OperatingModeDocumentName] = BootstrapOperatingModeInstructions;
