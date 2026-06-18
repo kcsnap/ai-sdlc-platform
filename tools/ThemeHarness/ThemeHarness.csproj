@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ThemeHarness</RootNamespace>
+    <!-- Standalone dev tool, not part of AiSdlc.sln / CI. Relax warnings-as-errors. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Local HTTPS static preview server for the generated sites. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Reuse the REAL provider (with prompt redaction + rate limiting) the platform uses. -->
+    <ProjectReference Include="..\..\src\AiSdlc.ModelProviders\AiSdlc.ModelProviders.csproj" />
+    <ProjectReference Include="..\..\src\AiSdlc.Shared\AiSdlc.Shared.csproj" />
+  </ItemGroup>
+</Project>

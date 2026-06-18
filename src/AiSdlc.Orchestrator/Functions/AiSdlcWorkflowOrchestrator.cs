@@ -50,7 +50,14 @@ public static class AiSdlcWorkflowOrchestrator
         var charter = await context.CallActivityAsync<Charter?>(
             nameof(AgentActivityFunctions.FetchCharterAsync), agentContext.Repository);
         if (charter is not null)
+        {
             agentContext.Metadata["charter"] = CharterMarkdownRenderer.Render(charter);
+            // Selects the Code Implementer's Scaffold Contract variant: Yorrixx seeds the no-auth shell
+            // when NeedsAuth == false, so the contract must match. Stored as a string so it survives
+            // Durable activity (de)serialisation. HELD behind the lockstep gate until the no-auth
+            // template variant is live (docs/roadmap/conditional-auth-yorrixx-brief.md §6).
+            agentContext.Metadata["needsAuth"] = charter.Constraints.NeedsAuth ? "true" : "false";
+        }
 
         // A reopened issue means the previous run's release failed downstream verification
         // (Yorrixx posts findings as comments, then reopens). Surface those findings to every
