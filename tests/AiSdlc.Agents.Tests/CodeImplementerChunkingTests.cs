@@ -200,6 +200,57 @@ public sealed class CodeImplementerChunkingTests
     }
 
     [Fact]
+    public async Task NeedsAuth_false_selects_the_no_auth_scaffold_contract()
+    {
+        // Yorrixx seeds a no-auth shell when the charter says NeedsAuth == false; the contract must
+        // match — never claim Clerk/auth is wired (the mismatch this conditionalisation fixes).
+        var provider = new ScriptedModelProvider(
+            _ => Manifest,
+            req => FileBlocksFor(RequestedPaths(req)),
+            req => FileBlocksFor(RequestedPaths(req)));
+
+        var request = MakeRequest();
+        request.Context.Metadata["needsAuth"] = "false";
+        await new CodeImplementerAgent(provider).ExecuteAsync(request, CancellationToken.None);
+
+        var contract = provider.Requests[0].ContextDocuments[CodeImplementerAgent.ScaffoldContractLabel];
+        Assert.Contains("THIS APP HAS NO AUTHENTICATION", contract);
+        Assert.Contains("data-testid=\"app-ready\"", contract);
+        // never CLAIM auth is wired (the doc may still name Clerk inside a prohibition)
+        Assert.DoesNotContain("AUTHENTICATION IS ALREADY DONE", contract);
+        Assert.DoesNotContain("wraps the app in <ClerkProvider>", contract);
+        Assert.DoesNotContain("data-testid=\"signed-in\"", contract);   // no signed-in gate
+        Assert.DoesNotContain("src/api/Auth/**", contract);             // no Auth/ in the no-auth shell
+        // shared, auth-agnostic guidance still travels
+        Assert.Contains("Api.Features", contract);
+        Assert.Contains("RepositoryBase", contract);
+        Assert.Contains("Api.Email.IEmailSender", contract);
+    }
+
+    [Fact]
+    public async Task NeedsAuth_true_and_absent_both_select_the_auth_scaffold_contract()
+    {
+        // Explicit true → auth doc; absent (no charter / off-path context) → auth doc too (today's
+        // behaviour). The real flow always sets needsAuth from the wizard-Required charter field.
+        foreach (var value in new[] { "true", null })
+        {
+            var provider = new ScriptedModelProvider(
+                _ => Manifest,
+                req => FileBlocksFor(RequestedPaths(req)),
+                req => FileBlocksFor(RequestedPaths(req)));
+
+            var request = MakeRequest();
+            if (value is not null) request.Context.Metadata["needsAuth"] = value;
+            await new CodeImplementerAgent(provider).ExecuteAsync(request, CancellationToken.None);
+
+            var contract = provider.Requests[0].ContextDocuments[CodeImplementerAgent.ScaffoldContractLabel];
+            Assert.Contains("AUTHENTICATION IS ALREADY DONE", contract);
+            Assert.Contains("data-testid=\"signed-in\"", contract);
+            Assert.DoesNotContain("THIS APP HAS NO AUTHENTICATION", contract);
+        }
+    }
+
+    [Fact]
     public async Task Manifest_prompt_lets_the_planner_author_acceptance_spec()
     {
         // The reframe excludes tests/e2e/ from the plan, but acceptance.spec.ts is the one file the
