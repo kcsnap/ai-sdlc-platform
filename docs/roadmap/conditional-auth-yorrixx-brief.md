@@ -210,3 +210,55 @@ The implementer received **one** no-auth contract vs **six** documents (issue + 
 **Platform fix (shipped to draft — issue #147, branch `feat/147-noauth-upstream-agents`):** a charter-derived **"Authentication Posture"** doc injected by `AgentContextDocuments.AddStandard` (reaches **every** agent, planning → implementation) when `needsAuth == false`, explicitly overriding any Clerk / `auth.spec.ts` / sign-in references in the request or prior docs. Tested across all 16 agents.
 
 **Yorrixx ask (the other half — please action):** the **charter→issue / Definition-of-Done generation must drop Clerk + `auth.spec.ts` requirements when `NeedsAuth:false`.** As-is, the generated issue body explicitly requires "Clerk modal buttons" and calls `auth.spec.ts` "immutable, must pass" for a no-auth app — which the whole pipeline then obeys. The platform posture doc counteracts it, but the clean fix is to stop emitting it. (Also confirm the no-auth `verify.yml` does not run `auth.spec.ts`.)
+
+---
+
+## 11. §10 fix-spec — NOT shipped (verified by v012, 2026-06-19) — exact location + fix
+
+> The §10 ask was reported "done" by the Yorrixx session. **Verified empirically: it is not on
+> `main`/deployed.** This section pins the exact source and the fix so it can actually ship.
+
+**Proof.** A fresh `NeedsAuth:false` app, **v012** (`yorrixx-apps/user-app-3a887da0`, created
+2026-06-19 11:29), got an issue body with **12 Clerk/auth mentions** — identical to v010/v011. It
+specs the **auth** shell for a **no-auth** app: *"Clerk JWT bearer auth pre-wired in `Program.cs`"*,
+*"Auth | Clerk"*, *"`VITE_CLERK_PUBLISHABLE_KEY`"*, *"Register, login, and profile work via Clerk"*,
+*"`specs/auth.spec.ts` is the hard auth gate … immutable … signed-out landing page must expose Clerk
+modal triggers"*. The seeded no-auth shell has none of that. yorrixx-app has **no commit since #76**
+(the no-auth *seeding*), so whatever was "done" is not on `main`.
+
+**Root cause — exact location.** `src/Yorrixx.Contracts.SourceControl/PlatformContractMarkdown.cs`.
+Both render methods are **parameterless** and unconditionally Clerk; per the file's own doc comment
+they are *"rendered into every build issue (`PlatformIssueClient`) and seeded into the repo as
+`.yorrixx/platform-contract.md` (`UserAppScaffold`)"* — so agents get the Clerk mandate from **two**
+places:
+- `RenderContract()` — stack table (`API | … Clerk JWT bearer auth pre-wired`, `Auth | Clerk`),
+  env-var table (`Clerk__PublishableKey / Clerk__Authority`), and `VITE_CLERK_PUBLISHABLE_KEY`.
+- `RenderDefinitionOfDone()` — DoD **#2** ("Register, login, and profile work via Clerk") and **#5**
+  ("`auth.spec.ts` is the hard auth gate … immutable … Clerk modal triggers … `SignUpButton` …
+  `data-testid` signed-in").
+
+The platform posture (#148/#150) overrides this — which is why v011/v012 *code* still came out
+Clerk-free — but it's a tug-of-war every run (repair churn), and the spec itself is wrong for no-auth.
+
+**The fix.** Parameterise both methods on the **Charter** (gate on `NeedsAuth` now; passing the whole
+Charter sets up the Static-first stack-profile reuse later — §below):
+- `RenderContract(charter)` when `NeedsAuth == false`: drop `(Clerk JWT bearer auth pre-wired …)` from
+  the API row; remove the `Auth | Clerk` row (or `Auth | None — public app`); remove the
+  `Clerk__PublishableKey / Clerk__Authority` env row; drop `VITE_CLERK_PUBLISHABLE_KEY` (keep `VITE_API_URL`).
+- `RenderDefinitionOfDone(charter)` when `NeedsAuth == false`: remove item **#2**; in item **#5** remove
+  the entire `auth.spec.ts` bullet (the no-auth variant ships no `auth.spec.ts`); keep the
+  `acceptance.spec.ts` + "target the deployed app" bullets.
+
+**Callers to update** (pass `charter.Constraints.NeedsAuth`): `PlatformIssueClient` (issue body) and
+`UserAppScaffold` (`.yorrixx/platform-contract.md` seed). `NeedsAuth` already flows through
+`Yorrixx.Modules.Generation` + `Charter`, so the value is in hand at both sites.
+
+**Acceptance test.** A fresh `NeedsAuth:false` app → issue body **and** `.yorrixx/platform-contract.md`
+have **zero** Clerk/`auth.spec` mentions, DoD has no register/login item and no auth gate; a control
+`NeedsAuth:true` app is unchanged. Add a `Yorrixx.Generation.Tests` case asserting the two render
+methods omit "Clerk"/"auth.spec" when false and include them when true.
+
+**Relationship to Static-first.** The same two methods also hardcode the full stack (`Vite + React 19`,
+`Cosmos … the only persistence`) — that is the separate stack-profiles workstream
+(`stack-profiles-static-first.md`), which will gate those rows the same way. Taking the `Charter` now
+sets up both. **This fix is auth-only — do not touch the stack rows yet.**
