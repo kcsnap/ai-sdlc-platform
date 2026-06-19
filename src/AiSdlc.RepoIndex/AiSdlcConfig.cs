@@ -1,3 +1,4 @@
+using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -79,6 +80,19 @@ public sealed class AiSdlcConfig
             .IgnoreUnmatchedProperties()
             .Build();
 
-        return deserializer.Deserialize<AiSdlcConfig?>(yaml);
+        try
+        {
+            return deserializer.Deserialize<AiSdlcConfig?>(yaml);
+        }
+        catch (YamlException)
+        {
+            // A malformed or unexpected-shape .ai-sdlc.yml must NOT crash the run — the repo index is
+            // optional. The first Static app crashed the orchestration 3x here: its `stack:` map has
+            // `frontend:` as a string, but StackSection.Frontend is a typed object, so YamlDotNet threw.
+            // Treat as absent (return null), mirroring GitHubCharterReader's JsonException handling.
+            // (`IgnoreUnmatchedProperties` only skips unknown keys; it does not help a known key with a
+            // mismatched node type.)
+            return null;
+        }
     }
 }
