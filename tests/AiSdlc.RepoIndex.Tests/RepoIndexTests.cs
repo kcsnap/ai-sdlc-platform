@@ -162,6 +162,28 @@ public sealed class AiSdlcConfigParseTests
         Assert.NotNull(config);
         Assert.Equal("test", config.Repo?.Name);
     }
+
+    [Fact]
+    public void Parse_StaticProfileShape_DoesNotThrow_AndReturnsNull()
+    {
+        // The Static template's .ai-sdlc.yml uses `stack.frontend` as a free-text STRING, but
+        // StackSection.Frontend is a typed object — YamlDotNet throws "Exception during deserialization".
+        // Parse MUST swallow it (the repo index is optional), not crash the orchestration: the first
+        // Static app (user-app-82d06fa5) failed in FetchRepoIndexAsync 3x here → reconciliation-exhausted.
+        const string staticYaml = """
+            schema: 1
+            stackProfile: Static
+            stack:
+              frontend: static HTML + CSS (+ optional vanilla JS)
+              data: hard-coded in the page — there is no database
+              backend: none — there is no API
+            automation:
+              allow_low_risk_auto_merge: true
+            """;
+
+        Assert.Null(Record.Exception(() => AiSdlcConfig.Parse(staticYaml)));   // does not throw
+        Assert.Null(AiSdlcConfig.Parse(staticYaml));                           // unparseable → absent
+    }
 }
 
 public sealed class RepoIndexMarkdownRendererTests
@@ -311,6 +333,26 @@ public sealed class GitHubRepoIndexerTests
         Assert.NotNull(result);
         Assert.False(result.AllowLowRiskAutoMerge);
         Assert.False(result.AllowLowRiskProductionDeploy);
+    }
+
+    [Fact]
+    public async Task IndexAsync_StaticProfileYaml_ReturnsNull_DoesNotThrow()
+    {
+        // A Static repo's .ai-sdlc.yml shape can't map to the full-stack StackSection — indexing must
+        // degrade to "no index" (correct for a static app), never throw and crash the orchestration.
+        const string staticYaml = """
+            schema: 1
+            stackProfile: Static
+            stack:
+              frontend: static HTML + CSS (+ optional vanilla JS)
+            automation:
+              allow_low_risk_auto_merge: true
+            """;
+        var indexer = new GitHubRepoIndexer(new StubGitHubService(staticYaml));
+
+        var result = await indexer.IndexAsync("yorrixx-apps/user-app-82d06fa5", CancellationToken.None);
+
+        Assert.Null(result);
     }
 
     private sealed class StubGitHubService(string? content) : IGitHubService
