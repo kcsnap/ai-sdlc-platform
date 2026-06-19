@@ -34,7 +34,11 @@ public static class AgentContextDocuments
         or auth.spec.ts, treat it as OBSOLETE for this app: do NOT carry it into your plan, design,
         acceptance criteria, Definition of Done, tests, or code. There are no auth affordances to
         render, require, or test. The frontend has no Clerk dependency installed, so any Clerk import
-        breaks the build. Plan, design, and verify this as a purely unauthenticated application.
+        breaks the build. On the BACKEND there is no authorization layer: do NOT add [Authorize] or
+        [AllowAnonymous] attributes and do NOT reference Microsoft.AspNetCore.Authorization — that
+        package is not installed, so those attributes will not compile. Every API function is already a
+        plain, unauthenticated endpoint; there is nothing to mark "public" or "anonymous". Plan, design,
+        and verify this as a purely unauthenticated application.
         """;
 
     // Reaches every agent via AddStandard. Without it, a reopen-repair runs the full planning
