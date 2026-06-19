@@ -59,6 +59,13 @@ public static class AiSdlcWorkflowOrchestrator
             agentContext.Metadata["needsAuth"] = charter.Constraints.NeedsAuth ? "true" : "false";
         }
 
+        // Stack profile (derive-once-stamp): Yorrixx stamps .yorrixx/profile.json at seed time; the
+        // platform reads it and never re-derives. Drives the Static posture + Code Implementer contract
+        // (docs/roadmap/stack-profiles-static-first.md). Absent/malformed → "FullStack" — inert until a
+        // Static template + profile.json seeding ship, so it's safe ahead of that.
+        agentContext.Metadata["stackProfile"] = await context.CallActivityAsync<string>(
+            nameof(AgentActivityFunctions.FetchStackProfileAsync), agentContext.Repository);
+
         // A reopened issue means the previous run's release failed downstream verification
         // (Yorrixx posts findings as comments, then reopens). Surface those findings to every
         // agent so the re-run fixes them instead of regenerating blind (#88).

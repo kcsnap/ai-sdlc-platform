@@ -309,6 +309,35 @@ public sealed class CodeImplementerAgent : IAgent
     private static string ScaffoldContractDocFor(bool needsAuth) =>
         needsAuth ? ScaffoldContractDocAuth : ScaffoldContractDocNoAuth;
 
+    // Static profile (Stack profile: Static) — the app is hand-written HTML/CSS(+JS), seeded from the
+    // static template. Selected in BuildContextDocs when stackProfile == "Static"; the FullStack
+    // contract (React/Functions/Cosmos) actively misleads a static app, so it must NOT be used there.
+    // Exact file paths follow the static template (stack-profiles-static-first.md) — kept path-light
+    // until that template is pinned. HELD behind the lockstep gate.
+    internal const string ScaffoldContractDocStatic = """
+        This app is a STATIC site (Stack profile: Static), seeded from the static template. There is NO
+        React, NO Vite/npm build, NO C# API / Azure Functions, NO Cosmos or any database, and NO
+        authentication. The deploy serves static files only — anything that needs a build or a server
+        cannot run.
+
+        YOU AUTHOR (these ARE the app — write real, topic-relevant content, no placeholder text):
+        - the page: `index.html` (semantic HTML5; the rendered root carries `data-testid="app-ready"`),
+        - the styles: `styles.css` (modern CSS; no framework needed),
+        - optionally `app.js` (plain, `<script>`-loadable vanilla JavaScript) ONLY where it genuinely
+          improves UX — e.g. a client-side filter over hard-coded data. No bundler, no npm packages.
+        - Hard-code any fixed data (e.g. a list of items) directly into the page. Do NOT `fetch` `/api/*`,
+          call a backend, or persist anything — there is none.
+        - Acceptance tests: you may fill `tests/e2e/specs/acceptance.spec.ts` over its seeded stubs with
+          real RENDER-ONLY assertions (content present, internal links resolve, no scaffold text). NEVER
+          assert against `/api/*` or a database.
+
+        IMMUTABLE — do NOT author, modify, or recreate (machine-managed): `.github/workflows/**` (the
+        static deploy + verify workflows) and the rest of `tests/e2e/**` (the render-only harness).
+
+        Do NOT add React, Vite, a `package.json` build, a C# project, Azure Functions, Cosmos,
+        `fetch`/HTTP calls, or auth — there is nowhere to host them.
+        """;
+
     private const string RetryPrompt =
         "Your previous response contained no `<file path=\"...\">` blocks. " +
         "You MUST wrap every file in `<file path=\"...\">` tags. " +
@@ -544,13 +573,23 @@ public sealed class CodeImplementerAgent : IAgent
     private static Dictionary<string, string> BuildContextDocs(AgentContext ctx)
     {
         var docs = new Dictionary<string, string>();
-        // Charter.Constraints.NeedsAuth selects the shell variant the app was seeded with: Yorrixx
-        // applies the no-auth overlay (no Clerk / no Auth/ / no auth.spec) when NeedsAuth == false.
-        // Absent (no charter, or a context built off the orchestrator's charter step) defaults to the
-        // auth shell — today's behaviour; the real flow always sets needsAuth from the wizard-Required
-        // charter field. See docs/roadmap/conditional-auth-yorrixx-brief.md.
-        var needsAuth = !string.Equals(GetMeta(ctx, "needsAuth"), "false", StringComparison.OrdinalIgnoreCase);
-        docs[ScaffoldContractLabel] = ScaffoldContractDocFor(needsAuth);
+        // Stack profile (Yorrixx stamps `.yorrixx/profile.json`; carried in metadata — derive-once-stamp).
+        // A Static app has no React/Functions/Cosmos shell, so the FullStack contract would mislead it;
+        // give the Static contract instead. Absent / "FullStack" → today's FullStack path.
+        if (string.Equals(GetMeta(ctx, "stackProfile"), "Static", StringComparison.OrdinalIgnoreCase))
+        {
+            docs[ScaffoldContractLabel] = ScaffoldContractDocStatic;
+        }
+        else
+        {
+            // Charter.Constraints.NeedsAuth selects the shell variant the app was seeded with: Yorrixx
+            // applies the no-auth overlay (no Clerk / no Auth/ / no auth.spec) when NeedsAuth == false.
+            // Absent (no charter, or a context built off the orchestrator's charter step) defaults to the
+            // auth shell — today's behaviour; the real flow always sets needsAuth from the wizard-Required
+            // charter field. See docs/roadmap/conditional-auth-yorrixx-brief.md.
+            var needsAuth = !string.Equals(GetMeta(ctx, "needsAuth"), "false", StringComparison.OrdinalIgnoreCase);
+            docs[ScaffoldContractLabel] = ScaffoldContractDocFor(needsAuth);
+        }
         AddIfPresent(docs, ctx, "repoContext",       "Repository Context");
         AddIfPresent(docs, ctx, "ownerBrief",       "Approved Product Brief");
         AddIfPresent(docs, ctx, "analystOutput",    "Business Analysis");

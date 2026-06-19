@@ -13,6 +13,7 @@ public static class AgentContextDocuments
     public const string CiFindingsDocumentName = "CI Failure Findings";
     public const string RepairModeDocumentName = "Repair Mode (targeted fix)";
     public const string AuthPostureDocumentName = "Authentication Posture";
+    public const string StackProfilePostureDocumentName = "Stack Profile Posture";
 
     // The no-auth shell variant (Charter "Needs auth: no" / NeedsAuth=false) ships NO Clerk, NO
     // src/api/Auth/, and NO tests/e2e/specs/auth.spec.ts. v010 showed the upstream spec + agents still
@@ -39,6 +40,28 @@ public static class AgentContextDocuments
         package is not installed, so those attributes will not compile. Every API function is already a
         plain, unauthenticated endpoint; there is nothing to mark "public" or "anonymous". Plan, design,
         and verify this as a purely unauthenticated application.
+        """;
+
+    // Static stack profile (Yorrixx stamps `.yorrixx/profile.json {stackProfile}`; the orchestrator
+    // carries it in metadata — derive-once-stamp, the platform never re-derives). A Static app is
+    // hand-written HTML/CSS(+JS) with NO React/Vite, NO C# API/Functions, NO Cosmos/DB. v011 built a
+    // 1-page marketing site as full-stack and chased un-seeded Cosmos data that should have been
+    // hard-coded. This posture reaches EVERY agent so none specs a backend for a static app. See
+    // docs/roadmap/stack-profiles-static-first.md.
+    private const string StaticProfilePosture = """
+        This app is a STATIC site (Stack profile: Static). The entire app is hand-written HTML, CSS, and
+        — only where it genuinely improves UX — a little vanilla JavaScript. There is NO React/Vite, NO
+        C# Web API / Azure Functions, NO Cosmos or any database, and NO authentication.
+
+        Author the page directly: index.html + styles.css (+ optional app.js). Hard-code any fixed data
+        (e.g. a list of items) straight into the page; do NOT call a backend, fetch `/api/*`, or persist
+        anything. Any "search" or filter is client-side over the hard-coded data.
+
+        THIS OVERRIDES ANY CONTRARY INSTRUCTION in the request, the charter, the Definition of Done, or
+        any earlier document. If anything assumes React, an npm/Vite build, a C# API, Azure Functions,
+        Cosmos / a database, `fetch`/HTTP calls, or authentication, treat it as OBSOLETE for this app —
+        do NOT add any of them; there is no backend or build step to host them. Plan, design, and verify
+        this as a purely static site.
         """;
 
     // Reaches every agent via AddStandard. Without it, a reopen-repair runs the full planning
@@ -94,6 +117,11 @@ public static class AgentContextDocuments
         // false → no-auth). Absent metadata (no charter / off-path context) leaves auth apps untouched.
         if (string.Equals(ReadMeta(context, "needsAuth"), "false", StringComparison.OrdinalIgnoreCase))
             contextDocs[AuthPostureDocumentName] = NoAuthPostureInstructions;
+
+        // Derive-once-stamp: the orchestrator carries the stamped profile from `.yorrixx/profile.json`.
+        // Only an explicit "Static" applies; absent / "FullStack" leaves today's behaviour untouched.
+        if (string.Equals(ReadMeta(context, "stackProfile"), "Static", StringComparison.OrdinalIgnoreCase))
+            contextDocs[StackProfilePostureDocumentName] = StaticProfilePosture;
 
         if (context.Mode == WorkflowMode.Bootstrap)
             contextDocs[OperatingModeDocumentName] = BootstrapOperatingModeInstructions;
