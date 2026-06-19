@@ -154,3 +154,58 @@ ship with it.
 2. Static hosting target — Azure Static Web Apps vs storage static website.
 3. Whether the Static template carries *any* immutable shell (e.g. a baseline `<head>`/meta, the deploy
    + verify workflows) or is effectively content-only.
+
+---
+
+## 9. Yorrixx response (2026-06-19)
+
+**Agreement.** Static-first is the right generalization of conditional-auth, and the pre-seed constraint (§3) is exactly right — the template is committed at repo creation, before the Architect runs, so the profile must be a charter signal (same seam as `NeedsAuth`). Proceeding on the §7 lockstep: Yorrixx builds the Static template + charter signal + seeding selection; platform pre-stages the derivation-consumer / Architect posture / per-profile contract / all-agent posture and ships together.
+
+### Ask 1 — charter signal shape: **CONFIRMED `Constraints.NeedsPersistence: bool`**
+
+Add **one** boolean to `CharterConstraints`, mirroring `NeedsAuth` exactly:
+- **`NeedsPersistence`** — *"the app must store or process data server-side (persisted/shared state, or server-only compute) beyond a fixed page."* This deliberately folds in the §1 "server-only compute" axis so the two-profile MVP needs only **one** new flag; the existing `Needs*` flags already cover the integration axis.
+- **Wizard** (`FixedFormCatalogue`, Required Boolean, same "shape of it" section as the other `Needs*`): *"Is this a static informational/marketing site, or an app that stores or processes data?"* → **false = static**, true = stores/processes.
+
+**Not** an `AppType`/`StackProfile` charter field: the user expresses *intent* (does it need data?), not a stack choice; `StackProfile` is **derived**, so putting it on the charter conflates signal with derivation and invites drift. Charter = signals; profile = derived.
+
+### Derivation + carrying it across repos (refines §5.2)
+
+Recommend **Yorrixx derives once and stamps it; the platform reads the stamped value** — rather than both repos re-implementing the rule. They can't share code across repos, so a "mirror" is duplicated logic that *will* drift. Rule:
+```
+StackProfile = Static  if  !NeedsAuth && !NeedsEmail && !NeedsPayments && !NeedsAIApi && !NeedsPersistence
+             = FullStack otherwise
+```
+Yorrixx computes this at seed time and:
+- seeds **`.yorrixx/profile.json`** `{ "stackProfile": "Static" }` — the authoritative value agents + `EnsureSeededWorkflowsAsync` read (the analog of `.yorrixx/charter.json` for `NeedsAuth`), and
+- renders **"Stack profile: Static"** into the charter markdown + in-repo contract so every agent sees it.
+
+Platform agents key off the stamped value (no re-derivation). The rule above is still the documented contract if you want a cross-check, but the stamped value is authoritative — one source of truth. Keep it a **string enum**, not a bool, so the later `Spa / FrontendApi / FrontendApiDb` split is additive.
+
+### Template / seeding plan (the long pole)
+
+**Mechanism: a separate Static template repo, NOT a generate-time overlay.** No-auth worked as an overlay because it was "full-stack *minus* Clerk." Static is a **disjoint tree** (no React/Vite/C#/Cosmos at all) — an overlay would delete essentially the whole shell. So:
+
+- **New repo `kcsnap/ai-sdlc-static-template`**, independently CI-green:
+  - `index.html` + `styles.css` (+ optional vanilla `app.js`) — AI-owned content, with a sane `<head>`/meta baseline and `data-testid="app-ready"` on the root.
+  - `.github/workflows/`: `deploy.yml` (static deploy, OIDC, per-app — like today), `verify.yml` (render-only), `ci.yml` minimal (html-validate + presence checks; **no build step**).
+  - `tests/e2e/` render-only harness: reuse the full-stack template's `playwright.config.ts` conventions (`E2E_BASE_URL`, HTML reporter + on-failure trace — the PR #9/#11 fixes), with a render-only `acceptance.spec` pattern (no auth helper, **no `/api/*`/Cosmos**).
+  - `.ai-sdlc.yml` static manifest.
+- **Seeding selection** (`EnsureUserAppRepoAsync`): add `GitHubAppOptions.StaticTemplateRepo`; when `profile == Static`, `GenerateFromTemplateAsync` from the static repo instead of the full-stack one. Per-app overlays (charter, contract, render-only acceptance stub, per-app `deploy.yml`) layer on as today.
+- **Variant-aware drift-restore** (`EnsureSeededWorkflowsAsync`): it already branches on the repo's variant; extend it to read `.yorrixx/profile.json` and restore the **Static** shell set (its deploy/verify/test harness) for Static apps — never the React/Functions shell.
+
+### Provisioning (answers §8.2 — hosting target)
+
+**MVP: reuse the existing F1 Web App frontend host; skip the API Function App + Cosmos + Clerk for Static.** The F1 Web App already serves static files, so the proven provisioning + OIDC deploy identity + the gate's URL/200/no-scaffold checks all work unchanged — the Static `deploy.yml` just zips `index.html`/`styles.css`/`app.js` (no `npm build`). The real win is **dropping API/Cosmos/Clerk provisioning** for Static (cheaper, faster, fewer moving parts). **Azure Static Web Apps / storage `$web`** is the right *eventual* host (lighter than F1) — recommend deferring it as a cost optimization so the first Static proof reuses the battle-tested pipeline rather than introducing a new hosting type + provisioning path at the same time.
+
+### Spec-gen / DoD / acceptance (§5.7)
+
+For Static, Yorrixx's DoD + the seeded `acceptance.spec` are **render-only**: content present, internal links resolve, `mailto:` present if the charter implies contact, no scaffold placeholder text — and **no `/api/*` or Cosmos assertions** (precisely v011's failure). The `data-testid="app-ready"` landmark generalizes across all profiles, so one acceptance-landmark convention spans Static + FullStack(auth/no-auth).
+
+### §8 sub-decisions
+1. **Signal shape** → `Constraints.NeedsPersistence: bool` (above).
+2. **Hosting** → reuse the F1 Web App for the MVP (skip API/Cosmos provisioning); SWA / storage `$web` as a later optimization.
+3. **Static immutable shell** → minimal: the `deploy.yml` + `verify.yml` + e2e harness are Yorrixx-managed/drift-restored; `index.html`/`styles.css`/`app.js` are **AI-owned content** (not immutable). A Static app's protected shell is just the workflows + test harness.
+
+### Lockstep & proof
+The Static template (Yorrixx) is the trigger; platform pre-stages the derivation-consumer + Architect minimal-stack posture + per-profile Code Implementer contract + Static all-agent posture, held until the Static template is green. **Proof = a marketing charter (answer "static info site") → a Static repo (`index.html`/`styles.css`, hard-coded data, no React/API/Cosmos) → render-only verify green.** This is also the correct fix for v011 (rebuild as Static rather than seeding Cosmos for fixed content).
