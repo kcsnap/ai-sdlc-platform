@@ -74,6 +74,15 @@ public sealed class OrchestratorSkeletonTests
     }
 
     [Fact]
+    public async Task FetchStackProfileAsync_DefaultsToFullStack_WhenNoProfileFile()
+    {
+        var functions = BuildActivityFunctions();
+        // NoOpGitHubService.GetFileContentAsync returns null (no .yorrixx/profile.json) → FullStack.
+        var profile = await functions.FetchStackProfileAsync("kcsnap/ai-sdlc-platform", CancellationToken.None);
+        Assert.Equal("FullStack", profile);
+    }
+
+    [Fact]
     public async Task PostGitHubCommentAsync_CallsGitHubService()
     {
         var functions = BuildActivityFunctions();

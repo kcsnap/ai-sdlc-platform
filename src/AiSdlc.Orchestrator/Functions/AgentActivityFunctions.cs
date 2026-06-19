@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using AiSdlc.Agents;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
@@ -254,6 +255,51 @@ public sealed class AgentActivityFunctions
         if (charter is null)
             _logger.LogInformation("No usable charter found in {Repository} — skipping charter.", repository);
         return charter;
+    }
+
+    internal const string StackProfilePath = ".yorrixx/profile.json";
+
+    // Reads the Yorrixx-stamped stack profile (derive-once-stamp: Yorrixx derives at seed time and
+    // stamps .yorrixx/profile.json; the platform reads it and never re-derives). Drives the Static
+    // posture/contract (stack-profiles-static-first.md). Absent/malformed → "FullStack" (today's path).
+    [Function(nameof(FetchStackProfileAsync))]
+    public async Task<string> FetchStackProfileAsync([ActivityTrigger] string repository, CancellationToken cancellationToken)
+    {
+        var json = await _gitHub.GetFileContentAsync(repository, StackProfilePath, cancellationToken);
+        var profile = ParseStackProfile(json);
+        _logger.LogInformation("Stack profile for {Repository}: {Profile}", repository, profile);
+        return profile;
+    }
+
+    // Only an explicit stackProfile == "Static" applies; an absent or malformed file defaults to
+    // "FullStack". Key/value matching is case-insensitive so the stamp shape can't drift on casing.
+    internal static string ParseStackProfile(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return "FullStack";
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "stackProfile", StringComparison.OrdinalIgnoreCase)
+                        && prop.Value.ValueKind == JsonValueKind.String
+                        && string.Equals(prop.Value.GetString(), "Static", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return "Static";
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Malformed profile.json → safe default.
+        }
+
+        return "FullStack";
     }
 
     [Function(nameof(AddGitHubLabelAsync))]
