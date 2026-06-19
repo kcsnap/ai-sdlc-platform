@@ -135,6 +135,44 @@ public sealed class CharterContextDocumentTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task Static_profile_adds_stack_profile_posture_document(AgentFactory factory)
+    {
+        var recorder = new RecordingModelProvider();
+        var agent    = factory.Build(recorder);
+
+        var request = MakeRequest(agent.Name, withCharter: true);
+        request.Context.Metadata["stackProfile"] = "Static";
+        await agent.ExecuteAsync(request, CancellationToken.None);
+
+        Assert.NotNull(recorder.LastRequest);
+        Assert.True(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.StackProfilePostureDocumentName),
+            $"{agent.Name} did not include 'Stack Profile Posture' for a Static app.");
+        var posture = recorder.LastRequest.ContextDocuments[AgentContextDocuments.StackProfilePostureDocumentName];
+        Assert.Contains("STATIC site", posture);
+        Assert.Contains("React", posture);   // prohibited for static
+    }
+
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task FullStack_and_absent_profile_omit_stack_profile_posture(AgentFactory factory)
+    {
+        foreach (var profile in new[] { "FullStack", null })
+        {
+            var recorder = new RecordingModelProvider();
+            var agent    = factory.Build(recorder);
+
+            var request = MakeRequest(agent.Name, withCharter: true);
+            if (profile is not null) request.Context.Metadata["stackProfile"] = profile;
+            await agent.ExecuteAsync(request, CancellationToken.None);
+
+            Assert.NotNull(recorder.LastRequest);
+            Assert.False(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.StackProfilePostureDocumentName),
+                $"{agent.Name} included 'Stack Profile Posture' when stackProfile={profile ?? "absent"} — only an explicit Static should.");
+        }
+    }
+
     private static AgentExecutionRequest MakeRequest(string agentName, bool withCharter, WorkflowMode mode = WorkflowMode.Standard)
     {
         var metadata = new Dictionary<string, object>

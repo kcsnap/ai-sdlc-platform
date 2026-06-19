@@ -200,6 +200,28 @@ public sealed class CodeImplementerChunkingTests
     }
 
     [Fact]
+    public async Task Static_profile_selects_the_static_scaffold_contract()
+    {
+        // A Static app has no React/Functions/Cosmos shell — it must get the Static contract, never the
+        // FullStack one (whose RepositoryBase/AppShell/FeatureRegistration guidance would mislead it).
+        var provider = new ScriptedModelProvider(
+            _ => Manifest,
+            req => FileBlocksFor(RequestedPaths(req)),
+            req => FileBlocksFor(RequestedPaths(req)));
+
+        var request = MakeRequest();
+        request.Context.Metadata["stackProfile"] = "Static";
+        await new CodeImplementerAgent(provider).ExecuteAsync(request, CancellationToken.None);
+
+        var contract = provider.Requests[0].ContextDocuments[CodeImplementerAgent.ScaffoldContractLabel];
+        Assert.Contains("STATIC site", contract);
+        Assert.Contains("index.html", contract);
+        Assert.DoesNotContain("RepositoryBase", contract);     // no Cosmos data layer
+        Assert.DoesNotContain("AppShell", contract);           // no React shell
+        Assert.DoesNotContain("FeatureRegistration", contract); // no backend DI seam
+    }
+
+    [Fact]
     public async Task NeedsAuth_false_selects_the_no_auth_scaffold_contract()
     {
         // Yorrixx seeds a no-auth shell when the charter says NeedsAuth == false; the contract must
