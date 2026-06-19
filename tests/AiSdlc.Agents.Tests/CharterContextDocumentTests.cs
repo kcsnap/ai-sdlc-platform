@@ -113,6 +113,7 @@ public sealed class CharterContextDocumentTests
         var posture = recorder.LastRequest.ContextDocuments[AgentContextDocuments.AuthPostureDocumentName];
         Assert.Contains("NO AUTHENTICATION", posture);
         Assert.Contains("auth.spec.ts", posture);
+        Assert.Contains("[AllowAnonymous]", posture);   // v011: backend authz-attribute reflex (#149)
     }
 
     [Theory]
