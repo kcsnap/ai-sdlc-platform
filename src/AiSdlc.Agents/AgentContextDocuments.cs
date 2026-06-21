@@ -14,6 +14,8 @@ public static class AgentContextDocuments
     public const string RepairModeDocumentName = "Repair Mode (targeted fix)";
     public const string AuthPostureDocumentName = "Authentication Posture";
     public const string StackProfilePostureDocumentName = "Stack Profile Posture";
+    public const string CapabilityPostureDocumentName = "Capability Posture";
+    public const string CapabilityGapsDocumentName = "Capability Gaps (confirm at review)";
 
     // The no-auth shell variant (Charter "Needs auth: no" / NeedsAuth=false) ships NO Clerk, NO
     // src/api/Auth/, and NO tests/e2e/specs/auth.spec.ts. v010 showed the upstream spec + agents still
@@ -63,6 +65,30 @@ public static class AgentContextDocuments
         do NOT add any of them; there is no backend or build step to host them. Plan, design, and verify
         this as a purely static site.
         """;
+
+    // Api-only capability profile (the persistence axis resolved to NO database). The Architect derives
+    // whether the app needs persistence (Balanced); a payments app forces it on (CapabilityResolver
+    // invariant). When the resolved profile is api-only, this posture reaches EVERY agent so none specs
+    // Cosmos/RepositoryBase for a stateless app — the FullStack Scaffold Contract still describes the DB
+    // seam (the shell physically ships it), so this OVERRIDES that for an api-only app. See
+    // docs/roadmap/fullstack-capability-derivation.md.
+    private const string ApiOnlyPostureInstructions = """
+        This application is API-ONLY: it has a backend API but NO DATABASE and NO persistence. The
+        resolved capability profile is api-only — there is nowhere to store data between requests.
+
+        THIS OVERRIDES ANY CONTRARY INSTRUCTION in the request, the charter, the Scaffold Contract, the
+        Definition of Done, or any earlier document. If anything mentions Cosmos, CosmosClient,
+        RepositoryBase, a database/container, or saving / loading / listing / persisting records, treat
+        it as OBSOLETE for this app: do NOT extend RepositoryBase, do NOT inject CosmosClient, do NOT add
+        any datastore, and do NOT design features that depend on data surviving between requests. Keep
+        the API stateless — validate, compute, transform, call any allowed integration, and return the
+        result. Plan, design, and verify this as an API-only application with no persistence.
+        """;
+
+    private const string CapabilityGapsPreamble =
+        "The architecture step found capabilities the brief may need that the user did NOT explicitly " +
+        "enable. Per policy the explicit choice is HONORED (nothing is auto-added) — surface these for " +
+        "the human to confirm or amend; do not silently wire them:\n\n";
 
     // Reaches every agent via AddStandard. Without it, a reopen-repair runs the full planning
     // pipeline (Strategist/BA/Architect) which re-plans the whole app from the charter and
@@ -122,6 +148,17 @@ public static class AgentContextDocuments
         // Only an explicit "Static" applies; absent / "FullStack" leaves today's behaviour untouched.
         if (string.Equals(ReadMeta(context, "stackProfile"), "Static", StringComparison.OrdinalIgnoreCase))
             contextDocs[StackProfilePostureDocumentName] = StaticProfilePosture;
+
+        // Capability profile — persistence axis. The orchestrator stamps needsDatabase only for FullStack
+        // apps (a Static app has no API/DB and is covered above). Only an explicit "false" (resolver said
+        // api-only) injects the no-database posture; absent / "true" leaves the DB-backed default intact.
+        if (string.Equals(ReadMeta(context, "needsDatabase"), "false", StringComparison.OrdinalIgnoreCase))
+            contextDocs[CapabilityPostureDocumentName] = ApiOnlyPostureInstructions;
+
+        // Honored-but-flagged capability gaps (e.g. payments on, email off) — surfaced for the human.
+        var capabilityGaps = ReadMeta(context, "capabilityGaps");
+        if (!string.IsNullOrWhiteSpace(capabilityGaps))
+            contextDocs[CapabilityGapsDocumentName] = CapabilityGapsPreamble + capabilityGaps;
 
         if (context.Mode == WorkflowMode.Bootstrap)
             contextDocs[OperatingModeDocumentName] = BootstrapOperatingModeInstructions;

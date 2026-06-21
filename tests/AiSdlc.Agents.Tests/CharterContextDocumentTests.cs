@@ -173,6 +173,83 @@ public sealed class CharterContextDocumentTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task ApiOnly_profile_adds_capability_posture_document(AgentFactory factory)
+    {
+        var recorder = new RecordingModelProvider();
+        var agent    = factory.Build(recorder);
+
+        var request = MakeRequest(agent.Name, withCharter: true);
+        request.Context.Metadata["needsDatabase"] = "false";
+        await agent.ExecuteAsync(request, CancellationToken.None);
+
+        Assert.NotNull(recorder.LastRequest);
+        Assert.True(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.CapabilityPostureDocumentName),
+            $"{agent.Name} did not include 'Capability Posture' for an api-only (needsDatabase=false) app.");
+        var posture = recorder.LastRequest.ContextDocuments[AgentContextDocuments.CapabilityPostureDocumentName];
+        Assert.Contains("API-ONLY", posture);
+        Assert.Contains("RepositoryBase", posture);   // the DB seam it must NOT use
+    }
+
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task Database_profile_and_absent_flag_omit_capability_posture(AgentFactory factory)
+    {
+        foreach (var needsDatabase in new[] { "true", null })
+        {
+            var recorder = new RecordingModelProvider();
+            var agent    = factory.Build(recorder);
+
+            var request = MakeRequest(agent.Name, withCharter: true);
+            if (needsDatabase is not null) request.Context.Metadata["needsDatabase"] = needsDatabase;
+            await agent.ExecuteAsync(request, CancellationToken.None);
+
+            Assert.NotNull(recorder.LastRequest);
+            Assert.False(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.CapabilityPostureDocumentName),
+                $"{agent.Name} included 'Capability Posture' when needsDatabase={needsDatabase ?? "absent"} — only an explicit false should.");
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task Capability_gaps_metadata_adds_gaps_document(AgentFactory factory)
+    {
+        var recorder = new RecordingModelProvider();
+        var agent    = factory.Build(recorder);
+
+        var request = MakeRequest(agent.Name, withCharter: true);
+        request.Context.Metadata["capabilityGaps"] = "- Email: payments on, email off";
+        await agent.ExecuteAsync(request, CancellationToken.None);
+
+        Assert.NotNull(recorder.LastRequest);
+        Assert.True(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.CapabilityGapsDocumentName),
+            $"{agent.Name} did not surface capability gaps when capabilityGaps metadata was present.");
+        Assert.Contains("payments on, email off",
+            recorder.LastRequest.ContextDocuments[AgentContextDocuments.CapabilityGapsDocumentName]);
+    }
+
+    /// <summary>
+    /// The Code Implementer must thread the UX agent's output (uxOutput) into its context so the
+    /// Design Direction reaches the coder (static-design-quality.md §1). This was the load-bearing
+    /// gap: BuildContextDocs threaded every other upstream output but not uxOutput, so a visual
+    /// identity could be authored upstream and never seen by the agent that builds the page.
+    /// </summary>
+    [Fact]
+    public async Task CodeImplementer_threads_ux_output_into_context_documents()
+    {
+        var recorder = new RecordingModelProvider();
+        var agent    = new CodeImplementerAgent(recorder);
+
+        await agent.ExecuteAsync(MakeRequest(agent.Name, withCharter: true), CancellationToken.None);
+
+        Assert.NotNull(recorder.LastRequest);
+        Assert.True(
+            recorder.LastRequest!.ContextDocuments.ContainsKey("UX/UI Design Direction & Accessibility"),
+            "CodeImplementer did not thread uxOutput into its context documents — the Design Direction never reaches the coder.");
+        Assert.Equal("UX.", recorder.LastRequest.ContextDocuments["UX/UI Design Direction & Accessibility"]);
+    }
+
     private static AgentExecutionRequest MakeRequest(string agentName, bool withCharter, WorkflowMode mode = WorkflowMode.Standard)
     {
         var metadata = new Dictionary<string, object>

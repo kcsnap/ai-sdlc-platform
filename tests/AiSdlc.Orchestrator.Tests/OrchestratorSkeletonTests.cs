@@ -48,6 +48,7 @@ public sealed class OrchestratorSkeletonTests
             new NoOpContextStore(),
             new InMemoryAuditService(),
             new NoOpBlobPromptStore(),
+            fakeModel,
             NullLogger<AgentActivityFunctions>.Instance);
     }
 
