@@ -190,20 +190,32 @@ internal static class ScaffoldContract
         cannot run.
 
         YOU AUTHOR (these ARE the app — write real, topic-relevant content, no placeholder text):
-        - the page: `index.html` (semantic HTML5; the rendered root carries `data-testid="app-ready"`),
+        - the page: `index.html` (semantic HTML5; the rendered root carries `data-testid="app-ready"`).
+          Give it a real, specific <title>, a meta description, and a <meta name="theme-color"> that
+          matches the brand.
         - the styles: `styles.css` (modern CSS; no framework needed),
-        - optionally `app.js` (plain, `<script>`-loadable vanilla JavaScript) ONLY where it genuinely
-          improves UX — e.g. a client-side filter over hard-coded data. No bundler, no npm packages.
-        - Hard-code any fixed data (e.g. a list of items) directly into the page. Do NOT `fetch` `/api/*`,
-          call a backend, or persist anything — there is none.
+        - a bespoke `favicon.svg` — a small, legible brand mark drawn from the design's signature motif
+          or the initials (NOT a photo), linked in <head> with
+          `<link rel="icon" type="image/svg+xml" href="favicon.svg">`.
+        - `app.js` (plain, `<script>`-loadable vanilla JavaScript) where it improves UX — e.g. a
+          client-side filter over hard-coded data, or form handling (below). No bundler, no npm packages.
+        - Hard-code any fixed data (e.g. a list of items) directly into the page. Do NOT call your own
+          backend or persist anything — there is none.
+        - FUNCTIONAL FORMS: any form must genuinely WORK. Use real <label>s, correct input types and
+          `required`, and validate on submit in app.js (preventDefault) with inline field errors and an
+          accessible success confirmation (aria-live region), then reset. A static page has no backend,
+          so by DEFAULT complete client-side (no server call) — never a dead button or an action="#"
+          no-op. If a "Form Capture" service is supplied in your context, submit the validated data to
+          it instead (and reflect its response); otherwise stay client-side.
         - Acceptance tests: you may fill `tests/e2e/specs/acceptance.spec.ts` over its seeded stubs with
-          real RENDER-ONLY assertions (content present, internal links resolve, no scaffold text). NEVER
-          assert against `/api/*` or a database.
+          real RENDER-ONLY assertions (content present, internal links resolve, a form shows its success
+          confirmation, no scaffold text). NEVER assert against `/api/*`, a database, or a live form POST.
 
         IMMUTABLE — do NOT author, modify, or recreate (machine-managed): `.github/workflows/**` (the
         static deploy + verify workflows) and the rest of `tests/e2e/**` (the render-only harness).
 
-        Do NOT add React, Vite, a `package.json` build, a C# project, Azure Functions, Cosmos,
-        `fetch`/HTTP calls, or auth — there is nowhere to host them.
+        Do NOT add React, Vite, a `package.json` build, a C# project, Azure Functions, Cosmos, a `fetch`
+        to your own backend, or auth — there is nowhere to host them. (Submitting a form to the supplied
+        Form Capture service is the one allowed outbound call.)
         """;
 }

@@ -16,6 +16,7 @@ public static class AgentContextDocuments
     public const string StackProfilePostureDocumentName = "Stack Profile Posture";
     public const string CapabilityPostureDocumentName = "Capability Posture";
     public const string CapabilityGapsDocumentName = "Capability Gaps (confirm at review)";
+    public const string FormCapturePostureDocumentName = "Form Capture";
 
     // The no-auth shell variant (Charter "Needs auth: no" / NeedsAuth=false) ships NO Clerk, NO
     // src/api/Auth/, and NO tests/e2e/specs/auth.spec.ts. v010 showed the upstream spec + agents still
@@ -83,6 +84,23 @@ public static class AgentContextDocuments
         any datastore, and do NOT design features that depend on data surviving between requests. Keep
         the API stateless — validate, compute, transform, call any allowed integration, and return the
         result. Plan, design, and verify this as an API-only application with no persistence.
+        """;
+
+    // Form Capture (static apps): when Yorrixx has provisioned a Web3Forms key and will substitute it at
+    // deploy, it sets formCaptureEnabled. The implementer wires forms to Web3Forms using a DEPLOY-
+    // SUBSTITUTED PLACEHOLDER — the literal key never travels through the model (so prompt redaction
+    // can't scrub it, and the key stays Yorrixx-owned). See docs/roadmap/static-design-quality.md.
+    private const string FormCaptureInstructions = """
+        A hosted Form Capture service (Web3Forms) is available — wire EVERY form on this static page to
+        it so submissions are captured (a static page has no other backend). After client-side
+        validation, submit via fetch (POST) to https://api.web3forms.com/submit with a JSON body
+        containing "access_key": "__WEB3FORMS_ACCESS_KEY__" — write that EXACT placeholder; the deploy
+        substitutes the real key, so NEVER invent, hardcode, or guess a key — plus all user fields and a
+        "subject" and "from_name" derived from the brand. Send headers 'Content-Type: application/json'
+        and 'Accept: application/json'. Parse the JSON response: on { "success": true } show the
+        accessible success confirmation and reset the form; otherwise show an error message. Include a
+        hidden honeypot input named "botcheck" (empty) for spam protection. Acceptance tests stay
+        render-only: assert the form and its success affordance render; never POST a form in a test.
         """;
 
     private const string CapabilityGapsPreamble =
@@ -159,6 +177,11 @@ public static class AgentContextDocuments
         var capabilityGaps = ReadMeta(context, "capabilityGaps");
         if (!string.IsNullOrWhiteSpace(capabilityGaps))
             contextDocs[CapabilityGapsDocumentName] = CapabilityGapsPreamble + capabilityGaps;
+
+        // Form Capture: Yorrixx sets formCaptureEnabled once it has provisioned a Web3Forms key and will
+        // substitute the placeholder at deploy. Held until that provisioning ships (inert otherwise).
+        if (string.Equals(ReadMeta(context, "formCaptureEnabled"), "true", StringComparison.OrdinalIgnoreCase))
+            contextDocs[FormCapturePostureDocumentName] = FormCaptureInstructions;
 
         if (context.Mode == WorkflowMode.Bootstrap)
             contextDocs[OperatingModeDocumentName] = BootstrapOperatingModeInstructions;
