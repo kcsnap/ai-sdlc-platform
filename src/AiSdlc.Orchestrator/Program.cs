@@ -7,6 +7,7 @@ using AiSdlc.Agents.Personas;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
+using AiSdlc.Orchestrator.Imagery;
 using AiSdlc.Orchestrator.Webhooks;
 using AiSdlc.RepoIndex;
 using AiSdlc.Shared.AutoMerge;
@@ -49,6 +50,24 @@ var host = new HostBuilder()
             client.DefaultRequestHeaders.Add("x-api-key", apiKey);
             client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
         });
+
+        // Real photography for marketing pages — used server-side only (the page gets public image URLs,
+        // never the key). Without PexelsApiKey the platform stays generative-only (safe, inert default).
+        var pexelsApiKey = Environment.GetEnvironmentVariable("PexelsApiKey");
+        if (string.IsNullOrWhiteSpace(pexelsApiKey))
+        {
+            services.AddSingleton<IImageSource, NoOpImageSource>();
+        }
+        else
+        {
+            services.AddHttpClient<IImageSource, PexelsImageSource>(client =>
+            {
+                client.BaseAddress = new Uri("https://api.pexels.com/v1/");
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue(pexelsApiKey);
+                client.Timeout = TimeSpan.FromSeconds(30);
+            });
+        }
 
         services.AddSingleton<IAgent, ProductStrategistAgent>();
         services.AddSingleton<IAgent, ProductOwnerAgent>();

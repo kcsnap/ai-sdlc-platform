@@ -3,6 +3,7 @@ using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
 using AiSdlc.Orchestrator.Functions;
+using AiSdlc.Orchestrator.Imagery;
 using AiSdlc.RepoIndex;
 using AiSdlc.Shared;
 using AiSdlc.Shared.AutoMerge;
@@ -229,6 +230,7 @@ public sealed class AgentActivityAuditTests
         audit,
         promptStore ?? new RecordingBlobPromptStore(),
         new FakeModelProvider(new ModelProviderOptions { ProviderName = "Fake", ModelName = "fake-model" }),
+        new NoOpImageSource(),
         NullLogger<AgentActivityFunctions>.Instance);
 
     private sealed class RecordingBlobPromptStore : IBlobPromptStore

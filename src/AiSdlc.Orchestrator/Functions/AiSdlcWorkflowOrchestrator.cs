@@ -86,6 +86,18 @@ public static class AiSdlcWorkflowOrchestrator
                     string.Join("\n", gaps.Select(g => $"- {g.Capability}: {g.Reason}"));
         }
 
+        // Real photography for a Static marketing page — a design-director judgment decides per brand
+        // (default none), then real Pexels URLs are fetched. FullStack imagery waits on the marketing-
+        // landing slot (held). Empty / no PexelsApiKey configured → generative-only (the safe default).
+        if (charter is not null && string.Equals(stackProfile, "Static", StringComparison.OrdinalIgnoreCase))
+        {
+            var imageryManifest = await context.CallActivityAsync<string>(
+                nameof(AgentActivityFunctions.DeriveImageryAsync),
+                CharterMarkdownRenderer.Render(charter));
+            if (!string.IsNullOrWhiteSpace(imageryManifest))
+                agentContext.Metadata["imageryManifest"] = imageryManifest;
+        }
+
         // A reopened issue means the previous run's release failed downstream verification
         // (Yorrixx posts findings as comments, then reopens). Surface those findings to every
         // agent so the re-run fixes them instead of regenerating blind (#88).

@@ -219,10 +219,11 @@ public sealed class CodeImplementerChunkingTests
         Assert.DoesNotContain("RepositoryBase", contract);     // no Cosmos data layer
         Assert.DoesNotContain("AppShell", contract);           // no React shell
         Assert.DoesNotContain("FeatureRegistration", contract); // no backend DI seam
-        // production polish ported from ThemeHarness: bespoke favicon + functional forms
+        // production polish ported from ThemeHarness: bespoke favicon + functional forms + imagery hook
         Assert.Contains("favicon.svg", contract);
         Assert.Contains("FUNCTIONAL FORMS", contract);
         Assert.Contains("Form Capture", contract);             // the conditional capture hook
+        Assert.Contains("Available Photography", contract);    // the conditional real-imagery hook
     }
 
     [Fact]

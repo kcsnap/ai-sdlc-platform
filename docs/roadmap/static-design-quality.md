@@ -136,3 +136,24 @@ Yorrixx-owned. **Yorrixx hand-off (the held pieces):**
 Until those ship, static-app forms are **client-side-functional** (validate + success) — a clean,
 dependency-free baseline. Open question for Yorrixx: per-app vs shared key, and whether the placeholder
 substitution lives in `deploy.yml` or provisioning.
+
+## 10. Real photography (shipped, platform-side) — selective, hotlinked stock
+
+Phase 2 imagery is now implemented for **Static** apps, entirely platform-side (no Yorrixx change, no
+`assets/` pipeline) by **hotlinking** the Pexels CDN:
+
+- **`DeriveImageryAsync`** activity: a design-director model call decides per brand whether a photo lifts
+  it (**default no** — abstract/data/minimal brands stay generative), then fetches real Pexels URLs for
+  the chosen queries (`IImageSource`/`PexelsImageSource`). Mirrors the proven ThemeHarness imagery-plan.
+- Orchestrator stamps `imageryManifest` (Static apps only); `AgentContextDocuments` injects an **Available
+  Photography** doc instructing the implementer to embed those exact URLs **sparingly** (1–3, hero + maybe
+  one section), with alt/dimensions/`object-fit`/footer credit — everything else stays generative. The
+  Static contract carries the conditional hook.
+- **The API key is server-side only.** The activity calls Pexels with `PexelsApiKey` from platform config;
+  the generated page receives only public image URLs — the key never enters a prompt or the page.
+- **Config dependency:** set `PexelsApiKey` in the Functions app settings (and Terraform/Key Vault for
+  prod). Without it the platform registers `NoOpImageSource` → generative-only (safe, inert default).
+
+FullStack imagery waits on the marketing-landing slot (`marketing-page-universal.md`). The earlier
+"fetch-and-commit to `assets/`" option remains the higher-durability upgrade; hotlinking is the
+zero-infra path that ships now (Pexels permits it with attribution — the footer credit is required).

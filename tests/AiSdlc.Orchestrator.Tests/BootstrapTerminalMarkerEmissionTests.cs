@@ -5,6 +5,7 @@ using AiSdlc.Events.Contract.Data;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
 using AiSdlc.Orchestrator.Events;
+using AiSdlc.Orchestrator.Imagery;
 using AiSdlc.Orchestrator.Functions;
 using AiSdlc.RepoIndex;
 using AiSdlc.RepoIndex.Charter;
@@ -90,6 +91,7 @@ public sealed class BootstrapTerminalMarkerEmissionTests
         audit,
         new NoopBlobPromptStore(),
         new FakeModelProvider(new ModelProviderOptions { ProviderName = "Fake", ModelName = "fake-model" }),
+        new NoOpImageSource(),
         NullLogger<AgentActivityFunctions>.Instance);
 
     private sealed class NoopRunner : IAgentRunner
