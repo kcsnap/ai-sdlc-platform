@@ -229,6 +229,44 @@ public sealed class CharterContextDocumentTests
             recorder.LastRequest.ContextDocuments[AgentContextDocuments.CapabilityGapsDocumentName]);
     }
 
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task FormCapture_enabled_adds_form_capture_document(AgentFactory factory)
+    {
+        var recorder = new RecordingModelProvider();
+        var agent    = factory.Build(recorder);
+
+        var request = MakeRequest(agent.Name, withCharter: true);
+        request.Context.Metadata["formCaptureEnabled"] = "true";
+        await agent.ExecuteAsync(request, CancellationToken.None);
+
+        Assert.NotNull(recorder.LastRequest);
+        Assert.True(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.FormCapturePostureDocumentName),
+            $"{agent.Name} did not include 'Form Capture' when formCaptureEnabled=true.");
+        var doc = recorder.LastRequest.ContextDocuments[AgentContextDocuments.FormCapturePostureDocumentName];
+        Assert.Contains("web3forms.com", doc);
+        Assert.Contains("__WEB3FORMS_ACCESS_KEY__", doc);   // deploy-substituted placeholder, never a literal key
+    }
+
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task FormCapture_absent_or_false_omits_form_capture_document(AgentFactory factory)
+    {
+        foreach (var value in new[] { "false", null })
+        {
+            var recorder = new RecordingModelProvider();
+            var agent    = factory.Build(recorder);
+
+            var request = MakeRequest(agent.Name, withCharter: true);
+            if (value is not null) request.Context.Metadata["formCaptureEnabled"] = value;
+            await agent.ExecuteAsync(request, CancellationToken.None);
+
+            Assert.NotNull(recorder.LastRequest);
+            Assert.False(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.FormCapturePostureDocumentName),
+                $"{agent.Name} included 'Form Capture' when formCaptureEnabled={value ?? "absent"} — only an explicit true should.");
+        }
+    }
+
     /// <summary>
     /// The Code Implementer must thread the UX agent's output (uxOutput) into its context so the
     /// Design Direction reaches the coder (static-design-quality.md §1). This was the load-bearing

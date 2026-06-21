@@ -105,3 +105,34 @@ key to actually render; alternatively iterate directly via real static apps — 
 
 **Proof:** a marketing charter → a static page that is visibly *designed* — coherent theme, real
 imagery (generative), modern type/layout, production copy — and still passes render-only verify.
+
+## 9. Favicon + functional forms (shipped) & Web3Forms capture (Yorrixx hand-off)
+
+Ported the ThemeHarness production-polish into the **platform Static contract** (`ScaffoldContract.Static`):
+
+- **Favicon + head** (shipped, no dependency): a bespoke `favicon.svg` brand mark, `<link rel="icon">`,
+  `theme-color`, a real `<title>` + meta description. Effective as soon as it deploys — additive files
+  the static deploy already serves.
+- **Functional forms** (shipped, no dependency): forms validate client-side (labels, types, `required`,
+  `preventDefault`, inline errors, aria-live success, reset) — no dead `action="#"`. **Default is
+  client-side only** (a static page has no backend), with a conditional hook: *if a Form Capture service
+  is supplied, submit to it instead.*
+
+**Web3Forms capture — held, needs Yorrixx provisioning.** The platform consumer is wired and inert: when
+`formCaptureEnabled` metadata is `true`, a **Form Capture** posture doc (`AgentContextDocuments`) reaches
+every agent instructing the implementer to POST validated forms to `https://api.web3forms.com/submit`.
+
+Key design choice: the implementer writes the **literal placeholder `__WEB3FORMS_ACCESS_KEY__`**, never a
+real key — so the secret never travels through the model (prompt redaction can't scrub it) and stays
+Yorrixx-owned. **Yorrixx hand-off (the held pieces):**
+
+1. **Provision** a Web3Forms access key (per-app or one shared key — Web3Forms keys are low-risk: they
+   only allow sending *you* form mail).
+2. **Substitute** `__WEB3FORMS_ACCESS_KEY__` → the real key in the deployed static files (a new step in
+   the static `deploy.yml` — the site is otherwise zipped as-is).
+3. **Flip** `formCaptureEnabled = true` in the app's charter/metadata so the platform injects the Form
+   Capture doc.
+
+Until those ship, static-app forms are **client-side-functional** (validate + success) — a clean,
+dependency-free baseline. Open question for Yorrixx: per-app vs shared key, and whether the placeholder
+substitution lives in `deploy.yml` or provisioning.
