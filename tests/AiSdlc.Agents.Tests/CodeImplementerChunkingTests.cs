@@ -273,6 +273,53 @@ public sealed class CodeImplementerChunkingTests
     }
 
     [Fact]
+    public async Task ApiOnly_profile_omits_cosmos_from_the_scaffold_contract()
+    {
+        // needsDatabase == false → the FullStack contract is composed WITHOUT the persistence fragment:
+        // no positive Cosmos/RepositoryBase guidance, an explicit api-only/stateless instruction instead.
+        // The other axes are unchanged (auth defaults on, the DI seam + email guidance still travel).
+        var provider = new ScriptedModelProvider(
+            _ => Manifest,
+            req => FileBlocksFor(RequestedPaths(req)),
+            req => FileBlocksFor(RequestedPaths(req)));
+
+        var request = MakeRequest();
+        request.Context.Metadata["needsDatabase"] = "false";
+        await new CodeImplementerAgent(provider).ExecuteAsync(request, CancellationToken.None);
+
+        var contract = provider.Requests[0].ContextDocuments[CodeImplementerAgent.ScaffoldContractLabel];
+        // api-only: stateless, no datastore
+        Assert.Contains("API-ONLY", contract);
+        Assert.Contains("stateless", contract);
+        // the positive "use Cosmos" guidance is gone (RepositoryBase only appears inside a prohibition)
+        Assert.DoesNotContain("extend `Api.Data.RepositoryBase<T>`", contract);
+        Assert.DoesNotContain("CosmosItemStore", contract);            // the DB worked example
+        Assert.DoesNotContain("the Cosmos client", contract);          // the intro persistence clause
+        Assert.DoesNotContain("src/api/Data/CosmosClientFactory.cs", contract);  // DB immutable file
+        // unchanged axes still travel
+        Assert.Contains("AUTHENTICATION IS ALREADY DONE", contract);   // auth defaults on
+        Assert.Contains("Api.Features", contract);                     // DI seam
+        Assert.Contains("Api.Email.IEmailSender", contract);           // email guidance
+    }
+
+    [Fact]
+    public async Task Database_present_by_default_keeps_cosmos_guidance()
+    {
+        // No needsDatabase metadata → db present (today's behaviour): the persistence fragment is included.
+        var provider = new ScriptedModelProvider(
+            _ => Manifest,
+            req => FileBlocksFor(RequestedPaths(req)),
+            req => FileBlocksFor(RequestedPaths(req)));
+
+        await new CodeImplementerAgent(provider).ExecuteAsync(MakeRequest(), CancellationToken.None);
+
+        var contract = provider.Requests[0].ContextDocuments[CodeImplementerAgent.ScaffoldContractLabel];
+        Assert.Contains("extend `Api.Data.RepositoryBase<T>`", contract);
+        Assert.Contains("CosmosItemStore", contract);
+        Assert.DoesNotContain("API-ONLY", contract);
+    }
+
+    [Fact]
     public async Task Manifest_prompt_lets_the_planner_author_acceptance_spec()
     {
         // The reframe excludes tests/e2e/ from the plan, but acceptance.spec.ts is the one file the
