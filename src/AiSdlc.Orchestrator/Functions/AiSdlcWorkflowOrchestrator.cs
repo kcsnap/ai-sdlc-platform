@@ -63,8 +63,28 @@ public static class AiSdlcWorkflowOrchestrator
         // platform reads it and never re-derives. Drives the Static posture + Code Implementer contract
         // (docs/roadmap/stack-profiles-static-first.md). Absent/malformed → "FullStack" — inert until a
         // Static template + profile.json seeding ship, so it's safe ahead of that.
-        agentContext.Metadata["stackProfile"] = await context.CallActivityAsync<string>(
+        var stackProfile = await context.CallActivityAsync<string>(
             nameof(AgentActivityFunctions.FetchStackProfileAsync), agentContext.Repository);
+        agentContext.Metadata["stackProfile"] = stackProfile;
+
+        // Capability profile — persistence axis (api-only vs api+db). The database need is agent-derived
+        // (Balanced); a payments app forces it on (CapabilityResolver invariant). Only meaningful for a
+        // FullStack app with a charter — a Static app has no API/DB, and without a charter we keep today's
+        // DB-backed default. Honored-but-flagged gaps (e.g. payments without email) surface at review.
+        // Inert until the api-only template variant ships (mirrors how needsAuth landed ahead of seeding).
+        if (charter is not null && !string.Equals(stackProfile, "Static", StringComparison.OrdinalIgnoreCase))
+        {
+            var databaseDerived = await context.CallActivityAsync<bool>(
+                nameof(AgentActivityFunctions.DeriveDatabaseNeedAsync),
+                CharterMarkdownRenderer.Render(charter));
+            var profile = CapabilityResolver.Resolve(charter, databaseDerived);
+            agentContext.Metadata["needsDatabase"] = profile.Database ? "true" : "false";
+
+            var gaps = CapabilityResolver.DetectGaps(charter);
+            if (gaps.Count > 0)
+                agentContext.Metadata["capabilityGaps"] =
+                    string.Join("\n", gaps.Select(g => $"- {g.Capability}: {g.Reason}"));
+        }
 
         // A reopened issue means the previous run's release failed downstream verification
         // (Yorrixx posts findings as comments, then reopens). Surface those findings to every

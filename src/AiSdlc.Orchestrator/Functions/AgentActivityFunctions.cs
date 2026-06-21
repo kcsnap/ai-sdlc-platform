@@ -3,6 +3,7 @@ using System.Text.Json;
 using AiSdlc.Agents;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
+using AiSdlc.ModelProviders;
 using AiSdlc.RepoIndex;
 using AiSdlc.RepoIndex.Charter;
 using AiSdlc.Shared;
@@ -27,6 +28,7 @@ public sealed class AgentActivityFunctions
     private readonly IContextStore _contextStore;
     private readonly IAuditService _audit;
     private readonly IBlobPromptStore _promptStore;
+    private readonly IModelProvider _model;
     private readonly ILogger<AgentActivityFunctions> _logger;
 
     public AgentActivityFunctions(
@@ -38,6 +40,7 @@ public sealed class AgentActivityFunctions
         IContextStore contextStore,
         IAuditService audit,
         IBlobPromptStore promptStore,
+        IModelProvider model,
         ILogger<AgentActivityFunctions> logger)
     {
         _agentRunner          = agentRunner;
@@ -48,6 +51,7 @@ public sealed class AgentActivityFunctions
         _contextStore         = contextStore;
         _audit                = audit;
         _promptStore          = promptStore;
+        _model                = model;
         _logger               = logger;
     }
 
@@ -300,6 +304,74 @@ public sealed class AgentActivityFunctions
         }
 
         return "FullStack";
+    }
+
+    private const string DatabaseNeedSystemPrompt = """
+        You are the platform Architect deciding ONE thing about a FullStack app: does it need a DATABASE
+        (server-side persistence), or can it run API-ONLY (stateless)?
+
+        Lean BALANCED: if the stated features plausibly involve saving, listing, editing, or retrieving
+        user or content records that must survive between requests, it needs a database. A purely
+        stateless app — a calculator, a unit/format converter, a one-shot generator, or a contact form
+        with no stored history — does not.
+
+        Output ONLY compact JSON, nothing else: {"database": true|false, "rationale": "one line"}
+        """;
+
+    // Balanced "does this app need persistence?" judgment (api-only vs api+db) — the agent-derived axis
+    // of the capability profile (fullstack-capability-derivation.md). The orchestrator applies the hard
+    // invariants afterwards (payments ⟹ database) via CapabilityResolver. Any failure defaults to
+    // database=true — the safe, status-quo answer that never silently drops persistence.
+    [Function(nameof(DeriveDatabaseNeedAsync))]
+    public async Task<bool> DeriveDatabaseNeedAsync([ActivityTrigger] string charterMarkdown, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _model.CompleteAsync(new ModelRequest
+            {
+                AgentName    = AgentNames.Architect,
+                TaskType     = "CapabilityDatabaseNeed",
+                SystemPrompt = DatabaseNeedSystemPrompt,
+                UserPrompt   = string.IsNullOrWhiteSpace(charterMarkdown) ? "(no charter provided)" : charterMarkdown,
+                MaxTokens    = 300
+            }, cancellationToken);
+
+            var needsDatabase = ParseDatabaseDecision(response.ResponseText);
+            _logger.LogInformation("Capability: database need derived as {NeedsDatabase}", needsDatabase);
+            return needsDatabase;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Database-need derivation failed; defaulting to database=true (safe).");
+            return true;
+        }
+    }
+
+    // Parses {"database": bool} from the model response; any ambiguity or malformed output defaults to
+    // true (keep persistence — never silently drop a datastore the app might need).
+    internal static bool ParseDatabaseDecision(string? responseText)
+    {
+        if (string.IsNullOrWhiteSpace(responseText)) return true;
+        var start = responseText.IndexOf('{');
+        var end   = responseText.LastIndexOf('}');
+        if (start < 0 || end <= start) return true;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(responseText[start..(end + 1)]);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("database", out var db))
+            {
+                if (db.ValueKind == JsonValueKind.False) return false;
+                if (db.ValueKind == JsonValueKind.True) return true;
+            }
+        }
+        catch (JsonException)
+        {
+            // Malformed → safe default.
+        }
+
+        return true;
     }
 
     [Function(nameof(AddGitHubLabelAsync))]

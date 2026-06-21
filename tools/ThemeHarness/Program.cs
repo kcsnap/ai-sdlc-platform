@@ -93,10 +93,20 @@ async Task<int> Generate(string? target, IReadOnlyDictionary<string, string> opt
 
     var maxTokens = int.TryParse(opts.GetValueOrDefault("max-tokens"), out var mt) ? mt : 16000;
 
+    var images = ImageSource.FromEnvironment();
+    Console.WriteLine(images is null
+        ? "Imagery: generative-only (set PexelsApiKey to enable real photos where the director deems suitable)."
+        : "Imagery: enabled (Pexels) — real photos added only where the director deems suitable.");
+
+    var formAccessKey = Environment.GetEnvironmentVariable("Web3FormsAccessKey");
+    Console.WriteLine(string.IsNullOrWhiteSpace(formAccessKey)
+        ? "Forms: client-side only (set Web3FormsAccessKey to capture submissions via Web3Forms)."
+        : "Forms: capture enabled (Web3Forms) — submissions POST to the hosted service.");
+
     foreach (var brief in briefs)
     {
         Console.WriteLine($"\n→ Generating {brief.Slug} ({brief.BusinessName}) …");
-        var result = await GenerateOne(provider, model, brief, maxTokens, Path.Combine(root, brief.Slug));
+        var result = await GenerateOne(provider, model, brief, maxTokens, Path.Combine(root, brief.Slug), images, formAccessKey);
         PrintResult(result);
     }
 
@@ -132,6 +142,9 @@ async Task<int> Benchmark(string? target, IReadOnlyDictionary<string, string> op
     Directory.CreateDirectory(root);
     EnsureCsvHeader(csvPath);
 
+    var images = ImageSource.FromEnvironment();
+    var formAccessKey = Environment.GetEnvironmentVariable("Web3FormsAccessKey");
+
     // Sequential on purpose: clean per-call timing and gentle on rate limits.
     foreach (var brief in briefs)
     {
@@ -144,7 +157,7 @@ async Task<int> Benchmark(string? target, IReadOnlyDictionary<string, string> op
 
             // Per-model subdir so themes can be compared side by side.
             var dir = Path.Combine(root, brief.Slug, ModelSlug(model));
-            var result = await GenerateOne(provider, model, brief, maxTokens, dir);
+            var result = await GenerateOne(provider, model, brief, maxTokens, dir, images, formAccessKey);
             PrintResult(result);
             AppendCsvRow(csvPath, brief.Slug, result);
         }
@@ -155,14 +168,19 @@ async Task<int> Benchmark(string? target, IReadOnlyDictionary<string, string> op
     return 0;
 }
 
-async Task<GenResult> GenerateOne(IModelProvider provider, string model, CustomerBrief brief, int maxTokens, string outputDir)
+async Task<GenResult> GenerateOne(IModelProvider provider, string model, CustomerBrief brief, int maxTokens, string outputDir, ImageSource? images, string? formAccessKey)
 {
+    // Phase A: let the design director decide whether real photography would elevate THIS brand
+    // (default no). Phase B: fetch real URLs only for what it asked for. Phase 1 generative output is
+    // unchanged when imagery is disabled (no key) or declined.
+    var imageryManifest = await PlanImagery(provider, brief, images);
+
     var request = new ModelRequest
     {
         AgentName = "ThemeHarness",
         TaskType = "tier1-marketing-ui",
         SystemPrompt = ThemePrompt.System,
-        UserPrompt = ThemePrompt.BuildUser(brief),
+        UserPrompt = ThemePrompt.BuildUser(brief, imageryManifest, formAccessKey),
         MaxTokens = maxTokens,
     };
 
@@ -193,6 +211,50 @@ async Task<GenResult> GenerateOne(IModelProvider provider, string model, Custome
     {
         sw.Stop();
         return new GenResult(model, outputDir, false, 0, 0, null, sw.Elapsed.TotalSeconds, false, 0, ex.Message);
+    }
+}
+
+async Task<string?> PlanImagery(IModelProvider provider, CustomerBrief brief, ImageSource? images)
+{
+    if (images is null) return null;
+
+    var planUser =
+        $"""
+        Business name: {brief.BusinessName}
+        Sector: {brief.Vertical}
+        Target audience: {brief.Audience}
+        Brand tone: {brief.Tone}
+        Visual direction: {brief.VisualDirection}
+        """;
+
+    try
+    {
+        var plan = await provider.CompleteAsync(new ModelRequest
+        {
+            AgentName = "ThemeHarness",
+            TaskType = "tier1-imagery-plan",
+            SystemPrompt = ThemePrompt.ImageryPlanSystem,
+            UserPrompt = planUser,
+            MaxTokens = 400,
+        }, CancellationToken.None);
+
+        var (use, queries, rationale) = ThemePrompt.ParseImageryPlan(plan.ResponseText);
+        if (!use)
+        {
+            Console.WriteLine($"    imagery: none — {rationale}");
+            return null;
+        }
+
+        var manifest = await images.BuildManifestAsync(queries, CancellationToken.None);
+        Console.WriteLine(manifest is null
+            ? $"    imagery: requested but no photos found ({string.Join(", ", queries)})"
+            : $"    imagery: yes — {string.Join(", ", queries)} — {rationale}");
+        return manifest;
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"    imagery: skipped — {ex.Message}");
+        return null;
     }
 }
 

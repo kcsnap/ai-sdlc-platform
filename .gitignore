@@ -22,6 +22,9 @@ artifacts/
 *.nupkg
 *.snupkg
 
+# ThemeHarness R&D output (generated sites + benchmark CSV — throwaway)
+tools/ThemeHarness/output/
+
 # Claude Code per-machine state
 .claude/scheduled_tasks.lock
 .claude/settings.local.json

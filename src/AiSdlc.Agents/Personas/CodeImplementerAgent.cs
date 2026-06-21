@@ -136,208 +136,6 @@ public sealed class CodeImplementerAgent : IAgent
     // generation/repair prompt and is enforced by IsProtectedPath on the orchestrator side.
     internal const string ScaffoldContractLabel = "Scaffold Contract (DO NOT BREAK)";
 
-    // Auth variant (Charter.Constraints.NeedsAuth == true) — today's contract, unchanged. The no-auth
-    // variant below (NeedsAuth == false) shares most guidance; keep the non-auth parts in sync when
-    // either changes. Selected in BuildContextDocs. See docs/roadmap/conditional-auth-yorrixx-brief.md.
-    internal const string ScaffoldContractDocAuth = """
-        This app is built on a FIXED, pre-existing shell copied from the platform template. The
-        shell already COMPILES and already wires authentication, layout, the API client, the Cosmos
-        client, and the dependency-injection seam. Do NOT author, modify, rename, or recreate any
-        shell file — they are immutable and will be discarded if you emit them.
-
-        Immutable shell files (they already exist — import from them, never recreate them):
-        - Frontend: src/frontend/src/main.tsx, src/frontend/src/app/AppShell.tsx,
-          src/frontend/src/lib/api.ts, src/frontend/src/vite-env.d.ts
-        - Backend: src/api/Program.cs, src/api/Auth/** (ClerkJwtMiddleware, ClerkTokenValidator),
-          src/api/Data/CosmosClientFactory.cs, src/api/Functions/HealthFunction.cs,
-          src/api/host.json, src/api/Api.csproj
-
-        AUTHENTICATION IS ALREADY DONE — do not touch it. main.tsx wraps the app in <ClerkProvider>
-        and app/AppShell.tsx renders the auth gate the immutable verification suite (auth.spec.ts)
-        drives: signed-out shows the Clerk modal "Sign up" / "Sign in" buttons; signed-in renders a
-        shell marked data-testid="signed-in". Never add another ClerkProvider, never build a custom
-        LoginPage or email/password form, never use <RedirectToSignIn>. There is nothing for you to
-        do for auth.
-
-        WHERE YOU WRITE:
-        - Frontend routing: src/frontend/src/app/routes.tsx — export `AppRoutes`; the shell renders
-          it inside the signed-in layout. Add react-router-dom here if you need client routing.
-        - Frontend nav: src/frontend/src/app/nav.ts — supply the `navItems` array only; import the
-          `NavItem` type from `./AppShell` (the shell owns it) — do NOT redefine it.
-        - Frontend UI: build pages/components in src/frontend/src/features/** from the SHIPPED shadcn
-          palette `@/components/ui/{button,card,checkbox,dialog,input,label,select,slider}`,
-          `lucide-react` icons, and `react-router-dom` for routing. Do NOT add other UI libraries.
-        - Styling: src/frontend/src/theme.ts and/or Clerk `appearance` — data-driven only. Never
-          edit the shell components to restyle.
-        - API calls: import { apiUrl } from "@/lib/api" and use it. The client already reads the
-          deployed API base URL. Never read import.meta.env directly and never create another client.
-        - Backend feature code: src/api/Features/**, src/api/Models/**, src/api/Services/** (all
-          AI-owned). The sample `items` feature (Data/CosmosItemStore.cs, Functions/ItemsFunction.cs)
-          may be replaced.
-        - Data access — extend `Api.Data.RepositoryBase<T>` (one subclass per document type; inject the
-          registered `CosmosClient`; `T` must carry a string `id`, which is the partition key). See the
-          worked example `CosmosItemStore`. Do NOT open a raw `Container` yourself, do NOT take a
-          `Container` constructor parameter, and do NOT add a second database/container. Cosmos types:
-          `using Microsoft.Azure.Cosmos;` (NOT `Azure.Cosmos`); the container type is `Container` (NOT
-          `CosmosContainer`); catch `CosmosException`. Reference shell types via their namespace:
-          `using Api.Data;`, `using Api.Auth;`. Declare each model/record ONCE across the codebase.
-        - HTTP functions — follow the sample `HealthFunction`: `[Function("Name")]` +
-          `[HttpTrigger(...)] HttpRequest req` returning `IActionResult`, with
-          `using Microsoft.AspNetCore.Mvc;` and `using Microsoft.AspNetCore.Http;`. For configuration
-          use `IConfiguration` (`using Microsoft.Extensions.Configuration;`) or
-          `Environment.GetEnvironmentVariable(...)`.
-        - Dependencies — `Api.csproj` is IMMUTABLE: you CANNOT add NuGet packages. Use only the .NET
-          base class library and the packages the sample shell code already uses (Microsoft.Azure.Cosmos,
-          Microsoft.Azure.Functions.Worker, Microsoft.AspNetCore.Mvc/Http, Microsoft.Extensions.*).
-          Never `using` a third-party SDK that the shell does not already use. EMAIL is provided —
-          inject the shipped `Api.Email.IEmailSender` (`Task SendAsync(string to, string subject,
-          string htmlBody, CancellationToken)`); it is wired to SendGrid (SENDGRID_API_KEY is
-          provisioned), so do NOT stub email or instantiate SendGrid yourself. For OTHER external
-          services (SMS, payments, a third-party API) that no referenced package provides, define an
-          interface and a no-op/logging stub so the app COMPILES — wiring the real provider is a later,
-          human step. The same applies on the frontend: only add a package.json dependency you actually
-          import, and prefer the shipped libraries.
-        - Models & self-consistency: feature models are MUTABLE POCOs — `public T Prop { get; set; }`,
-          NOT init-only properties or positional records — so an entity read from the store can be
-          updated by assignment (`coach.Name = x`) and saved. Generate code that agrees with itself:
-          only call methods and properties you actually define, use the SAME class and method names in
-          every file that references them, and match argument types. The API builds with
-          TreatWarningsAsErrors, so a call to an undefined method, an init-only mutation (CS8852), or a
-          type mismatch fails the build.
-        - Acceptance tests: author tests/e2e/specs/acceptance.spec.ts over the seeded throwing stubs —
-          replace each stub body with a real Playwright test for that acceptance criterion (the
-          criteria are the contract). Never delete or skip a test. This is the ONE file under
-          tests/e2e/ you write; everything else there is immutable.
-
-        BACKEND DI SEAM — HARD CONTRACT. Register every feature service in
-        src/api/Features/FeatureRegistration.cs by editing the body of `AddFeatures`. You MUST keep
-        the exact namespace `Api.Features`, the class `FeatureRegistration`, and the signature
-        `public static void AddFeatures(IServiceCollection services)`. The immutable Program.cs calls
-        it; renaming or removing it breaks the build.
-
-        LEGAL: a footer linking the Privacy Policy and Terms of Service already exists in the shell
-        layout, and the platform provides those pages. Do NOT add legal links and do NOT author legal
-        pages or prose.
-        """;
-
-    // No-auth variant (Charter.Constraints.NeedsAuth == false): Yorrixx seeds a shell with NO Clerk,
-    // NO src/api/Auth/, and NO auth.spec.ts (conditional-auth-yorrixx-brief.md). The contract must NOT
-    // claim auth is wired — that mismatch is exactly the bug this fixes. Shares the auth-agnostic tail
-    // (data access, deps, models, DI seam, legal) with the auth doc above; keep those in sync.
-    internal const string ScaffoldContractDocNoAuth = """
-        This app is built on a FIXED, pre-existing shell copied from the platform template. The
-        shell already COMPILES and already wires layout, the API client, the Cosmos client, and the
-        dependency-injection seam. THIS APP HAS NO AUTHENTICATION. Do NOT author, modify, rename, or
-        recreate any shell file — they are immutable and will be discarded if you emit them.
-
-        Immutable shell files (they already exist — import from them, never recreate them):
-        - Frontend: src/frontend/src/main.tsx, src/frontend/src/app/AppShell.tsx,
-          src/frontend/src/lib/api.ts, src/frontend/src/vite-env.d.ts
-        - Backend: src/api/Program.cs, src/api/Data/CosmosClientFactory.cs,
-          src/api/Functions/HealthFunction.cs, src/api/host.json, src/api/Api.csproj
-
-        THIS APP HAS NO AUTHENTICATION — there are no user accounts and no sign-in. main.tsx mounts
-        <AppShell/> directly (NO <ClerkProvider>) and app/AppShell.tsx renders the app layout
-        immediately, marked data-testid="app-ready". There is NO Clerk, NO src/api/Auth/, and NO
-        tests/e2e/specs/auth.spec.ts. Never add ClerkProvider, a sign-in / sign-up flow, a LoginPage,
-        an email/password form, <RedirectToSignIn>, the @clerk/clerk-react package, or any auth
-        middleware; never gate a page on authentication; never read a signed-in user id on the backend.
-        There is nothing for you to do for auth.
-
-        WHERE YOU WRITE:
-        - Frontend routing: src/frontend/src/app/routes.tsx — export `AppRoutes`; the shell renders
-          it inside the app layout. Add react-router-dom here if you need client routing.
-        - Frontend nav: src/frontend/src/app/nav.ts — supply the `navItems` array only; import the
-          `NavItem` type from `./AppShell` (the shell owns it) — do NOT redefine it.
-        - Frontend UI: build pages/components in src/frontend/src/features/** from the SHIPPED shadcn
-          palette `@/components/ui/{button,card,checkbox,dialog,input,label,select,slider}`,
-          `lucide-react` icons, and `react-router-dom` for routing. Do NOT add other UI libraries.
-        - Styling: src/frontend/src/theme.ts — data-driven only. Never edit the shell components to
-          restyle.
-        - API calls: import { apiUrl } from "@/lib/api" and use it. The client already reads the
-          deployed API base URL. Never read import.meta.env directly and never create another client.
-        - Backend feature code: src/api/Features/**, src/api/Models/**, src/api/Services/** (all
-          AI-owned). The sample `items` feature (Data/CosmosItemStore.cs, Functions/ItemsFunction.cs)
-          may be replaced; it is NOT scoped to a user (there is no auth).
-        - Data access — extend `Api.Data.RepositoryBase<T>` (one subclass per document type; inject the
-          registered `CosmosClient`; `T` must carry a string `id`, which is the partition key). See the
-          worked example `CosmosItemStore`. Do NOT open a raw `Container` yourself, do NOT take a
-          `Container` constructor parameter, and do NOT add a second database/container. Cosmos types:
-          `using Microsoft.Azure.Cosmos;` (NOT `Azure.Cosmos`); the container type is `Container` (NOT
-          `CosmosContainer`); catch `CosmosException`. Reference shell types via their namespace:
-          `using Api.Data;`. Declare each model/record ONCE across the codebase.
-        - HTTP functions — follow the sample `HealthFunction`: `[Function("Name")]` +
-          `[HttpTrigger(...)] HttpRequest req` returning `IActionResult`, with
-          `using Microsoft.AspNetCore.Mvc;` and `using Microsoft.AspNetCore.Http;`. For configuration
-          use `IConfiguration` (`using Microsoft.Extensions.Configuration;`) or
-          `Environment.GetEnvironmentVariable(...)`.
-        - Dependencies — `Api.csproj` is IMMUTABLE: you CANNOT add NuGet packages. Use only the .NET
-          base class library and the packages the sample shell code already uses (Microsoft.Azure.Cosmos,
-          Microsoft.Azure.Functions.Worker, Microsoft.AspNetCore.Mvc/Http, Microsoft.Extensions.*).
-          Never `using` a third-party SDK that the shell does not already use. EMAIL is provided —
-          inject the shipped `Api.Email.IEmailSender` (`Task SendAsync(string to, string subject,
-          string htmlBody, CancellationToken)`); it is wired to SendGrid (SENDGRID_API_KEY is
-          provisioned), so do NOT stub email or instantiate SendGrid yourself. For OTHER external
-          services (SMS, payments, a third-party API) that no referenced package provides, define an
-          interface and a no-op/logging stub so the app COMPILES — wiring the real provider is a later,
-          human step. The same applies on the frontend: only add a package.json dependency you actually
-          import, and prefer the shipped libraries.
-        - Models & self-consistency: feature models are MUTABLE POCOs — `public T Prop { get; set; }`,
-          NOT init-only properties or positional records — so an entity read from the store can be
-          updated by assignment (`coach.Name = x`) and saved. Generate code that agrees with itself:
-          only call methods and properties you actually define, use the SAME class and method names in
-          every file that references them, and match argument types. The API builds with
-          TreatWarningsAsErrors, so a call to an undefined method, an init-only mutation (CS8852), or a
-          type mismatch fails the build.
-        - Acceptance tests: author tests/e2e/specs/acceptance.spec.ts over the seeded throwing stubs —
-          replace each stub body with a real Playwright test for that acceptance criterion (the
-          criteria are the contract). Never delete or skip a test. This is the ONE file under
-          tests/e2e/ you write; everything else there is immutable. There is no auth, so do NOT add
-          sign-in or registration steps — the app loads straight to content (data-testid="app-ready").
-
-        BACKEND DI SEAM — HARD CONTRACT. Register every feature service in
-        src/api/Features/FeatureRegistration.cs by editing the body of `AddFeatures`. You MUST keep
-        the exact namespace `Api.Features`, the class `FeatureRegistration`, and the signature
-        `public static void AddFeatures(IServiceCollection services)`. The immutable Program.cs calls
-        it; renaming or removing it breaks the build.
-
-        LEGAL: a footer linking the Privacy Policy and Terms of Service already exists in the shell
-        layout, and the platform provides those pages. Do NOT add legal links and do NOT author legal
-        pages or prose.
-        """;
-
-    private static string ScaffoldContractDocFor(bool needsAuth) =>
-        needsAuth ? ScaffoldContractDocAuth : ScaffoldContractDocNoAuth;
-
-    // Static profile (Stack profile: Static) — the app is hand-written HTML/CSS(+JS), seeded from the
-    // static template. Selected in BuildContextDocs when stackProfile == "Static"; the FullStack
-    // contract (React/Functions/Cosmos) actively misleads a static app, so it must NOT be used there.
-    // Exact file paths follow the static template (stack-profiles-static-first.md) — kept path-light
-    // until that template is pinned. HELD behind the lockstep gate.
-    internal const string ScaffoldContractDocStatic = """
-        This app is a STATIC site (Stack profile: Static), seeded from the static template. There is NO
-        React, NO Vite/npm build, NO C# API / Azure Functions, NO Cosmos or any database, and NO
-        authentication. The deploy serves static files only — anything that needs a build or a server
-        cannot run.
-
-        YOU AUTHOR (these ARE the app — write real, topic-relevant content, no placeholder text):
-        - the page: `index.html` (semantic HTML5; the rendered root carries `data-testid="app-ready"`),
-        - the styles: `styles.css` (modern CSS; no framework needed),
-        - optionally `app.js` (plain, `<script>`-loadable vanilla JavaScript) ONLY where it genuinely
-          improves UX — e.g. a client-side filter over hard-coded data. No bundler, no npm packages.
-        - Hard-code any fixed data (e.g. a list of items) directly into the page. Do NOT `fetch` `/api/*`,
-          call a backend, or persist anything — there is none.
-        - Acceptance tests: you may fill `tests/e2e/specs/acceptance.spec.ts` over its seeded stubs with
-          real RENDER-ONLY assertions (content present, internal links resolve, no scaffold text). NEVER
-          assert against `/api/*` or a database.
-
-        IMMUTABLE — do NOT author, modify, or recreate (machine-managed): `.github/workflows/**` (the
-        static deploy + verify workflows) and the rest of `tests/e2e/**` (the render-only harness).
-
-        Do NOT add React, Vite, a `package.json` build, a C# project, Azure Functions, Cosmos,
-        `fetch`/HTTP calls, or auth — there is nowhere to host them.
-        """;
-
     private const string RetryPrompt =
         "Your previous response contained no `<file path=\"...\">` blocks. " +
         "You MUST wrap every file in `<file path=\"...\">` tags. " +
@@ -573,27 +371,24 @@ public sealed class CodeImplementerAgent : IAgent
     private static Dictionary<string, string> BuildContextDocs(AgentContext ctx)
     {
         var docs = new Dictionary<string, string>();
-        // Stack profile (Yorrixx stamps `.yorrixx/profile.json`; carried in metadata — derive-once-stamp).
-        // A Static app has no React/Functions/Cosmos shell, so the FullStack contract would mislead it;
-        // give the Static contract instead. Absent / "FullStack" → today's FullStack path.
-        if (string.Equals(GetMeta(ctx, "stackProfile"), "Static", StringComparison.OrdinalIgnoreCase))
-        {
-            docs[ScaffoldContractLabel] = ScaffoldContractDocStatic;
-        }
-        else
-        {
-            // Charter.Constraints.NeedsAuth selects the shell variant the app was seeded with: Yorrixx
-            // applies the no-auth overlay (no Clerk / no Auth/ / no auth.spec) when NeedsAuth == false.
-            // Absent (no charter, or a context built off the orchestrator's charter step) defaults to the
-            // auth shell — today's behaviour; the real flow always sets needsAuth from the wizard-Required
-            // charter field. See docs/roadmap/conditional-auth-yorrixx-brief.md.
-            var needsAuth = !string.Equals(GetMeta(ctx, "needsAuth"), "false", StringComparison.OrdinalIgnoreCase);
-            docs[ScaffoldContractLabel] = ScaffoldContractDocFor(needsAuth);
-        }
+        // The Scaffold Contract is COMPOSED from the resolved capability axes (ScaffoldContract):
+        // - stackProfile == "Static" → the self-contained Static contract (no React/Functions/Cosmos).
+        // - else FullStack, assembled from auth (NeedsAuth) + persistence (needsDatabase) fragments, so an
+        //   api-only app's contract omits Cosmos/RepositoryBase rather than being overridden after the fact.
+        // Absent metadata defaults to today's behaviour (FullStack, auth on, database on).
+        var isStatic    = string.Equals(GetMeta(ctx, "stackProfile"),   "Static", StringComparison.OrdinalIgnoreCase);
+        var needsAuth   = !string.Equals(GetMeta(ctx, "needsAuth"),     "false",  StringComparison.OrdinalIgnoreCase);
+        var hasDatabase = !string.Equals(GetMeta(ctx, "needsDatabase"), "false",  StringComparison.OrdinalIgnoreCase);
+        docs[ScaffoldContractLabel] = ScaffoldContract.For(isStatic, needsAuth, hasDatabase);
         AddIfPresent(docs, ctx, "repoContext",       "Repository Context");
         AddIfPresent(docs, ctx, "ownerBrief",       "Approved Product Brief");
         AddIfPresent(docs, ctx, "analystOutput",    "Business Analysis");
         AddIfPresent(docs, ctx, "architectOutput",  "Architecture Review");
+        // UX agent output (uxOutput) — accessibility review today, Design Direction once the UX agent is
+        // elevated (static-design-quality.md §1). Threaded so the implementer BUILDS TO the visual
+        // identity (palette/type/layout/motif) instead of producing correct-but-plain markup; without
+        // this thread the Design Direction never reaches the coder.
+        AddIfPresent(docs, ctx, "uxOutput",         "UX/UI Design Direction & Accessibility");
         AddIfPresent(docs, ctx, "implSpec",         "Implementation Specification");
         AddIfPresent(docs, ctx, "poReviewFeedback", "Product Owner Review Feedback (fix these issues)");
         AddIfPresent(docs, ctx, "existingSource",   "Existing Source (current code — fix in place, do not regenerate)");

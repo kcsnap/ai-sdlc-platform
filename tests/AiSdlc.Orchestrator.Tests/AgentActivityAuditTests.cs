@@ -1,6 +1,7 @@
 using AiSdlc.Agents;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
+using AiSdlc.ModelProviders;
 using AiSdlc.Orchestrator.Functions;
 using AiSdlc.RepoIndex;
 using AiSdlc.Shared;
@@ -227,6 +228,7 @@ public sealed class AgentActivityAuditTests
         new PassthroughContextStore(),
         audit,
         promptStore ?? new RecordingBlobPromptStore(),
+        new FakeModelProvider(new ModelProviderOptions { ProviderName = "Fake", ModelName = "fake-model" }),
         NullLogger<AgentActivityFunctions>.Instance);
 
     private sealed class RecordingBlobPromptStore : IBlobPromptStore
