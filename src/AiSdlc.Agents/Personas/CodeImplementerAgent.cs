@@ -594,6 +594,11 @@ public sealed class CodeImplementerAgent : IAgent
         AddIfPresent(docs, ctx, "ownerBrief",       "Approved Product Brief");
         AddIfPresent(docs, ctx, "analystOutput",    "Business Analysis");
         AddIfPresent(docs, ctx, "architectOutput",  "Architecture Review");
+        // UX agent output (uxOutput) — accessibility review today, Design Direction once the UX agent is
+        // elevated (static-design-quality.md §1). Threaded so the implementer BUILDS TO the visual
+        // identity (palette/type/layout/motif) instead of producing correct-but-plain markup; without
+        // this thread the Design Direction never reaches the coder.
+        AddIfPresent(docs, ctx, "uxOutput",         "UX/UI Design Direction & Accessibility");
         AddIfPresent(docs, ctx, "implSpec",         "Implementation Specification");
         AddIfPresent(docs, ctx, "poReviewFeedback", "Product Owner Review Feedback (fix these issues)");
         AddIfPresent(docs, ctx, "existingSource",   "Existing Source (current code — fix in place, do not regenerate)");

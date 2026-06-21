@@ -123,6 +123,50 @@ public static class Briefs
                 "The studio space",
                 "Newsletter / first-class offer in the footer",
             ]),
+
+        new CustomerBrief(
+            Slug: "solstice-sound",
+            BusinessName: "Solstice Sound",
+            Vertical: "Three-day outdoor electronic music festival",
+            Audience: "Gen-Z and millennial ravers, festival regulars, and ticket-buying groups",
+            Tone: "Loud, electric, maximalist, hedonistic, hyped",
+            Tagline: "Three days. One horizon. No sleep.",
+            VisualDirection: "Maximalist and high-energy: acid neon (hot magenta, electric lime, cyan) over " +
+                "near-black, oversized condensed display type, diagonal/broken-grid layouts, CSS-animated " +
+                "gradient meshes and noise, glitch and chromatic-aberration accents, bold inline-SVG poster " +
+                "graphics. Should feel like a rave flyer — confident, overwhelming, unmissable.",
+            Sections:
+            [
+                "Hero with the festival name, dates, and a pulsing 'Get tickets' call to action",
+                "Lineup (headliners big, supporting acts in a dense grid)",
+                "Stages & experiences",
+                "Festival info (location, camping, times)",
+                "Ticket tiers (early bird, general, VIP)",
+                "Gallery / aftermovie teaser",
+                "FAQ and socials in the footer",
+            ]),
+
+        new CustomerBrief(
+            Slug: "atelier-noir",
+            BusinessName: "Atelier Noir",
+            Vertical: "Luxury architecture and interior-design studio",
+            Audience: "Developers, private clients commissioning bespoke homes, and design press",
+            Tone: "Quiet, minimal, confident, gallery-like, restrained",
+            Tagline: "Space, considered.",
+            VisualDirection: "Severe monochrome minimalism: near-black, white, and a single warm-grey neutral; " +
+                "vast negative space; an editorial high-contrast serif paired with a precise grotesque sans; " +
+                "thin hairline rules; a strict modular grid; the barest, slowest motion. Imagery is geometric " +
+                "inline-SVG line work, never decorative. Should feel like a printed monograph — luxury by " +
+                "restraint, not ornament.",
+            Sections:
+            [
+                "Hero — a single confident statement and one restrained graphic mark",
+                "Selected works (a quiet grid of projects with inline-SVG plan/line motifs)",
+                "Studio philosophy",
+                "Services (architecture, interiors, master planning)",
+                "Recognition / press",
+                "Contact and 'start a commission' in the footer",
+            ]),
     ];
 
     public static CustomerBrief? Find(string slug) =>
