@@ -201,6 +201,10 @@ internal static class ScaffoldContract
           client-side filter over hard-coded data, or form handling (below). No bundler, no npm packages.
         - Hard-code any fixed data (e.g. a list of items) directly into the page. Do NOT call your own
           backend or persist anything — there is none.
+        - IMAGERY: generative by default (CSS gradients/mesh, bespoke inline SVG illustration + icons). If
+          an "Available Photography" list is supplied in your context, you MAY use those exact image URLs
+          sparingly per its guidance; otherwise stay fully generative. Never invent or hotlink any other
+          image URL — it will 404.
         - FUNCTIONAL FORMS: any form must genuinely WORK. Use real <label>s, correct input types and
           `required`, and validate on submit in app.js (preventDefault) with inline field errors and an
           accessible success confirmation (aria-live region), then reset. A static page has no backend,

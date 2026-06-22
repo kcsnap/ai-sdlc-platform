@@ -4,6 +4,7 @@ using AiSdlc.Agents;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
+using AiSdlc.Orchestrator.Imagery;
 using AiSdlc.RepoIndex;
 using AiSdlc.RepoIndex.Charter;
 using AiSdlc.Shared;
@@ -29,6 +30,7 @@ public sealed class AgentActivityFunctions
     private readonly IAuditService _audit;
     private readonly IBlobPromptStore _promptStore;
     private readonly IModelProvider _model;
+    private readonly IImageSource _images;
     private readonly ILogger<AgentActivityFunctions> _logger;
 
     public AgentActivityFunctions(
@@ -41,6 +43,7 @@ public sealed class AgentActivityFunctions
         IAuditService audit,
         IBlobPromptStore promptStore,
         IModelProvider model,
+        IImageSource images,
         ILogger<AgentActivityFunctions> logger)
     {
         _agentRunner          = agentRunner;
@@ -52,6 +55,7 @@ public sealed class AgentActivityFunctions
         _audit                = audit;
         _promptStore          = promptStore;
         _model                = model;
+        _images               = images;
         _logger               = logger;
     }
 
@@ -372,6 +376,86 @@ public sealed class AgentActivityFunctions
         }
 
         return true;
+    }
+
+    private const string ImageryPlanSystemPrompt = """
+        You are a design director deciding whether REAL PHOTOGRAPHY would elevate this app's marketing
+        page, or whether generative CSS/SVG visuals are the stronger, more premium choice.
+
+        DEFAULT TO NO. Say yes ONLY when a human / lifestyle / emotional image would meaningfully improve
+        THIS brand — for example a coffee brand (a warm lifestyle moment), a dentist (genuine bright
+        smiles), a yoga studio (people mid-practice). Say NO for abstract, data, B2B-tool, or severe-
+        minimalist brands, where stock people cheapen it and generative visuals sell it better.
+
+        Output ONLY compact JSON, nothing else:
+        {"useImagery": true|false, "queries": ["literal stock-photo search query", ...], "rationale": "one line"}
+        - If useImagery is false: queries is an empty array.
+        - If true: 1-3 focused queries describing the literal photo you want (e.g. "woman relaxing with
+          coffee at home", "close-up bright natural smile"). Tasteful and on-brand, never generic.
+        """;
+
+    // Selective real photography: a design-director judgment (default no) decides whether a photo lifts
+    // THIS brand, then real Pexels URLs are fetched for the chosen queries. Returns a manifest the
+    // implementer embeds, or "" to stay generative. Any failure (or no key configured) → "" (generative).
+    // See docs/roadmap/static-design-quality.md §4.
+    [Function(nameof(DeriveImageryAsync))]
+    public async Task<string> DeriveImageryAsync([ActivityTrigger] string charterMarkdown, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var plan = await _model.CompleteAsync(new ModelRequest
+            {
+                AgentName    = AgentNames.UxAccessibilityReviewer,
+                TaskType     = "ImageryPlan",
+                SystemPrompt = ImageryPlanSystemPrompt,
+                UserPrompt   = string.IsNullOrWhiteSpace(charterMarkdown) ? "(no charter provided)" : charterMarkdown,
+                MaxTokens    = 400
+            }, cancellationToken);
+
+            var (useImagery, queries) = ParseImageryPlan(plan.ResponseText);
+            if (!useImagery)
+                return string.Empty;
+
+            var manifest = await _images.BuildManifestAsync(queries, cancellationToken);
+            _logger.LogInformation("Imagery: {Decision} ({Queries})",
+                manifest is null ? "requested but none found/disabled" : "enabled", string.Join(", ", queries));
+            return manifest ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Imagery derivation failed; staying generative-only.");
+            return string.Empty;
+        }
+    }
+
+    // Parses {"useImagery": bool, "queries": [...]} ; any ambiguity / malformed output → (false, []).
+    internal static (bool UseImagery, IReadOnlyList<string> Queries) ParseImageryPlan(string? responseText)
+    {
+        if (string.IsNullOrWhiteSpace(responseText)) return (false, []);
+        var start = responseText.IndexOf('{');
+        var end   = responseText.LastIndexOf('}');
+        if (start < 0 || end <= start) return (false, []);
+
+        try
+        {
+            using var doc = JsonDocument.Parse(responseText[start..(end + 1)]);
+            var root = doc.RootElement;
+            var use = root.TryGetProperty("useImagery", out var u) && u.ValueKind == JsonValueKind.True;
+            var queries = new List<string>();
+            if (use && root.TryGetProperty("queries", out var q) && q.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in q.EnumerateArray())
+                {
+                    var s = item.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) queries.Add(s!.Trim());
+                }
+            }
+            return (use && queries.Count > 0, queries);
+        }
+        catch (JsonException)
+        {
+            return (false, []);
+        }
     }
 
     [Function(nameof(AddGitHubLabelAsync))]

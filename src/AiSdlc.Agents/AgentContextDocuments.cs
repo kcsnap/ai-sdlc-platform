@@ -17,6 +17,7 @@ public static class AgentContextDocuments
     public const string CapabilityPostureDocumentName = "Capability Posture";
     public const string CapabilityGapsDocumentName = "Capability Gaps (confirm at review)";
     public const string FormCapturePostureDocumentName = "Form Capture";
+    public const string AvailablePhotographyDocumentName = "Available Photography";
 
     // The no-auth shell variant (Charter "Needs auth: no" / NeedsAuth=false) ships NO Clerk, NO
     // src/api/Auth/, and NO tests/e2e/specs/auth.spec.ts. v010 showed the upstream spec + agents still
@@ -103,6 +104,16 @@ public static class AgentContextDocuments
         render-only: assert the form and its success affordance render; never POST a form in a test.
         """;
 
+    // Real photography (static marketing pages): the imagery step decided a photo would lift this brand
+    // and fetched curated, real URLs. Reaches the implementer so it embeds those exact URLs sparingly —
+    // everything else stays generative. Absent → generative-only. See static-design-quality.md §4.
+    private const string AvailablePhotographyPreamble =
+        "Real photography has been curated for this page. Use it SPARINGLY (typically 1-3: a hero and " +
+        "maybe one section) and ONLY where it genuinely lifts the design — everything else stays " +
+        "generative CSS/SVG. Use ONLY these exact URLs (never invent or hotlink another image — it will " +
+        "404). Give each a descriptive alt, explicit width/height, object-fit: cover, and a tasteful " +
+        "photo credit in the footer:\n\n";
+
     private const string CapabilityGapsPreamble =
         "The architecture step found capabilities the brief may need that the user did NOT explicitly " +
         "enable. Per policy the explicit choice is HONORED (nothing is auto-added) — surface these for " +
@@ -182,6 +193,11 @@ public static class AgentContextDocuments
         // substitute the placeholder at deploy. Held until that provisioning ships (inert otherwise).
         if (string.Equals(ReadMeta(context, "formCaptureEnabled"), "true", StringComparison.OrdinalIgnoreCase))
             contextDocs[FormCapturePostureDocumentName] = FormCaptureInstructions;
+
+        // Real photography curated by the imagery step (static marketing pages) — embed sparingly.
+        var imageryManifest = ReadMeta(context, "imageryManifest");
+        if (!string.IsNullOrWhiteSpace(imageryManifest))
+            contextDocs[AvailablePhotographyDocumentName] = AvailablePhotographyPreamble + imageryManifest;
 
         if (context.Mode == WorkflowMode.Bootstrap)
             contextDocs[OperatingModeDocumentName] = BootstrapOperatingModeInstructions;

@@ -267,6 +267,39 @@ public sealed class CharterContextDocumentTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task Imagery_manifest_adds_available_photography_document(AgentFactory factory)
+    {
+        var recorder = new RecordingModelProvider();
+        var agent    = factory.Build(recorder);
+
+        var request = MakeRequest(agent.Name, withCharter: true);
+        request.Context.Metadata["imageryManifest"] = "- https://images.pexels.com/photos/1/x.jpeg — \"coffee\" (1200x800) — © A / Pexels";
+        await agent.ExecuteAsync(request, CancellationToken.None);
+
+        Assert.NotNull(recorder.LastRequest);
+        Assert.True(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.AvailablePhotographyDocumentName),
+            $"{agent.Name} did not surface curated photography when imageryManifest was present.");
+        var doc = recorder.LastRequest.ContextDocuments[AgentContextDocuments.AvailablePhotographyDocumentName];
+        Assert.Contains("SPARINGLY", doc);
+        Assert.Contains("images.pexels.com", doc);
+    }
+
+    [Theory]
+    [MemberData(nameof(AllAgentFactories))]
+    public async Task No_imagery_manifest_omits_available_photography_document(AgentFactory factory)
+    {
+        var recorder = new RecordingModelProvider();
+        var agent    = factory.Build(recorder);
+
+        await agent.ExecuteAsync(MakeRequest(agent.Name, withCharter: true), CancellationToken.None);
+
+        Assert.NotNull(recorder.LastRequest);
+        Assert.False(recorder.LastRequest!.ContextDocuments.ContainsKey(AgentContextDocuments.AvailablePhotographyDocumentName),
+            $"{agent.Name} included 'Available Photography' with no imageryManifest — it must stay generative-only.");
+    }
+
     /// <summary>
     /// The Code Implementer must thread the UX agent's output (uxOutput) into its context so the
     /// Design Direction reaches the coder (static-design-quality.md §1). This was the load-bearing

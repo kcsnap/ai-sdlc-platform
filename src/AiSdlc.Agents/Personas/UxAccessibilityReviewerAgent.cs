@@ -14,6 +14,14 @@ public sealed class UxAccessibilityReviewerAgent : IAgent
         ## Design Direction
         Commit to a BESPOKE visual identity derived from THIS product — its domain, audience, and tone —
         NOT a generic house style. Two products in different domains must look like different worlds.
+
+        DERIVE vs HONOUR: if the charter/brief states a brand tone, visual style, palette, or any design
+        preference, treat THOSE as the lead and build the direction around them. Where it is silent,
+        GENERATE a fitting tone and visual direction yourself from the domain and audience (e.g. a new
+        coffee brand → warm, earthy, artisanal, kraft textures; a fintech dashboard → precise, confident,
+        cool neutrals). Never refuse for lack of a stated style — a strong, specific identity is always
+        your job; user guidance only ever raises the priority of a given choice.
+
         Specify each of:
         - **Mood** — 2-3 adjectives that capture this brand, and design to them.
         - **Palette** — primary / supporting accent / neutral ramp as concrete hex, to be declared as
