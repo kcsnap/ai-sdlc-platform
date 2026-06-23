@@ -54,6 +54,10 @@ var host = new HostBuilder()
             client.BaseAddress = new Uri("https://api.anthropic.com/v1/");
             client.DefaultRequestHeaders.Add("x-api-key", apiKey);
             client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+            // The default HttpClient timeout is 100s — too short for a large generation (a Code
+            // Implementer batch on Opus emitting up to 16k tokens routinely exceeds it, surfacing as
+            // TaskCanceledException and failing the stage). Match ThemeHarness's 5-minute ceiling.
+            client.Timeout = TimeSpan.FromMinutes(5);
         });
 
         // Real photography for marketing pages — used server-side only (the page gets public image URLs,
