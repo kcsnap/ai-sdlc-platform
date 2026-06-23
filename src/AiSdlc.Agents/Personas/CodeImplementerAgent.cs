@@ -23,6 +23,17 @@ public sealed class CodeImplementerAgent : IAgent
     // Hard stop against a runaway manifest; the prompt steers well below this.
     internal const int ManifestFileCap = 60;
 
+    // Per-batch output ceiling. Coupled files (e.g. a Static index.html + styles.css + app.js) must
+    // fit complete in one response; at the old 8k ceiling they truncated, spilling siblings into the
+    // recovery pass where they were authored blind to each other (the sport121 class-name desync).
+    internal const int BatchMaxTokens = 16000;
+
+    // Character budget for already-emitted sibling CONTENT injected into a batch prompt, so files are
+    // authored against the real markup/structure of their siblings (matching class names, imports,
+    // routes, DOM). Bounded so a large multi-file app cannot blow up the prompt — past the budget,
+    // remaining siblings are listed by path only.
+    internal const int EmittedContentBudgetChars = 24000;
+
     private const string ManifestSystemPrompt = """
         You are the Code Implementer planning stage in an AI-driven SDLC pipeline.
 
@@ -245,10 +256,6 @@ public sealed class CodeImplementerAgent : IAgent
         Dictionary<string, string> contextDocs, string userPrompt,
         Dictionary<string, FileChange> emitted, CancellationToken cancellationToken)
     {
-        var alreadyGenerated = emitted.Count == 0
-            ? "(none yet)"
-            : string.Join("\n", emitted.Keys.Select(p => $"- {p}"));
-
         var batchPrompt =
             $"""
             {userPrompt}
@@ -256,8 +263,10 @@ public sealed class CodeImplementerAgent : IAgent
             The complete implementation plan (fixed — do not redesign it):
             {manifestText}
 
-            Files already generated in earlier batches (do not regenerate):
-            {alreadyGenerated}
+            Files already generated in earlier batches — shown here so the files you generate now
+            stay consistent with them (matching class names, imports, routes, and DOM structure).
+            Do NOT regenerate or re-output any of these:
+            {DescribeEmitted(emitted)}
 
             Generate ONLY these files now, each one complete:
             {string.Join("\n", batch.Select(m => $"- {m.Path} — {m.Purpose}"))}
@@ -270,13 +279,42 @@ public sealed class CodeImplementerAgent : IAgent
             SystemPrompt     = BatchSystemPrompt,
             UserPrompt       = batchPrompt,
             ContextDocuments = contextDocs,
-            MaxTokens        = 8000
+            MaxTokens        = BatchMaxTokens
         }, cancellationToken);
 
         // Only complete blocks parse (the regex requires the closing tag), so a truncated
         // trailing file is naturally excluded and lands in the recovery pass.
         foreach (var change in CodeChangeParser.Parse(response.ResponseText))
             emitted[change.Path] = change;
+    }
+
+    // Renders the already-emitted files for a batch prompt. Each file's full CONTENT is included
+    // while it fits the budget — so the files generated next (in a later batch, or alone in the
+    // recovery pass) are authored against the real markup/structure of their siblings rather than an
+    // imagined one. This is the fix for the cross-call class-name desync (sport121): styles.css and
+    // app.js can now see the actual index.html they belong to. Past the budget, the remaining files
+    // are listed by path only, so a large multi-file app keeps a bounded prompt.
+    private static string DescribeEmitted(IReadOnlyDictionary<string, FileChange> emitted)
+    {
+        if (emitted.Count == 0) return "(none yet)";
+
+        var sb = new StringBuilder();
+        var remaining = EmittedContentBudgetChars;
+        foreach (var (path, change) in emitted)
+        {
+            var block = $"<file path=\"{path}\">\n{change.Content}\n</file>";
+            if (block.Length <= remaining)
+            {
+                sb.AppendLine(block);
+                remaining -= block.Length;
+            }
+            else
+            {
+                sb.AppendLine($"- {path} (already generated; content omitted to bound prompt size)");
+            }
+        }
+
+        return sb.ToString().TrimEnd();
     }
 
     private async Task<AgentResult> RepairAsync(

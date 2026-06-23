@@ -167,6 +167,31 @@ public static class Briefs
                 "Recognition / press",
                 "Contact and 'start a commission' in the footer",
             ]),
+
+        // Faithful reproduction of the live Yorrixx-generated app `user-app-72c9e343`
+        // (sport121_v20) for the model-tier quality investigation. Charter: a marketing
+        // SPA to find specialist 1-2-1 sports coaches; display coaches with photo, name,
+        // sports coached, and a clickable email link. No auth, no backend, no persistence.
+        new CustomerBrief(
+            Slug: "sport121",
+            BusinessName: "Sport121",
+            Vertical: "Marketing page for finding specialist 1-2-1 sports coaches",
+            Audience: "Athletes looking for one-to-one specialist sports coaches",
+            Tone: "Energetic, motivating, confident, athletic, professional",
+            Tagline: "Find your specialist 1-2-1 sports coach.",
+            VisualDirection: "Bold, energetic athletic styling: a confident accent colour, strong " +
+                "display type paired with a clean humanist sans, motion that suggests movement and " +
+                "momentum, and a card-based coach grid. Use real coach photography where it lifts the " +
+                "design (each coach card shows a photo, name, the sports they coach, and a clear email " +
+                "link). Modern, premium sports-brand feel — never a flat generic directory.",
+            Sections:
+            [
+                "Hero with the value proposition and a 'Find your coach' call to action",
+                "Coach grid — 8+ specialist coaches, each with photo, name, sports coached, and a clickable email link",
+                "Why 1-2-1 coaching (benefits of personalised, specialist coaching)",
+                "How it works (browse, email a coach, start training)",
+                "Contact / get-in-touch and footer",
+            ]),
     ];
 
     public static CustomerBrief? Find(string slug) =>

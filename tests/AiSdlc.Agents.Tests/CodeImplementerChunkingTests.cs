@@ -85,6 +85,48 @@ public sealed class CodeImplementerChunkingTests
     }
 
     [Fact]
+    public async Task Recovered_coupled_file_is_authored_against_already_emitted_sibling_content()
+    {
+        // Reproduction of the live class-name desync (sport121, user-app-72c9e343): a Static app's
+        // index.html / styles.css / app.js are welded together by class names and DOM structure, but
+        // when styles.css truncates out of its batch and is regenerated in the recovery pass, the
+        // recovery call must be able to see the HTML it is styling. Today it receives only the file
+        // PATHS already emitted (emitted.Keys), never their content, so the CSS is authored against an
+        // imagined DOM and its selectors drift from the real markup — the page renders under-styled.
+        const string staticManifest = """
+            <manifest>
+            <item path="index.html">the page markup</item>
+            <item path="styles.css">the styles</item>
+            <item path="app.js">interactions</item>
+            </manifest>
+            """;
+
+        // A class only the real HTML knows — the CSS author must see it to target it.
+        const string htmlWithSignatureClass =
+            "<file path=\"index.html\">\n<div class=\"coach-card-7x9q\">…</div>\n</file>";
+
+        var provider = new ScriptedModelProvider(
+            _ => staticManifest,
+            // Batch 1 requests all three; emit ONLY index.html — styles.css & app.js "truncate" away.
+            _ => htmlWithSignatureClass,
+            // Recovery call: styles.css, regenerated alone.
+            _ => "<file path=\"styles.css\">\n.coach-card-7x9q { color: red; }\n</file>",
+            // Recovery call: app.js, regenerated alone.
+            _ => "<file path=\"app.js\">\n// interactions\n</file>");
+
+        var request = MakeRequest();
+        request.Context.Metadata["stackProfile"] = "Static";
+        await new CodeImplementerAgent(provider).ExecuteAsync(request, CancellationToken.None);
+
+        var cssCall = provider.Requests.Single(r =>
+            r.TaskType == "CodeImplementation" &&
+            RequestedPaths(r).SequenceEqual(new[] { "styles.css" }));
+
+        // The CSS-generating prompt must carry the already-emitted HTML so selectors stay in sync.
+        Assert.Contains("coach-card-7x9q", cssCall.UserPrompt);
+    }
+
+    [Fact]
     public async Task Still_missing_after_recovery_fails_the_stage()
     {
         // authService never materializes — the stage must fail rather than commit a partial app.
