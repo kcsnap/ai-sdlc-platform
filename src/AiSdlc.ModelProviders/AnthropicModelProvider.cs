@@ -38,10 +38,11 @@ public sealed class AnthropicModelProvider : IModelProvider
         var systemPrompt = _redaction.Redact(request.SystemPrompt ?? string.Empty).RedactedText;
         var userContent  = BuildUserContent(request);
         var maxTokens    = request.MaxTokens ?? _options.DefaultMaxTokens;
+        var model        = ResolveModel(request.AgentName);
 
         var body = new
         {
-            Model     = _options.ModelName,
+            Model     = model,
             MaxTokens = maxTokens,
             System    = systemPrompt,
             Messages  = new[] { new { Role = "user", Content = userContent } }
@@ -104,6 +105,14 @@ public sealed class AnthropicModelProvider : IModelProvider
             WasTruncated = result.StopReason == "max_tokens"
         };
     }
+
+    // Per-agent override (e.g. design steps on a stronger model) falls back to the global model.
+    private string ResolveModel(string? agentName) =>
+        agentName is { } name
+        && _options.ModelOverridesByAgent.TryGetValue(name, out var overrideModel)
+        && !string.IsNullOrWhiteSpace(overrideModel)
+            ? overrideModel
+            : _options.ModelName;
 
     private string BuildUserContent(ModelRequest request)
     {
