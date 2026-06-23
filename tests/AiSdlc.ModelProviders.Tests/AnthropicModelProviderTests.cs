@@ -85,11 +85,65 @@ public sealed class AnthropicModelProviderTests
             provider.CompleteAsync(SampleRequest, CancellationToken.None));
     }
 
-    private static AnthropicModelProvider MakeProvider(HttpMessageHandler handler)
+    [Fact]
+    public async Task CompleteAsync_UsesPerAgentOverrideModel_WhenAgentIsMapped()
+    {
+        var options = Options with
+        {
+            ModelOverridesByAgent = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Code Implementer"] = "claude-opus-4-8"
+            }
+        };
+        var handler  = new CapturingHandler(SuccessBody);
+        var provider = MakeProvider(handler, options);
+
+        await provider.CompleteAsync(SampleRequest with { AgentName = "Code Implementer" }, CancellationToken.None);
+
+        Assert.Contains("\"model\":\"claude-opus-4-8\"", handler.LastRequestBody);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_UsesGlobalModel_WhenAgentNotMapped()
+    {
+        var options = Options with
+        {
+            ModelOverridesByAgent = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Code Implementer"] = "claude-opus-4-8"
+            }
+        };
+        var handler  = new CapturingHandler(SuccessBody);
+        var provider = MakeProvider(handler, options);
+
+        await provider.CompleteAsync(SampleRequest with { AgentName = "Product Strategist" }, CancellationToken.None);
+
+        Assert.Contains("\"model\":\"claude-haiku-4-5-20251001\"", handler.LastRequestBody);
+    }
+
+    private static AnthropicModelProvider MakeProvider(HttpMessageHandler handler) => MakeProvider(handler, Options);
+
+    private static AnthropicModelProvider MakeProvider(HttpMessageHandler handler, ModelProviderOptions options)
     {
         var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.anthropic.com/v1/") };
-        return new AnthropicModelProvider(http, Options, new NoOpRedactionService(),
+        return new AnthropicModelProvider(http, options, new NoOpRedactionService(),
             new AnthropicRateLimiter(new AnthropicRateLimiterOptions()));
+    }
+
+    private sealed class CapturingHandler(string body) : HttpMessageHandler
+    {
+        public string LastRequestBody { get; private set; } = "";
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Content is not null)
+                LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            };
+        }
     }
 
     private sealed class SequentialHandler(List<(HttpStatusCode Status, string Body)> responses) : HttpMessageHandler

@@ -25,7 +25,12 @@ var host = new HostBuilder()
         {
             ProviderName    = "Anthropic",
             ModelName       = Environment.GetEnvironmentVariable("AnthropicModel") ?? "claude-haiku-4-5-20251001",
-            DefaultMaxTokens = 2048
+            DefaultMaxTokens = 2048,
+            // Optional per-agent override, e.g. run the design-critical steps on a stronger model:
+            //   AnthropicModelOverrides="Code Implementer=claude-opus-4-8;UX / Accessibility Reviewer=claude-opus-4-8"
+            // Unset → every agent uses the global model above (no behaviour change).
+            ModelOverridesByAgent = ModelProviderOptions.ParseOverrides(
+                Environment.GetEnvironmentVariable("AnthropicModelOverrides"))
         });
 
         services.AddSingleton<IRedactionService, RegexRedactionService>();
