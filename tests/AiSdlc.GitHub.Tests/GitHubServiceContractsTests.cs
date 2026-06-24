@@ -179,6 +179,8 @@ public sealed class GitHubServiceContractsTests
 
         public Task<CreatedRepository> CreateRepositoryFromTemplateAsync(string t, string o, string n, bool p, string d, CancellationToken cancellationToken) =>
             throw new NotImplementedException();
+        public Task SetRepoVariableAsync(string r, string n, string v, CancellationToken cancellationToken) =>
+            throw new NotImplementedException();
 
         private static IssueComment CreateComment(string repository, int issueOrPullRequestNumber, string markdown) =>
             new()
