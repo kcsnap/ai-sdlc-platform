@@ -69,8 +69,16 @@ public static class NewAppBuildOrchestrator
                 $"Provisioning failed for {request.AppId}: {result?.Detail ?? "no result before timeout"}.");
 
         context.SetCustomStatus($"provisioned:{result.HostedUrl}");
-        // TODO (4b → 6): write deploy.yml + repo vars (OIDC/Clerk) → build → verification gate → callbacks.
-        return $"provisioned:{request.AppId}:{result.HostedUrl}";
+
+        // Component 4b — wire the deploy identity (OIDC) + Clerk key into the repo as Actions variables so
+        // the template's deploy.yml can authenticate and deploy.
+        await context.CallActivityAsync(
+            nameof(BuildActivityFunctions.ApplyDeployConfigAsync),
+            new ApplyDeployConfigInput(repo.FullName, result.Deploy, result.Clerk?.PublishableKey));
+        context.SetCustomStatus("deploy-configured");
+
+        // TODO (5-6): trigger build (existing pipeline) → verification gate → /status, /runtime, /verification.
+        return $"deploy-configured:{request.AppId}:{result.HostedUrl}";
     }
 
     private static (string Owner, string Name) SplitFullName(string fullName)

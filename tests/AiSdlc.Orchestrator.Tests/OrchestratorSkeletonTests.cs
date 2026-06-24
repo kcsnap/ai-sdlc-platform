@@ -367,6 +367,7 @@ public sealed class OrchestratorSkeletonTests
 
         public Task<CreatedRepository> CreateRepositoryFromTemplateAsync(string t, string o, string n, bool p, string d, CancellationToken ct) =>
             throw new NotImplementedException();
+        public Task SetRepoVariableAsync(string r, string n, string v, CancellationToken ct) => throw new NotImplementedException();
 
         private static IssueComment StubComment(string repository, int number) => new()
         {

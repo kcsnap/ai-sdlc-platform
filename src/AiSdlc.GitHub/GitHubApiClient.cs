@@ -407,6 +407,21 @@ public sealed class GitHubApiClient : IGitHubService
         return new CreatedRepository(json.FullName, json.HtmlUrl, json.DefaultBranch);
     }
 
+    public async Task SetRepoVariableAsync(string repository, string name, string value, CancellationToken cancellationToken)
+    {
+        // POST creates; if it already exists GitHub returns 409, so fall back to PATCH (idempotent set).
+        using var create = await _http.PostAsJsonAsync(
+            $"/repos/{repository}/actions/variables", new { name, value }, JsonOptions, cancellationToken);
+        if (create.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            using var update = await _http.PatchAsJsonAsync(
+                $"/repos/{repository}/actions/variables/{name}", new { name, value }, JsonOptions, cancellationToken);
+            await EnsureSuccessAsync(update, $"PATCH variable {name}", cancellationToken);
+            return;
+        }
+        await EnsureSuccessAsync(create, $"POST variable {name}", cancellationToken);
+    }
+
     private async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync(path, cancellationToken);

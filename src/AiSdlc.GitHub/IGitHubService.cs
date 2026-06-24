@@ -51,4 +51,10 @@ public interface IGitHubService
     Task<CreatedRepository> CreateRepositoryFromTemplateAsync(
         string templateRepository, string targetOwner, string name, bool isPrivate, string description,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates or updates a repository Actions variable (used to wire deploy config — e.g. the OIDC
+    /// client/tenant/subscription IDs the generated <c>deploy.yml</c> authenticates with).
+    /// </summary>
+    Task SetRepoVariableAsync(string repository, string name, string value, CancellationToken cancellationToken);
 }

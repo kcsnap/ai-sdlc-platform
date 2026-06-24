@@ -42,6 +42,9 @@ public sealed record ProvisionResult
 
 public sealed record ProvisionResource(string Kind, string Name, string ResourceId);
 
+/// <summary>Input to the deploy-config activity: which repo, and the deploy identity + Clerk key to wire.</summary>
+public sealed record ApplyDeployConfigInput(string Repository, ProvisionDeploy? Deploy, string? ClerkPublishableKey);
+
 public sealed record ProvisionDeploy
 {
     public string Method { get; init; } = "oidc-federated";
