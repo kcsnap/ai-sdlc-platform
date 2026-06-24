@@ -1,3 +1,4 @@
+using AiSdlc.GitHub;
 using AiSdlc.Orchestrator.Builds;
 using AiSdlc.Orchestrator.Functions;
 using Xunit;
@@ -49,5 +50,40 @@ public sealed class BuildActivityTests
 
         // No deploy + no clerk → nothing to set.
         Assert.Empty(BuildActivityFunctions.DeployVariables(deploy: null, clerkPublishableKey: null));
+    }
+
+    private static CheckRunResult Check(string status, string conclusion) =>
+        new() { Name = "deploy", Status = status, Conclusion = conclusion };
+
+    [Fact]
+    public void SummarizeDeploy_classifies_check_state()
+    {
+        Assert.Equal("none", BuildActivityFunctions.SummarizeDeploy([]));
+        Assert.Equal("running", BuildActivityFunctions.SummarizeDeploy([Check("in_progress", "")]));
+        Assert.Equal("success", BuildActivityFunctions.SummarizeDeploy([Check("completed", "success")]));
+        Assert.Equal("failed", BuildActivityFunctions.SummarizeDeploy([Check("completed", "failure")]));
+        Assert.Equal("failed", BuildActivityFunctions.SummarizeDeploy(
+            [Check("completed", "success"), Check("completed", "failure")]));
+    }
+
+    [Fact]
+    public void AssembleVerification_passes_when_deploy_green_and_serving()
+    {
+        var staticResult = BuildActivityFunctions.AssembleVerification("success", 200, isStatic: true);
+        Assert.Equal("passed", staticResult.Outcome);
+        Assert.Contains(staticResult.Checks, c => c.CheckId == "api-health" && c.Status == "skipped");
+
+        var fullStack = BuildActivityFunctions.AssembleVerification("success", 200, isStatic: false);
+        Assert.Equal("passed", fullStack.Outcome);
+        Assert.Contains(fullStack.Checks, c => c.CheckId == "api-health" && c.Status == "pass");
+    }
+
+    [Theory]
+    [InlineData("failed", 200)]   // deploy red
+    [InlineData("success", 500)]  // serves error
+    [InlineData("success", 0)]    // probe failed
+    public void AssembleVerification_fails_on_red_deploy_or_bad_serve(string deploy, int serves)
+    {
+        Assert.Equal("failed", BuildActivityFunctions.AssembleVerification(deploy, serves, isStatic: true).Outcome);
     }
 }

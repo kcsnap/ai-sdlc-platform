@@ -17,6 +17,8 @@ namespace AiSdlc.Orchestrator.Functions;
 public static class NewAppBuildOrchestrator
 {
     private static readonly TimeSpan ProvisionTimeout = TimeSpan.FromMinutes(20);
+    private static readonly TimeSpan DeployPollInterval = TimeSpan.FromSeconds(30);
+    private const int MaxDeployPolls = 40;   // ~20 min for the deploy workflow to finish
 
     [Function(nameof(NewAppBuildOrchestrator))]
     public static async Task<string> RunAsync([OrchestrationTrigger] TaskOrchestrationContext context)
@@ -77,8 +79,31 @@ public static class NewAppBuildOrchestrator
             new ApplyDeployConfigInput(repo.FullName, result.Deploy, result.Clerk?.PublishableKey));
         context.SetCustomStatus("deploy-configured");
 
-        // TODO (5-6): trigger build (existing pipeline) → verification gate → /status, /runtime, /verification.
-        return $"deploy-configured:{request.AppId}:{result.HostedUrl}";
+        // Component 5 — verification gate. The template's deploy.yml runs on the new repo; poll it to a
+        // terminal state, then probe the hosted URL. (Agent-driven feature generation into the repo is a
+        // deferred enhancement; this gate proves the new-path deploy + serve.)
+        context.SetCustomStatus("verifying");
+        var deployStatus = "none";
+        for (var poll = 0; poll < MaxDeployPolls; poll++)
+        {
+            deployStatus = await context.CallActivityAsync<string>(
+                nameof(BuildActivityFunctions.GetDeployStatusAsync),
+                new DeployStatusInput(repo.FullName, repo.DefaultBranch));
+            if (deployStatus is not ("running" or "none"))
+                break;
+            await context.CreateTimer(context.CurrentUtcDateTime.Add(DeployPollInterval), CancellationToken.None);
+        }
+
+        var servesStatus = string.IsNullOrWhiteSpace(result.HostedUrl)
+            ? 0
+            : await context.CallActivityAsync<int>(nameof(BuildActivityFunctions.ProbeUrlAsync), result.HostedUrl);
+
+        var verification = BuildActivityFunctions.AssembleVerification(
+            deployStatus, servesStatus, stackProfile == StackProfile.Static);
+        context.SetCustomStatus($"verified:{verification.Outcome}");
+
+        // TODO (6): emit /status, /runtime, /verification callbacks to Yorrixx (/runtime before /status:live).
+        return $"verified:{request.AppId}:{verification.Outcome}";
     }
 
     private static (string Owner, string Name) SplitFullName(string fullName)
