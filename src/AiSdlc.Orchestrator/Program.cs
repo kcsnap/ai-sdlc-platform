@@ -8,6 +8,7 @@ using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
 using AiSdlc.Orchestrator.Imagery;
+using AiSdlc.Orchestrator.Provisioning;
 using AiSdlc.Orchestrator.Webhooks;
 using AiSdlc.RepoIndex;
 using AiSdlc.Shared.AutoMerge;
@@ -157,6 +158,26 @@ var host = new HostBuilder()
                 ConfigureGitHubHeaders(client);
                 client.DefaultRequestHeaders.Add("Authorization", $"Bearer {pat}");
             }).AddHttpMessageHandler<GitHubTransientRetryHandler>();
+        }
+
+        // New-path provisioner client (Phase 1). Real HTTP client when ProvisionerUrl is set; otherwise an
+        // inert no-op so DI resolves (only the new build path provisions). Inbound auth on /api/provision-result
+        // uses ProvisionResultCallbackKey (read in the function), so it's not wired here.
+        var provisionerUrl = Environment.GetEnvironmentVariable("ProvisionerUrl");
+        if (!string.IsNullOrWhiteSpace(provisionerUrl))
+        {
+            var provisionerKey = Environment.GetEnvironmentVariable("ProvisionerInboundKey");
+            services.AddHttpClient<IProvisionerClient, ProvisionerClient>(client =>
+            {
+                client.BaseAddress = new Uri(provisionerUrl.TrimEnd('/') + "/");
+                if (!string.IsNullOrWhiteSpace(provisionerKey))
+                    client.DefaultRequestHeaders.Add("X-Platform-Provision-Key", provisionerKey);
+                client.Timeout = TimeSpan.FromSeconds(60);
+            });
+        }
+        else
+        {
+            services.AddSingleton<IProvisionerClient, NoOpProvisionerClient>();
         }
 
         services.AddSingleton<IRepoIndexer, GitHubRepoIndexer>();

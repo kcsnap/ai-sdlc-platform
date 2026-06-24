@@ -1,5 +1,6 @@
 using AiSdlc.GitHub;
 using AiSdlc.Orchestrator.Builds;
+using AiSdlc.Orchestrator.Provisioning;
 using AiSdlc.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
@@ -18,12 +19,14 @@ public sealed class BuildActivityFunctions
     internal const string DefaultFullStackTemplate = "ai-sdlc-react-dotnet-template";
 
     private readonly IGitHubService _gitHub;
+    private readonly IProvisionerClient _provisioner;
     private readonly ILogger<BuildActivityFunctions> _logger;
 
-    public BuildActivityFunctions(IGitHubService gitHub, ILogger<BuildActivityFunctions> logger)
+    public BuildActivityFunctions(IGitHubService gitHub, IProvisionerClient provisioner, ILogger<BuildActivityFunctions> logger)
     {
-        _gitHub = gitHub;
-        _logger = logger;
+        _gitHub      = gitHub;
+        _provisioner = provisioner;
+        _logger      = logger;
     }
 
     [Function(nameof(CreateUserAppRepoAsync))]
@@ -46,6 +49,17 @@ public sealed class BuildActivityFunctions
             description: $"Yorrixx-generated app {input.AppId} ({input.StackProfile})",
             cancellationToken);
     }
+
+    [Function(nameof(StartProvisionAsync))]
+    public async Task StartProvisionAsync([ActivityTrigger] ProvisionRequest request, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Provisioning {AppId} (build {BuildId}, {Profile}).", request.AppId, request.BuildId, request.StackProfile);
+        await _provisioner.StartProvisionAsync(request, cancellationToken);
+    }
+
+    [Function(nameof(PollProvisionResultAsync))]
+    public Task<ProvisionResult?> PollProvisionResultAsync([ActivityTrigger] string buildId, CancellationToken cancellationToken)
+        => _provisioner.GetProvisionResultAsync(buildId, cancellationToken);
 
     // Static → the plain HTML/CSS template; anything else (FullStack) → the React+.NET template.
     internal static string ResolveTemplateRepo(string stackProfile, string owner, string staticTemplate, string fullStackTemplate)
