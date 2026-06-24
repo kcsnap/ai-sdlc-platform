@@ -51,6 +51,11 @@ public sealed record CharterConstraints
     public bool NeedsPayments { get; init; }
     public bool NeedsEmail { get; init; }
     public bool NeedsAIApi { get; init; }
+
+    // Part of the deterministic Static-vs-FullStack gate (responsibility-split phase-1):
+    // Static ⟺ none of auth/email/payments/aiApi/persistence. Yorrixx guarantees this flag in the
+    // create-build Charter. (Persistence inside FullStack is still capability-derived downstream.)
+    public bool NeedsPersistence { get; init; }
 }
 
 // Each enum has an explicit Unknown=0 default so a missing field deserialises predictably.
