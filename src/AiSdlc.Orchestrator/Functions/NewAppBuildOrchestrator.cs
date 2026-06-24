@@ -1,4 +1,5 @@
 using AiSdlc.Orchestrator.Builds;
+using AiSdlc.RepoIndex.Charter;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.DurableTask;
 
@@ -19,9 +20,15 @@ public static class NewAppBuildOrchestrator
     {
         var request = context.GetInput<CreateBuildRequest>()
             ?? throw new InvalidOperationException("Build input must include a CreateBuildRequest payload.");
+        var charter = request.Charter
+            ?? throw new InvalidOperationException("Build input must include a Charter.");
 
-        context.SetCustomStatus("queued");
-        // TODO (next components): derive profile → create repo → /provision → build → verify → callbacks.
-        return Task.FromResult($"accepted:{request.AppId}");
+        // Component 2 — deterministic profile gate (no LLM): Static iff no backend need; else FullStack.
+        // The repo template (component 3) and the /provision capabilities (component 4) follow from this.
+        var stackProfile = StackProfileResolver.Resolve(charter);
+
+        context.SetCustomStatus(stackProfile.ToString());
+        // TODO (components 3-6): create repo (template per stackProfile) → /provision → build → verify → callbacks.
+        return Task.FromResult($"resolved:{request.AppId}:{stackProfile}");
     }
 }
