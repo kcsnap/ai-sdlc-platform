@@ -56,6 +56,23 @@ public sealed class GitHubAppTokenProviderTests
         Assert.Equal(1, handler.InstallationsCalls);  // installation id cached across the refresh
     }
 
+    [Fact]
+    public async Task Accepts_a_base64_encoded_private_key()
+    {
+        // The clean handoff form: single-line base64 of the PEM (a multiline PEM is awkward in config).
+        var time = new FakeTimeProvider(DateTimeOffset.Parse("2026-06-24T12:00:00Z"));
+        using var rsa = RSA.Create(2048);
+        var pemBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(rsa.ExportRSAPrivateKeyPem()));
+
+        var handler = new RoutingHandler(() => time.GetUtcNow().AddHours(1));
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.github.test") };
+        var provider = new GitHubAppTokenProvider(http, AppId, pemBase64, "yorrixx-apps", time);
+
+        var token = await provider.GetInstallationTokenAsync(CancellationToken.None);
+
+        Assert.Equal("ghs_test_1", token);
+    }
+
     private static (GitHubAppTokenProvider, RoutingHandler) MakeProvider(FakeTimeProvider? time = null)
     {
         time ??= new FakeTimeProvider(DateTimeOffset.Parse("2026-06-24T12:00:00Z"));

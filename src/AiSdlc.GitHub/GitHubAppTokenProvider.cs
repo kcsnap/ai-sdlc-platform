@@ -105,7 +105,7 @@ public sealed class GitHubAppTokenProvider
         var signingInput = $"{header}.{payload}";
 
         using var rsa = RSA.Create();
-        rsa.ImportFromPem(_privateKeyPem);
+        rsa.ImportFromPem(NormalizePrivateKey(_privateKeyPem));
         var signature = rsa.SignData(
             Encoding.UTF8.GetBytes(signingInput), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
 
@@ -114,6 +114,17 @@ public sealed class GitHubAppTokenProvider
 
     private static string Base64Url(byte[] bytes) =>
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    // Accept the key as raw PEM or as single-line base64-of-PEM. A multiline PEM is awkward in an
+    // app-setting / Key Vault value, so base64 is the clean handoff form (matches how the key is stored
+    // on the Yorrixx side). Detect by the PEM header; otherwise base64-decode.
+    private static string NormalizePrivateKey(string key)
+    {
+        var trimmed = key.Trim();
+        return trimmed.Contains("-----BEGIN", StringComparison.Ordinal)
+            ? trimmed
+            : Encoding.UTF8.GetString(Convert.FromBase64String(trimmed));
+    }
 
     private sealed record InstallationTokenJson(string Token, DateTimeOffset ExpiresAt);
     private sealed record InstallationJson(long Id, InstallationAccountJson? Account);
