@@ -365,6 +365,9 @@ public sealed class OrchestratorSkeletonTests
         public Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(string organisation, string label, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<OrgIssueSearchHit>>([]);
 
+        public Task<CreatedRepository> CreateRepositoryFromTemplateAsync(string t, string o, string n, bool p, string d, CancellationToken ct) =>
+            throw new NotImplementedException();
+
         private static IssueComment StubComment(string repository, int number) => new()
         {
             CommentId                = 1,

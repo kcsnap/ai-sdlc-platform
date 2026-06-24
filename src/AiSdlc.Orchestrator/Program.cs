@@ -118,16 +118,46 @@ var host = new HostBuilder()
                 new Uri($"https://{auditAccountName}.blob.core.windows.net/context"), credential)));
 
         services.AddTransient<GitHubTransientRetryHandler>();
-        services.AddHttpClient<IGitHubService, GitHubApiClient>(client =>
+
+        static void ConfigureGitHubHeaders(HttpClient client)
         {
-            var pat = Environment.GetEnvironmentVariable("GitHubPat")
-                ?? throw new InvalidOperationException("GitHubPat is not configured.");
             client.BaseAddress = new Uri("https://api.github.com");
-            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {pat}");
             client.DefaultRequestHeaders.Add("User-Agent", "ai-sdlc-platform/1.0");
             client.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
             client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
-        }).AddHttpMessageHandler<GitHubTransientRetryHandler>();
+        }
+
+        // Lift-and-shift onto the existing GitHub App when its credentials are configured (installation-token
+        // auth, needed for repo creation); otherwise fall back to the PAT path (unchanged). Inert until the
+        // App id + private key are present, so deploying this is a no-op for the live PAT-based flow.
+        var gitHubAppId  = Environment.GetEnvironmentVariable("GitHubAppId");
+        var gitHubAppKey = Environment.GetEnvironmentVariable("GitHubAppPrivateKey");
+
+        if (!string.IsNullOrWhiteSpace(gitHubAppId) && !string.IsNullOrWhiteSpace(gitHubAppKey))
+        {
+            var gitHubAppOrg = Environment.GetEnvironmentVariable("GitHubAppOrg") ?? "yorrixx-apps";
+
+            // A plain client (no auth handler) for the App-level JWT calls the token provider makes itself.
+            services.AddHttpClient("github-app-auth", ConfigureGitHubHeaders);
+            services.AddSingleton(sp => new GitHubAppTokenProvider(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("github-app-auth"),
+                gitHubAppId, gitHubAppKey, gitHubAppOrg, sp.GetRequiredService<TimeProvider>()));
+            services.AddTransient<GitHubAppAuthHandler>();
+
+            services.AddHttpClient<IGitHubService, GitHubApiClient>(ConfigureGitHubHeaders)
+                .AddHttpMessageHandler<GitHubAppAuthHandler>()
+                .AddHttpMessageHandler<GitHubTransientRetryHandler>();
+        }
+        else
+        {
+            var pat = Environment.GetEnvironmentVariable("GitHubPat")
+                ?? throw new InvalidOperationException("GitHubPat is not configured (and no GitHubApp credentials present).");
+            services.AddHttpClient<IGitHubService, GitHubApiClient>(client =>
+            {
+                ConfigureGitHubHeaders(client);
+                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {pat}");
+            }).AddHttpMessageHandler<GitHubTransientRetryHandler>();
+        }
 
         services.AddSingleton<IRepoIndexer, GitHubRepoIndexer>();
         services.AddSingleton<AiSdlc.RepoIndex.Charter.ICharterReader, AiSdlc.RepoIndex.Charter.GitHubCharterReader>();

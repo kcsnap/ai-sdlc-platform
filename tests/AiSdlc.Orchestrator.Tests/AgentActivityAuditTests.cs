@@ -330,5 +330,6 @@ public sealed class AgentActivityAuditTests
         public Task CreateBranchAsync(string r, string b, string s, CancellationToken ct) => throw new NotImplementedException();
         public Task CreateOrUpdateFileAsync(string r, string p, string c, string m, string b, CancellationToken ct) => throw new NotImplementedException();
         public Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(string o, string l, CancellationToken ct) => throw new NotImplementedException();
+        public Task<CreatedRepository> CreateRepositoryFromTemplateAsync(string t, string o, string n, bool p, string d, CancellationToken ct) => throw new NotImplementedException();
     }
 }
