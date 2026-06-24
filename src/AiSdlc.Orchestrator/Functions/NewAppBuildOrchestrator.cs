@@ -1,5 +1,6 @@
 using AiSdlc.Orchestrator.Builds;
 using AiSdlc.RepoIndex.Charter;
+using AiSdlc.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.DurableTask;
 
@@ -16,7 +17,7 @@ namespace AiSdlc.Orchestrator.Functions;
 public static class NewAppBuildOrchestrator
 {
     [Function(nameof(NewAppBuildOrchestrator))]
-    public static Task<string> RunAsync([OrchestrationTrigger] TaskOrchestrationContext context)
+    public static async Task<string> RunAsync([OrchestrationTrigger] TaskOrchestrationContext context)
     {
         var request = context.GetInput<CreateBuildRequest>()
             ?? throw new InvalidOperationException("Build input must include a CreateBuildRequest payload.");
@@ -24,11 +25,15 @@ public static class NewAppBuildOrchestrator
             ?? throw new InvalidOperationException("Build input must include a Charter.");
 
         // Component 2 — deterministic profile gate (no LLM): Static iff no backend need; else FullStack.
-        // The repo template (component 3) and the /provision capabilities (component 4) follow from this.
         var stackProfile = StackProfileResolver.Resolve(charter);
 
-        context.SetCustomStatus(stackProfile.ToString());
-        // TODO (components 3-6): create repo (template per stackProfile) → /provision → build → verify → callbacks.
-        return Task.FromResult($"resolved:{request.AppId}:{stackProfile}");
+        // Component 3 — create the user-app repo from the stack-appropriate template (GitHub App).
+        var repo = await context.CallActivityAsync<CreatedRepository>(
+            nameof(BuildActivityFunctions.CreateUserAppRepoAsync),
+            new CreateRepoInput(request.AppId, stackProfile.ToString()));
+
+        context.SetCustomStatus($"repo-created:{stackProfile}");
+        // TODO (components 4-6): /provision(capabilities) → write deploy.yml + vars → build → verify → callbacks.
+        return $"repo:{repo.FullName}";
     }
 }
