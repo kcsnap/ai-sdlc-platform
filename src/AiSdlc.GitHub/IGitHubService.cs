@@ -43,4 +43,12 @@ public interface IGitHubService
 
     /// <summary>Searches an organisation for open issues carrying the given label.</summary>
     Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(string organisation, string label, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a new repository under <paramref name="targetOwner"/> from a template repo
+    /// (<c>POST /repos/{template}/generate</c>). Requires App `Administration:write`.
+    /// </summary>
+    Task<CreatedRepository> CreateRepositoryFromTemplateAsync(
+        string templateRepository, string targetOwner, string name, bool isPrivate, string description,
+        CancellationToken cancellationToken);
 }

@@ -396,6 +396,17 @@ public sealed class GitHubApiClient : IGitHubService
             statusCode: response.StatusCode);
     }
 
+    public async Task<CreatedRepository> CreateRepositoryFromTemplateAsync(
+        string templateRepository, string targetOwner, string name, bool isPrivate, string description,
+        CancellationToken cancellationToken)
+    {
+        var json = await PostAsync<GeneratedRepoJson>(
+            $"/repos/{templateRepository}/generate",
+            new { owner = targetOwner, name, @private = isPrivate, description },
+            cancellationToken);
+        return new CreatedRepository(json.FullName, json.HtmlUrl, json.DefaultBranch);
+    }
+
     private async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync(path, cancellationToken);
@@ -493,4 +504,5 @@ public sealed class GitHubApiClient : IGitHubService
     private sealed record GitRefJson(GitRefObjectJson Object);
     private sealed record GitRefObjectJson(string Sha);
     private sealed record RepositoryJson(string DefaultBranch);
+    private sealed record GeneratedRepoJson(string FullName, string HtmlUrl, string DefaultBranch);
 }

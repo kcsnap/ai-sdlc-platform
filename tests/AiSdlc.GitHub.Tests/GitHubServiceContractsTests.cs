@@ -177,6 +177,9 @@ public sealed class GitHubServiceContractsTests
         public Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(string organisation, string label, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<OrgIssueSearchHit>>([]);
 
+        public Task<CreatedRepository> CreateRepositoryFromTemplateAsync(string t, string o, string n, bool p, string d, CancellationToken cancellationToken) =>
+            throw new NotImplementedException();
+
         private static IssueComment CreateComment(string repository, int issueOrPullRequestNumber, string markdown) =>
             new()
             {
