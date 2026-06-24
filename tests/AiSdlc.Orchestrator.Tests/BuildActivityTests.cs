@@ -86,4 +86,13 @@ public sealed class BuildActivityTests
     {
         Assert.Equal("failed", BuildActivityFunctions.AssembleVerification(deploy, serves, isStatic: true).Outcome);
     }
+
+    [Theory]
+    [InlineData("https://api.example/v1/admin",  "app1", "status",       "https://api.example/v1/admin/apps/app1/status")]
+    [InlineData("https://api.example/v1/admin/", "app1", "runtime",      "https://api.example/v1/admin/apps/app1/runtime")]  // trailing slash trimmed
+    [InlineData("https://api.example/v1/admin",  "app1", "verification", "https://api.example/v1/admin/apps/app1/verification")]
+    public void CallbackUrl_builds_the_apps_path(string baseUrl, string appId, string kind, string expected)
+    {
+        Assert.Equal(expected, BuildActivityFunctions.CallbackUrl(baseUrl, appId, kind));
+    }
 }

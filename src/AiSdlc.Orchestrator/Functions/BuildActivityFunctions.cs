@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Text;
 using AiSdlc.GitHub;
 using AiSdlc.Orchestrator.Builds;
 using AiSdlc.Orchestrator.Provisioning;
@@ -118,6 +119,33 @@ public sealed class BuildActivityFunctions
             return 0;
         }
     }
+
+    [Function(nameof(SendCallbackAsync))]
+    public async Task SendCallbackAsync([ActivityTrigger] CallbackMessage message, CancellationToken cancellationToken)
+    {
+        // Fire-and-forget: a callback failure (incl. a 404 for an unknown app) must never fail the build.
+        try
+        {
+            using var http = _httpFactory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(20);
+            using var request = new HttpRequestMessage(HttpMethod.Post, CallbackUrl(message.CallbackBaseUrl, message.AppId, message.Kind));
+            var adminKey = Environment.GetEnvironmentVariable("YorrixxAdminKey");
+            if (!string.IsNullOrWhiteSpace(adminKey))
+                request.Headers.Add("X-Yorrixx-Admin-Key", adminKey);
+            request.Content = new StringContent(message.PayloadJson, Encoding.UTF8, "application/json");
+
+            using var response = await http.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                _logger.LogWarning("Callback {Kind} for {AppId} returned {Status}.", message.Kind, message.AppId, (int)response.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Callback {Kind} for {AppId} failed (fire-and-forget).", message.Kind, message.AppId);
+        }
+    }
+
+    internal static string CallbackUrl(string callbackBaseUrl, string appId, string kind) =>
+        $"{callbackBaseUrl.TrimEnd('/')}/apps/{appId}/{kind}";
 
     // none = no checks yet · running = any not completed · success = all completed+success · else failed.
     internal static string SummarizeDeploy(IReadOnlyList<CheckRunResult> checks)
