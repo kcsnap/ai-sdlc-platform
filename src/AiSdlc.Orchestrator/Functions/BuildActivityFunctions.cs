@@ -67,33 +67,15 @@ public sealed class BuildActivityFunctions
     public Task<ProvisionResult?> PollProvisionResultAsync([ActivityTrigger] string buildId, CancellationToken cancellationToken)
         => _provisioner.GetProvisionResultAsync(buildId, cancellationToken);
 
-    [Function(nameof(ApplyDeployConfigAsync))]
-    public async Task ApplyDeployConfigAsync([ActivityTrigger] ApplyDeployConfigInput input, CancellationToken cancellationToken)
+    [Function(nameof(CommitDeployWorkflowAsync))]
+    public async Task CommitDeployWorkflowAsync([ActivityTrigger] CommitDeployInput input, CancellationToken cancellationToken)
     {
-        // Write the deploy identity (OIDC client/tenant/subscription) + Clerk publishable key as repo
-        // Actions variables so the template's deploy.yml can azure/login@v2 and configure the app.
-        foreach (var (name, value) in DeployVariables(input.Deploy, input.ClerkPublishableKey))
-        {
-            _logger.LogInformation("Setting repo variable {Name} on {Repo}.", name, input.Repository);
-            await _gitHub.SetRepoVariableAsync(input.Repository, name, value, cancellationToken);
-        }
-    }
-
-    // The deploy vars to set, skipping any the result didn't supply. AZURE_* feed azure/login@v2 (OIDC);
-    // resource names are derived from appId by the provisioner, so they need no vars here.
-    internal static IReadOnlyList<(string Name, string Value)> DeployVariables(ProvisionDeploy? deploy, string? clerkPublishableKey)
-    {
-        var vars = new List<(string, string)>();
-        void Add(string name, string? value) { if (!string.IsNullOrWhiteSpace(value)) vars.Add((name, value!)); }
-
-        if (deploy is not null)
-        {
-            Add("AZURE_CLIENT_ID", deploy.ClientId);
-            Add("AZURE_TENANT_ID", deploy.TenantId);
-            Add("AZURE_SUBSCRIPTION_ID", deploy.SubscriptionId);
-        }
-        Add("CLERK_PUBLISHABLE_KEY", clerkPublishableKey);
-        return vars;
+        // Commit the provisioner's canonical, fully-resolved deploy workflow VERBATIM — the platform never
+        // renders its own deploy.yml. (Requires App Workflows:write to push under .github/workflows/.)
+        _logger.LogInformation("Committing deploy.yml to {Repo}@{Branch}.", input.Repository, input.Branch);
+        await _gitHub.CreateOrUpdateFileAsync(
+            input.Repository, ".github/workflows/deploy.yml", input.DeployYaml,
+            "ci: add resolved deploy workflow", input.Branch, cancellationToken);
     }
 
     [Function(nameof(GetDeployStatusAsync))]

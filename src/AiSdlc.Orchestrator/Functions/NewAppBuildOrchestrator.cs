@@ -88,10 +88,12 @@ public static class NewAppBuildOrchestrator
             throw new InvalidOperationException($"Provisioning failed for {request.AppId}: {detail}.");
         }
 
-        // Component 4b — wire the deploy identity (OIDC) + Clerk key into the repo as Actions variables.
-        await context.CallActivityAsync(
-            nameof(BuildActivityFunctions.ApplyDeployConfigAsync),
-            new ApplyDeployConfigInput(repo.FullName, result.Deploy, result.Clerk?.PublishableKey));
+        // Component 4b — commit the provisioner's canonical deploy workflow verbatim (we don't render it;
+        // the OIDC triple / resource names / clerk key are already baked into deployYaml).
+        if (!string.IsNullOrWhiteSpace(result.DeployYaml))
+            await context.CallActivityAsync(
+                nameof(BuildActivityFunctions.CommitDeployWorkflowAsync),
+                new CommitDeployInput(repo.FullName, result.DeployYaml, repo.DefaultBranch));
 
         // /runtime BEFORE any 'live' — so the publish email carries the hosted URL.
         await Emit("runtime", new { repoUrl = repo.HtmlUrl, hostedUrl = result.HostedUrl });

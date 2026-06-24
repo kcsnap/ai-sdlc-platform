@@ -28,30 +28,6 @@ public sealed class BuildActivityTests
         Assert.Equal("user-app-dd0e9574", BuildActivityFunctions.RepoName("dd0e9574"));
     }
 
-    [Fact]
-    public void DeployVariables_maps_oidc_and_clerk()
-    {
-        var deploy = new ProvisionDeploy { ClientId = "c", TenantId = "t", SubscriptionId = "s" };
-        var vars = BuildActivityFunctions.DeployVariables(deploy, "pk_test");
-
-        Assert.Equal(4, vars.Count);
-        Assert.Contains(("AZURE_CLIENT_ID", "c"), vars);
-        Assert.Contains(("AZURE_TENANT_ID", "t"), vars);
-        Assert.Contains(("AZURE_SUBSCRIPTION_ID", "s"), vars);
-        Assert.Contains(("CLERK_PUBLISHABLE_KEY", "pk_test"), vars);
-    }
-
-    [Fact]
-    public void DeployVariables_skips_absent_values()
-    {
-        // No Clerk (Static app) → only the three Azure OIDC vars.
-        var deploy = new ProvisionDeploy { ClientId = "c", TenantId = "t", SubscriptionId = "s" };
-        Assert.Equal(3, BuildActivityFunctions.DeployVariables(deploy, clerkPublishableKey: null).Count);
-
-        // No deploy + no clerk → nothing to set.
-        Assert.Empty(BuildActivityFunctions.DeployVariables(deploy: null, clerkPublishableKey: null));
-    }
-
     private static CheckRunResult Check(string status, string conclusion) =>
         new() { Name = "deploy", Status = status, Conclusion = conclusion };
 

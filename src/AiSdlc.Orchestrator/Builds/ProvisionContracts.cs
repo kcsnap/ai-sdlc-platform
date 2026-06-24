@@ -38,12 +38,19 @@ public sealed record ProvisionResult
     public ProvisionDeploy? Deploy { get; init; }
     public ProvisionClerk? Clerk { get; init; }
     public string? Detail { get; init; }
+
+    /// <summary>
+    /// The canonical, fully-resolved deploy workflow (static/full-stack resolved, OIDC-no-secret, correct
+    /// serve/zip handling). The platform commits this verbatim to .github/workflows/deploy.yml — it does
+    /// NOT render its own. The OIDC triple / resource names / clerk key are already baked in.
+    /// </summary>
+    public string? DeployYaml { get; init; }
 }
 
 public sealed record ProvisionResource(string Kind, string Name, string ResourceId);
 
-/// <summary>Input to the deploy-config activity: which repo, and the deploy identity + Clerk key to wire.</summary>
-public sealed record ApplyDeployConfigInput(string Repository, ProvisionDeploy? Deploy, string? ClerkPublishableKey);
+/// <summary>Input to the commit-deploy-workflow activity: commit the canonical deploy.yml verbatim.</summary>
+public sealed record CommitDeployInput(string Repository, string DeployYaml, string Branch);
 
 public sealed record ProvisionDeploy
 {
