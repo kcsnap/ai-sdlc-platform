@@ -4,6 +4,7 @@ using AiSdlc.Agents;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
+using AiSdlc.Orchestrator.Cost;
 using AiSdlc.Orchestrator.Imagery;
 using AiSdlc.RepoIndex;
 using AiSdlc.RepoIndex.Charter;
@@ -739,6 +740,18 @@ public sealed class AgentActivityFunctions
     // The findings are whatever was said AFTER the previous run finished: comments following
     // the last <!-- ai-sdlc:status= --> terminal marker, excluding the platform's own stage
     // comments. That captures Yorrixx's verification findings without depending on their format.
+    // The cost-attribution scope for this run: appId from the repo name (user-app-{appId}), and a
+    // best-effort build iteration (a reopen = a new verify cycle; 0 on the first build).
+    internal static CostScope BuildCostScope(AgentContext context)
+    {
+        var segment = context.Repository.Split('/')[^1];
+        var appId = segment.StartsWith("user-app-", StringComparison.Ordinal)
+            ? segment["user-app-".Length..]
+            : segment;
+        var iteration = context.Metadata.ContainsKey("reopened") ? 1 : 0;
+        return new CostScope(appId, iteration);
+    }
+
     internal static string ExtractReopenFindings(IReadOnlyList<IssueComment> comments)
     {
         const int MaxChars = 20000;
@@ -951,9 +964,20 @@ public sealed class AgentActivityFunctions
                     context.Metadata[key] = await _contextStore.ResolveAsync(strValue, cancellationToken);
             }
 
-            var executionResult = await _agentRunner.ExecuteAsync(
-                new AgentExecutionRequest { AgentName = agentName, Context = context },
-                cancellationToken);
+            // Cost telemetry: scope the upcoming model calls to this app + build iteration so the
+            // cost-emitting provider can attribute token usage (best-effort; cleared after the run).
+            BuildCostContext.Current = BuildCostScope(context);
+            AgentExecutionResult executionResult;
+            try
+            {
+                executionResult = await _agentRunner.ExecuteAsync(
+                    new AgentExecutionRequest { AgentName = agentName, Context = context },
+                    cancellationToken);
+            }
+            finally
+            {
+                BuildCostContext.Current = null;
+            }
 
             if (!executionResult.Succeeded || executionResult.Result is null)
                 throw new InvalidOperationException(executionResult.ErrorMessage ?? $"Agent execution failed for '{agentName}'.");
