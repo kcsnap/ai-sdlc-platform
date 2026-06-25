@@ -7,9 +7,11 @@ using AiSdlc.Agents.Personas;
 using AiSdlc.Audit;
 using AiSdlc.GitHub;
 using AiSdlc.ModelProviders;
+using AiSdlc.Orchestrator.Cost;
 using AiSdlc.Orchestrator.Imagery;
 using AiSdlc.Orchestrator.Provisioning;
 using AiSdlc.Orchestrator.Webhooks;
+using Microsoft.Extensions.Logging;
 using AiSdlc.RepoIndex;
 using AiSdlc.Shared.AutoMerge;
 using AiSdlc.Shared.Redaction;
@@ -48,7 +50,7 @@ var host = new HostBuilder()
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<AnthropicRateLimiter>();
 
-        services.AddHttpClient<IModelProvider, AnthropicModelProvider>(client =>
+        services.AddHttpClient<AnthropicModelProvider>(client =>
         {
             var apiKey = Environment.GetEnvironmentVariable("AnthropicApiKey")
                 ?? throw new InvalidOperationException("AnthropicApiKey is not configured.");
@@ -60,6 +62,16 @@ var host = new HostBuilder()
             // TaskCanceledException and failing the stage). Match ThemeHarness's 5-minute ceiling.
             client.Timeout = TimeSpan.FromMinutes(5);
         });
+
+        // IModelProvider = the real Anthropic provider wrapped in the cost-telemetry emitter. The emitter
+        // POSTs raw token usage to Yorrixx per call (best-effort; inert unless YorrixxApiBase + YorrixxAdminKey
+        // are configured).
+        services.AddSingleton<IModelProvider>(sp => new CostEmittingModelProvider(
+            sp.GetRequiredService<AnthropicModelProvider>(),
+            sp.GetRequiredService<IHttpClientFactory>(),
+            sp.GetRequiredService<ILogger<CostEmittingModelProvider>>(),
+            Environment.GetEnvironmentVariable("YorrixxApiBase"),
+            Environment.GetEnvironmentVariable("YorrixxAdminKey")));
 
         // Real photography for marketing pages — used server-side only (the page gets public image URLs,
         // never the key). Without PexelsApiKey the platform stays generative-only (safe, inert default).

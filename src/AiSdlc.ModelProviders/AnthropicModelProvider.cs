@@ -99,8 +99,10 @@ public sealed class AnthropicModelProvider : IModelProvider
             ResponseText = text,
             Usage = new Dictionary<string, object>
             {
-                ["input_tokens"]  = result.Usage.InputTokens,
-                ["output_tokens"] = result.Usage.OutputTokens
+                ["input_tokens"]       = result.Usage.InputTokens,
+                ["output_tokens"]      = result.Usage.OutputTokens,
+                ["cache_read_tokens"]  = result.Usage.CacheReadInputTokens ?? 0,
+                ["cache_write_tokens"] = result.Usage.CacheCreationInputTokens ?? 0
             },
             WasTruncated = result.StopReason == "max_tokens"
         };
@@ -140,5 +142,6 @@ public sealed class AnthropicModelProvider : IModelProvider
         AnthropicUsage Usage);
 
     private sealed record AnthropicContent(string Type, string? Text);
-    private sealed record AnthropicUsage(int InputTokens, int OutputTokens);
+    private sealed record AnthropicUsage(
+        int InputTokens, int OutputTokens, int? CacheReadInputTokens, int? CacheCreationInputTokens);
 }
