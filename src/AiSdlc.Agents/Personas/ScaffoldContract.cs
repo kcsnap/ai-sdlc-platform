@@ -163,7 +163,12 @@ internal static class ScaffoldContract
         "- Acceptance tests: author tests/e2e/specs/acceptance.spec.ts over the seeded throwing stubs —\n" +
         "  replace each stub body with a real Playwright test for that acceptance criterion (the\n" +
         "  criteria are the contract). Never delete or skip a test. This is the ONE file under\n" +
-        "  tests/e2e/ you write; everything else there is immutable." +
+        "  tests/e2e/ you write; everything else there is immutable. Assert ONLY against copy you\n" +
+        "  actually render: quote your exact rendered text, never invent expected words — or, preferred,\n" +
+        "  put a stable data-testid on each primary CTA / interactive element and assert via that. SCOPE\n" +
+        "  every locator to its section: an a11y skip-link (\"Skip to …\") and the nav share the page, so a\n" +
+        "  page-wide getByText / getByRole('link') can bind to the wrong element — anchor hero/section\n" +
+        "  assertions with a data-testid or a section-scoped locator, never a bare page-wide match." +
         (needsAuth ? "" : " There is no auth, so do NOT add\n" +
         "  sign-in or registration steps — the app loads straight to content (data-testid=\"app-ready\").");
 
@@ -217,6 +222,13 @@ internal static class ScaffoldContract
         - Acceptance tests: you may fill `tests/e2e/specs/acceptance.spec.ts` over its seeded stubs with
           real RENDER-ONLY assertions (content present, internal links resolve, a form shows its success
           confirmation, no scaffold text). NEVER assert against `/api/*`, a database, or a live form POST.
+          Assert ONLY against copy you actually render: quote your exact rendered text — never invent
+          expected words like "Explore" that you did not write — or, preferred, put a stable `data-testid`
+          on each primary CTA / interactive element and assert via that. SCOPE every locator to its
+          section: the a11y skip-link ("Skip to …") and the nav share the page, so a page-wide
+          `getByText` / `getByRole('link')` can bind to the wrong element (e.g. a hero-CTA assertion
+          matching the skip-link) — anchor hero/section assertions with a `data-testid` or a
+          section-scoped locator, never a bare page-wide text/role match.
 
         IMMUTABLE — do NOT author, modify, or recreate (machine-managed): `.github/workflows/**` (the
         static deploy + verify workflows) and the rest of `tests/e2e/**` (the render-only harness).
