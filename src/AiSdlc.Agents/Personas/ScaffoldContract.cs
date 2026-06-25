@@ -211,6 +211,9 @@ internal static class ScaffoldContract
           so by DEFAULT complete client-side (no server call) — never a dead button or an action="#"
           no-op. If a "Form Capture" service is supplied in your context, submit the validated data to
           it instead (and reflect its response); otherwise stay client-side.
+        - FILTERS vs FORMS: a client-side filter / search box (no submission) is a `<div role="search">`
+          wrapping the inputs — NOT a `<form>`. A `<form>` with no submit button fails the wcag/h32
+          accessibility lint; reserve `<form>` for genuine submissions and always give it a submit button.
         - Acceptance tests: you may fill `tests/e2e/specs/acceptance.spec.ts` over its seeded stubs with
           real RENDER-ONLY assertions (content present, internal links resolve, a form shows its success
           confirmation, no scaffold text). NEVER assert against `/api/*`, a database, or a live form POST.
