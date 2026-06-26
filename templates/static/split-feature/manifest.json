@@ -1,0 +1,33 @@
+{
+  "id": "split-feature",
+  "name": "Split Feature",
+  "archetype": "split-hero · alternating-rows · contact-band",
+  "bestFor": ["studios", "agencies", "creative brands", "products", "portfolios", "hospitality"],
+  "moods": ["bold", "energetic", "modern", "editorial", "premium"],
+  "files": {
+    "index.html": "template.html",
+    "styles.css": "styles.css",
+    "app.js": "app.js",
+    "favicon.svg": "favicon.svg",
+    "tests/e2e/specs/acceptance.spec.ts": "acceptance.spec.ts"
+  },
+  "brandTokens": [
+    "BRAND_PRIMARY", "BRAND_ACCENT", "BRAND_INK", "BRAND_SURFACE",
+    "BRAND_SURFACE_ALT", "BRAND_MUTED", "THEME_COLOR",
+    "FONT_DISPLAY", "FONT_BODY", "GOOGLE_FONTS_HREF", "BRAND_INITIAL"
+  ],
+  "contentTokens": [
+    "SITE_TITLE", "META_DESCRIPTION", "BRAND_NAME", "CONTACT_SUBJECT",
+    "HERO_KICKER", "HERO_HEADING", "HERO_SUBHEADING", "HERO_CTA_LABEL", "HERO_SECONDARY_LABEL",
+    "FEATURES_KICKER", "FEATURES_HEADING",
+    "CONTACT_HEADING", "CONTACT_BODY", "CONTACT_CTA_LABEL",
+    "FOOTER_TAGLINE"
+  ],
+  "repeatables": {
+    "nav": { "min": 2, "max": 5, "tokens": ["LABEL", "HREF"] },
+    "feature": { "min": 3, "max": 5, "tokens": ["ICON", "TITLE", "BODY"] }
+  },
+  "platformTokens": ["YEAR"],
+  "deployTokens": ["__CONTACT_EMAIL__"],
+  "dataTestIds": ["app-ready", "hero", "hero-cta", "footer-contact"]
+}
