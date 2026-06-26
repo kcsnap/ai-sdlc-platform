@@ -32,6 +32,16 @@ public sealed class EmailLeakGuardTests
         Assert.Empty(EmailLeakGuard.Scan(files));
     }
 
+    // Pins the agreed Platform↔Yorrixx token (__CONTACT_EMAIL__, substituted at deploy) as guard-safe
+    // across every mailto context the seeded contract emits — hero, footer, and the coach/team/staff/
+    // agent cards that leaked a literal on 2026-06-25. A future regex change must never flag this token.
+    [Theory]
+    [InlineData("<a class=\"hero-cta\" href=\"mailto:__CONTACT_EMAIL__?subject=Coaching enquiry — Tennis\">Get in touch</a>")]
+    [InlineData("<footer><a href=\"mailto:__CONTACT_EMAIL__\">Contact us</a></footer>")]
+    [InlineData("<div class=\"coach-card\"><a href=\"mailto:__CONTACT_EMAIL__?subject=Coach\">Email coach</a></div>")]
+    public void Allows_contact_email_token_in_every_mailto_context(string html)
+        => Assert.Empty(EmailLeakGuard.Scan(new[] { new FileChange("index.html", html) }));
+
     [Theory]
     [InlineData("name@example.com")]
     [InlineData("hello@example.org")]
