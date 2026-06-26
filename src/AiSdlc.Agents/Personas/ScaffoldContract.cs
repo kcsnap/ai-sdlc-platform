@@ -168,7 +168,11 @@ internal static class ScaffoldContract
         "  put a stable data-testid on each primary CTA / interactive element and assert via that. SCOPE\n" +
         "  every locator to its section: an a11y skip-link (\"Skip to …\") and the nav share the page, so a\n" +
         "  page-wide getByText / getByRole('link') can bind to the wrong element — anchor hero/section\n" +
-        "  assertions with a data-testid or a section-scoped locator, never a bare page-wide match." +
+        "  assertions with a data-testid or a section-scoped locator, never a bare page-wide match.\n" +
+        "  DEPLOY-SUBSTITUTED VALUES: contact `mailto:` links use the `__CONTACT_EMAIL__` placeholder,\n" +
+        "  which is replaced with a real address at deploy. Tests run against the DEPLOYED site, so NEVER\n" +
+        "  assert the token or the exact mailto href (the deployed value differs) — assert only that the\n" +
+        "  link renders / is visible and that its href starts with \"mailto:\"." +
         (needsAuth ? "" : " There is no auth, so do NOT add\n" +
         "  sign-in or registration steps — the app loads straight to content (data-testid=\"app-ready\").");
 
@@ -228,7 +232,11 @@ internal static class ScaffoldContract
           section: the a11y skip-link ("Skip to …") and the nav share the page, so a page-wide
           `getByText` / `getByRole('link')` can bind to the wrong element (e.g. a hero-CTA assertion
           matching the skip-link) — anchor hero/section assertions with a `data-testid` or a
-          section-scoped locator, never a bare page-wide text/role match.
+          section-scoped locator, never a bare page-wide text/role match. DEPLOY-SUBSTITUTED VALUES:
+          contact `mailto:` links use the `__CONTACT_EMAIL__` placeholder, replaced with a real address
+          at deploy. These tests run against the DEPLOYED site, so NEVER assert the token or the exact
+          mailto href (the deployed value differs) — assert only that the link renders and that its
+          `href` starts with `mailto:`.
 
         IMMUTABLE — do NOT author, modify, or recreate (machine-managed): `.github/workflows/**` (the
         static deploy + verify workflows) and the rest of `tests/e2e/**` (the render-only harness).
