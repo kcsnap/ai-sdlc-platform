@@ -105,6 +105,8 @@ var host = new HostBuilder()
         services.AddSingleton<IAgent, SecurityPrivacyReviewerAgent>();
         services.AddSingleton<IAgent, DevOpsPlatformEngineerAgent>();
         services.AddSingleton<IAgent, ProductOwnerBranchReviewAgent>();
+        services.AddSingleton<AiSdlc.Agents.Templates.StaticTemplateLibrary>();
+        services.AddSingleton<IAgent, StaticTemplateBuilderAgent>();
         services.AddSingleton<IAgent, RiskAssessorAgent>();
         services.AddSingleton<IAgent, ReleaseManagerAgent>();
         services.AddSingleton<IAgentRunner, AgentRunner>();

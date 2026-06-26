@@ -3,4 +3,12 @@
     <ProjectReference Include="..\AiSdlc.Shared\AiSdlc.Shared.csproj" />
     <ProjectReference Include="..\AiSdlc.ModelProviders\AiSdlc.ModelProviders.csproj" />
   </ItemGroup>
+
+  <!-- Static template library (templates/static/**) embedded into the assembly so it travels with the
+       Functions deploy. LogicalName is forced to "tpl/<dir>/<file>" so the loader can group by template. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\templates\static\**\*.*">
+      <LogicalName>tpl/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>

@@ -417,9 +417,39 @@ public static class AiSdlcWorkflowOrchestrator
             var resumeMode = resumePr is not null;
 
             // ── Step 10: Generate code implementation ─────────────────────────
-            var implResult = await RunStageWithRecoveryAsync(context, agentContext, "Code Implementer",
-                () => context.CallActivityAsync<AgentResult>(
-                    nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
+            // Template-first Static (env-gated): a fresh Static build fills a pre-built template with a
+            // cheap model instead of generating from scratch on Opus. If that activity fails (no fitting
+            // template, bad model output → assembly throws), fall back to the Code Implementer — never
+            // worse than today. Repairs and FullStack always use the Code Implementer.
+            var useStaticTemplate =
+                !resumeMode
+                && !AgentActivityFunctions.IsRepairRun(agentContext.Metadata)
+                && AgentActivityFunctions.StaticTemplateFirstEnabled
+                && string.Equals(
+                    Convert.ToString(agentContext.Metadata.GetValueOrDefault("stackProfile")),
+                    "Static", StringComparison.OrdinalIgnoreCase);
+
+            AgentResult implResult;
+            if (useStaticTemplate)
+            {
+                try
+                {
+                    implResult = await context.CallActivityAsync<AgentResult>(
+                        nameof(AgentActivityFunctions.RunStaticTemplateBuilderAsync), agentContext, AgentRetryOptions);
+                }
+                catch (TaskFailedException)
+                {
+                    implResult = await RunStageWithRecoveryAsync(context, agentContext, "Code Implementer",
+                        () => context.CallActivityAsync<AgentResult>(
+                            nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
+                }
+            }
+            else
+            {
+                implResult = await RunStageWithRecoveryAsync(context, agentContext, "Code Implementer",
+                    () => context.CallActivityAsync<AgentResult>(
+                        nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
+            }
 
             // The implementation comment is posted AFTER the commits (step 11) as a summary with
             // branch + SHA — code lives only on the branch, never in issue comments (#84).

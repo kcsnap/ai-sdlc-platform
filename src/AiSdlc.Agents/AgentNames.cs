@@ -19,4 +19,5 @@ public static class AgentNames
     public const string ReleaseManager               = "Release Manager";
     public const string CodeImplementer              = "Code Implementer";
     public const string ProductOwnerBranchReview     = "Product Owner Branch Reviewer";
+    public const string StaticTemplateBuilder        = "Static Template Builder";
 }
