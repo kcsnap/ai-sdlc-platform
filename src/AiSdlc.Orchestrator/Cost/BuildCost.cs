@@ -44,6 +44,10 @@ public static class CostPhase
         if (string.Equals(agentName, AgentNames.CodeImplementer, StringComparison.Ordinal))
             return string.Equals(taskType, "CodeRepair", StringComparison.Ordinal) ? "fix-loop" : "code-gen";
 
+        // Template-first Static build runs the cheap select+fill on one model call — same cost bucket as code-gen.
+        if (string.Equals(agentName, AgentNames.StaticTemplateBuilder, StringComparison.Ordinal))
+            return "code-gen";
+
         return agentName switch
         {
             AgentNames.QaTestEngineer => "test-impl",

@@ -852,6 +852,14 @@ public sealed class AgentActivityFunctions
     public Task<AgentResult> RunCodeImplementerAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
         ExecuteAsync(AgentNames.CodeImplementer, context, cancellationToken);
 
+    [Function(nameof(RunStaticTemplateBuilderAsync))]
+    public Task<AgentResult> RunStaticTemplateBuilderAsync([ActivityTrigger] AgentContext context, CancellationToken cancellationToken) =>
+        ExecuteAsync(AgentNames.StaticTemplateBuilder, context, cancellationToken);
+
+    /// <summary>Env-gated rollout switch for the template-first Static path (off unless StaticTemplateFirst=true).</summary>
+    public static bool StaticTemplateFirstEnabled =>
+        string.Equals(Environment.GetEnvironmentVariable("StaticTemplateFirst"), "true", StringComparison.OrdinalIgnoreCase);
+
     [Function(nameof(GetDefaultBranchNameActivityAsync))]
     public async Task<string> GetDefaultBranchNameActivityAsync([ActivityTrigger] string repository, CancellationToken cancellationToken)
     {
