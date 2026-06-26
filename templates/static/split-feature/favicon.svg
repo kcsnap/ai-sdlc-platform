@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="{{BRAND_NAME}}">
+  <rect width="64" height="64" rx="14" fill="{{BRAND_PRIMARY}}" />
+  <text x="50%" y="53%" dominant-baseline="middle" text-anchor="middle"
+        font-family="{{FONT_DISPLAY}}" font-size="34" font-weight="800"
+        fill="{{BRAND_SURFACE}}">{{BRAND_INITIAL}}</text>
+</svg>
