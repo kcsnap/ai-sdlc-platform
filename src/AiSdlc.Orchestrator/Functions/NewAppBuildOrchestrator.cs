@@ -6,6 +6,7 @@ using AiSdlc.RepoIndex.Charter;
 using AiSdlc.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.DurableTask;
+using Yorrixx.Provisioner.Contracts;
 
 namespace AiSdlc.Orchestrator.Functions;
 
@@ -57,16 +58,16 @@ public static class NewAppBuildOrchestrator
         // 'provision-result', and a GET poll is the fallback if it's dropped.
         await Status("provisioning", "Provision");
         var (repoOwner, repoName) = SplitFullName(repo.FullName);
-        var provisionRequest = new ProvisionRequest
-        {
-            AppId        = request.AppId,
-            BuildId      = context.InstanceId,
-            StackProfile = stackProfile.ToString(),
-            Capabilities = ProvisionCapabilities.From(
-                CapabilityResolver.Resolve(charter, databaseDerived: charter.Constraints.NeedsPersistence)),
-            Repo         = new ProvisionRepo(repoOwner, repoName, repo.DefaultBranch),
-        };
-        await context.CallActivityAsync(nameof(BuildActivityFunctions.StartProvisionAsync), provisionRequest);
+        var provisionSpec = new ProvisionSpec(
+            AppId:        request.AppId,
+            BuildId:      context.InstanceId,
+            Env:          "dev",
+            Region:       "northeurope",
+            StackProfile: stackProfile.ToString(),
+            Capabilities: CapabilityResolver.Resolve(charter, databaseDerived: charter.Constraints.NeedsPersistence)
+                              .ToProvisionCapabilities(),
+            Repo:         new ProvisionRepo(repoOwner, repoName, repo.DefaultBranch));
+        await context.CallActivityAsync(nameof(BuildActivityFunctions.StartProvisionAsync), provisionSpec);
 
         ProvisionResult? result;
         using (var cts = new CancellationTokenSource())

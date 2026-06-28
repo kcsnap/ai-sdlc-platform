@@ -3,6 +3,7 @@ using System.Text;
 using AiSdlc.GitHub;
 using AiSdlc.Orchestrator.Builds;
 using AiSdlc.Orchestrator.Provisioning;
+using Yorrixx.Provisioner.Contracts;
 using AiSdlc.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
@@ -57,7 +58,7 @@ public sealed class BuildActivityFunctions
     }
 
     [Function(nameof(StartProvisionAsync))]
-    public async Task StartProvisionAsync([ActivityTrigger] ProvisionRequest request, CancellationToken cancellationToken)
+    public async Task StartProvisionAsync([ActivityTrigger] ProvisionSpec request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("Provisioning {AppId} (build {BuildId}, {Profile}).", request.AppId, request.BuildId, request.StackProfile);
         await _provisioner.StartProvisionAsync(request, cancellationToken);

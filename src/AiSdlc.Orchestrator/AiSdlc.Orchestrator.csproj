@@ -28,5 +28,6 @@
     <ProjectReference Include="..\AiSdlc.Events.Contract\AiSdlc.Events.Contract.csproj" />
     <ProjectReference Include="..\AiSdlc.ModelProviders\AiSdlc.ModelProviders.csproj" />
     <ProjectReference Include="..\AiSdlc.RepoIndex\AiSdlc.RepoIndex.csproj" />
+    <ProjectReference Include="..\Yorrixx.Provisioner.Contracts\Yorrixx.Provisioner.Contracts.csproj" />
   </ItemGroup>
 </Project>
