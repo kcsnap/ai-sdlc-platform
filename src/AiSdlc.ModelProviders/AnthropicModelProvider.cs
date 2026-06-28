@@ -36,21 +36,28 @@ public sealed class AnthropicModelProvider : IModelProvider
     public async Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken)
     {
         var systemPrompt = _redaction.Redact(request.SystemPrompt ?? string.Empty).RedactedText;
-        var userContent  = BuildUserContent(request);
         var maxTokens    = request.MaxTokens ?? _options.DefaultMaxTokens;
         var model        = ResolveModel(request.AgentName);
+        var caching      = _options.EnablePromptCaching;
+
+        // The system prompt and the context-document prefix are stable across the many calls that
+        // share them; the trailing user prompt (per-batch instructions, findings) is what varies.
+        // A cache breakpoint after the system block and after the last document lets Anthropic reuse
+        // that prefix at ~10% input cost. Disabled → the original single-string body, byte-for-byte.
+        var systemField  = BuildSystemField(systemPrompt, caching);
+        var contentField = BuildUserContent(request, caching, out var contentChars);
 
         var body = new
         {
             Model     = model,
             MaxTokens = maxTokens,
-            System    = systemPrompt,
-            Messages  = new[] { new { Role = "user", Content = userContent } }
+            System    = systemField,
+            Messages  = new[] { new { Role = "user", Content = contentField } }
         };
 
         // Rough input estimate (~4 chars per token) is enough for admission control —
         // the response headers correct the budget to the server's real numbers.
-        var estimatedInputTokens = (systemPrompt.Length + userContent.Length) / 4;
+        var estimatedInputTokens = (systemPrompt.Length + contentChars) / 4;
         using var lease = await _rateLimiter.AcquireAsync(estimatedInputTokens, maxTokens, cancellationToken);
 
         HttpResponseMessage httpResponse = null!;
@@ -116,10 +123,54 @@ public sealed class AnthropicModelProvider : IModelProvider
             ? overrideModel
             : _options.ModelName;
 
-    private string BuildUserContent(ModelRequest request)
+    // Ephemeral marker placed on the last block of a cacheable prefix; everything up to and
+    // including a marked block is cached. Anthropic allows up to four such breakpoints.
+    private static object CacheControl => new { type = "ephemeral" };
+
+    // System prompt: a single cached text block when caching is on (and non-empty — an empty text
+    // block is rejected), otherwise the plain string the API also accepts.
+    private static object BuildSystemField(string systemPrompt, bool caching) =>
+        caching && systemPrompt.Length > 0
+            ? new object[] { new { type = "text", text = systemPrompt, cache_control = (object?)CacheControl } }
+            : systemPrompt;
+
+    // User message content. Caching off → the original single concatenated string (byte-for-byte).
+    // Caching on → one text block per context document with the breakpoint on the LAST document, so
+    // the system + full document prefix is reused; the variable user prompt trails uncached.
+    private object BuildUserContent(ModelRequest request, bool caching, out int charLength)
     {
         var userPrompt = _redaction.Redact(request.UserPrompt).RedactedText;
 
+        if (!caching)
+        {
+            var s = BuildConcatenatedContent(request, userPrompt);
+            charLength = s.Length;
+            return s;
+        }
+
+        var docs   = request.ContextDocuments.ToList();
+        var blocks = new List<object>(docs.Count + 1);
+        var total  = 0;
+        for (var i = 0; i < docs.Count; i++)
+        {
+            var text = $"<document name=\"{docs[i].Key}\">\n{_redaction.Redact(docs[i].Value).RedactedText}\n</document>\n";
+            total += text.Length;
+            var isLastDoc = i == docs.Count - 1;
+            blocks.Add(new { type = "text", text, cache_control = isLastDoc ? (object?)CacheControl : null });
+        }
+
+        if (userPrompt.Length > 0)
+        {
+            total += userPrompt.Length;
+            blocks.Add(new { type = "text", text = userPrompt, cache_control = (object?)null });
+        }
+
+        charLength = total;
+        return blocks.ToArray();
+    }
+
+    private string BuildConcatenatedContent(ModelRequest request, string userPrompt)
+    {
         if (request.ContextDocuments.Count == 0)
             return userPrompt;
 
