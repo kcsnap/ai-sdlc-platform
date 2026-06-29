@@ -107,6 +107,13 @@ public interface IHostingService
     /// idempotent semantics as <see cref="DeprovisionAsync"/>.
     Task DeprovisionByAppIdAsync(string appId, CancellationToken cancellationToken = default);
 
+    /// Month-to-date hosting spend for one app in minor currency units (+ the billing currency), for the
+    /// provisioner's /spend relay. Cost is attributed by the appId-derived id8 carried in every per-app
+    /// resource id. Returns (0, default currency) when cost can't be read (no Cost Management Reader RBAC
+    /// yet, or no spend accrued) so the relay stays inert rather than erroring.
+    Task<(long MinorUnits, string Currency)> GetHostingSpendByAppIdAsync(
+        string appId, CancellationToken cancellationToken = default);
+
     /// Deletes Clerk users created by the seeded e2e auth spec for this app
     /// (see IClerkOrgProvisioner.CleanupE2eTestUsersAsync). Called by release
     /// verification after the UI-test check, pass or fail. Returns the number

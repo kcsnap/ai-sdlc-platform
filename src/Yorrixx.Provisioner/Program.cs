@@ -77,14 +77,17 @@ app.MapPost("/deprovision", async (DeprovisionRequest req, IHostingService hosti
     }
 });
 
-// Call 4 — hosting spend by appId tag. TODO (slice 3b): wire the Azure
-// Cost-Management query (depends on the mandatory appId tag being stamped on
-// every resource). Returns zero until then so the platform's daily relay is
-// inert rather than erroring.
-app.MapGet("/spend", (string appId, HttpContext ctx) =>
+// Call 4 — hosting spend by appId. HostingService runs the Cost Management MTD query, grouped by
+// ResourceId and matched on the app's id8 (no per-resource tag needed). Requires Cost Management Reader
+// on the subscription; until that RBAC is granted (or before cost accrues) it returns 0, so this relay
+// stays inert rather than erroring.
+app.MapGet("/spend", async (string appId, IHostingService hosting, HttpContext ctx) =>
 {
     if (!Authorized(ctx)) return Results.Unauthorized();
-    return Results.Ok(new HostingSpend("GBP", MonthToDateMinor: 0, AsOf: DateTimeOffset.UtcNow));
+    if (string.IsNullOrWhiteSpace(appId))
+        return Results.BadRequest(new { error = "appId is required" });
+    var (minor, currency) = await hosting.GetHostingSpendByAppIdAsync(appId, ctx.RequestAborted);
+    return Results.Ok(new HostingSpend(currency, minor, DateTimeOffset.UtcNow));
 });
 
 app.Run();

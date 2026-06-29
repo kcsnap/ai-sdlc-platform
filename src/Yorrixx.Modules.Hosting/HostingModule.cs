@@ -23,6 +23,9 @@ public sealed class HostingModule : IModuleRegistration
         services.AddSingleton<TokenCredential>(_ => new DefaultAzureCredential());
         services.AddSingleton(sp => new ArmClient(sp.GetRequiredService<TokenCredential>()));
 
+        // IHttpClientFactory for HostingService's Cost Management REST query.
+        services.AddHttpClient();
+
         var subscriptionId = configuration[$"{HostingOptions.SectionName}:SubscriptionId"];
         var tenantId       = configuration[$"{HostingOptions.SectionName}:TenantId"];
         var configured     = !string.IsNullOrWhiteSpace(subscriptionId);
@@ -108,6 +111,10 @@ internal sealed class StubHostingService : IHostingService
 
     public Task DeprovisionByAppIdAsync(string appId, CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
+
+    public Task<(long MinorUnits, string Currency)> GetHostingSpendByAppIdAsync(
+        string appId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<(long, string)>((0, "GBP"));
 
     public Task<int> CleanupE2eTestUsersAsync(string appId, CancellationToken cancellationToken = default) =>
         Task.FromResult(0);

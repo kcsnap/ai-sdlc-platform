@@ -1,3 +1,6 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
 using Azure;
 using Azure.Core;
 using Azure.ResourceManager;
@@ -50,6 +53,8 @@ internal sealed class HostingService : IHostingService
     private readonly IClerkOrgProvisioner _clerk;
     private readonly IUserAppDeployIdentityProvisioner _deployIdentity;
     private readonly ILogger<HostingService> _logger;
+    private readonly TokenCredential _credential;
+    private readonly IHttpClientFactory _httpFactory;
 
     // Built-in Cosmos DB data-plane role — read/write on a container scope.
     private const string CosmosDataContributorRoleDefinitionId = "00000000-0000-0000-0000-000000000002";
@@ -83,13 +88,17 @@ internal sealed class HostingService : IHostingService
         IOptions<HostingOptions> options,
         IClerkOrgProvisioner clerk,
         IUserAppDeployIdentityProvisioner deployIdentity,
-        ILogger<HostingService> logger)
+        ILogger<HostingService> logger,
+        TokenCredential credential,
+        IHttpClientFactory httpFactory)
     {
         _arm = arm;
         _opts = options.Value;
         _clerk = clerk;
         _deployIdentity = deployIdentity;
         _logger = logger;
+        _credential = credential;
+        _httpFactory = httpFactory;
     }
 
     public async Task<DeployedApp?> GetAsync(string appId, CancellationToken cancellationToken = default)
@@ -558,6 +567,88 @@ internal sealed class HostingService : IHostingService
         await SafeAsync("deploy identity remove", appId, () => _deployIdentity.RemoveAsync(appId, cancellationToken));
 
         _logger.LogInformation("deprovision-by-appId complete app {AppId}", appId);
+    }
+
+    public async Task<(long MinorUnits, string Currency)> GetHostingSpendByAppIdAsync(
+        string appId, CancellationToken cancellationToken = default)
+    {
+        // Month-to-date actual cost for one app, via the Cost Management REST query (the ARM SDK surface
+        // for this is awkward; the REST contract is stable). All per-app resources share one RG, so group
+        // by ResourceId and sum the rows whose resource id carries this app's id8 — same id8 convention as
+        // DeprovisionByAppIdAsync, no per-resource tag needed. Requires Cost Management Reader on the
+        // subscription; until that's granted (or before any cost accrues) the query fails or returns no
+        // matching rows and we return 0, so the platform's daily /spend relay stays inert rather than erroring.
+        const string fallbackCurrency = "GBP";
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_opts.SubscriptionId))
+                return (0, fallbackCurrency);
+
+            var id8 = ResourceNames.From(appId, appName: string.Empty).Id8;
+            var token = await _credential.GetTokenAsync(
+                new TokenRequestContext(new[] { "https://management.azure.com/.default" }), cancellationToken);
+
+            var http = _httpFactory.CreateClient();
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+
+            var url = $"https://management.azure.com/subscriptions/{_opts.SubscriptionId}" +
+                      "/providers/Microsoft.CostManagement/query?api-version=2023-11-01";
+            var queryBody = new
+            {
+                type = "ActualCost",
+                timeframe = "MonthToDate",
+                dataset = new
+                {
+                    granularity = "None",
+                    aggregation = new { totalCost = new { name = "Cost", function = "Sum" } },
+                    grouping = new[] { new { type = "Dimension", name = "ResourceId" } },
+                },
+            };
+
+            using var response = await http.PostAsJsonAsync(url, queryBody, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("spend query for {AppId} returned {Status} — treating as 0", appId, (int)response.StatusCode);
+                return (0, fallbackCurrency);
+            }
+
+            var doc = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
+            var props = doc.GetProperty("properties");
+
+            // Resolve column indices from the response rather than assuming order.
+            int costIdx = -1, resourceIdx = -1, currencyIdx = -1, i = 0;
+            foreach (var col in props.GetProperty("columns").EnumerateArray())
+            {
+                switch (col.GetProperty("name").GetString())
+                {
+                    case "Cost" or "PreTaxCost" or "CostUSD": costIdx = i; break;
+                    case "ResourceId": resourceIdx = i; break;
+                    case "Currency": currencyIdx = i; break;
+                }
+                i++;
+            }
+            if (costIdx < 0 || resourceIdx < 0)
+                return (0, fallbackCurrency);
+
+            decimal total = 0;
+            var currency = fallbackCurrency;
+            foreach (var row in props.GetProperty("rows").EnumerateArray())
+            {
+                var resourceId = row[resourceIdx].GetString() ?? string.Empty;
+                if (!resourceId.Contains(id8, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                total += row[costIdx].GetDecimal();
+                if (currencyIdx >= 0)
+                    currency = row[currencyIdx].GetString() ?? fallbackCurrency;
+            }
+
+            return ((long)Math.Round(total * 100m, MidpointRounding.AwayFromZero), currency);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "spend query failed for {AppId} — returning 0", appId);
+            return (0, fallbackCurrency);
+        }
     }
 
     private async Task DeleteWebSiteAsync(ResourceGroupResource rg, string name, CancellationToken ct) =>
