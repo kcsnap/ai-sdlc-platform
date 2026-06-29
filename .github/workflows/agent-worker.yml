@@ -47,10 +47,26 @@ jobs:
         id: task
         run: echo "number=${{ github.event.issue.number || inputs.issue_number }}" >> "$GITHUB_OUTPUT"
 
+      # TEMPORARY: reuse the platform's existing Anthropic key from Key Vault so the dev mesh
+      # needs no new secret. TODO (tech debt): give the dev mesh its OWN Anthropic key/budget,
+      # separate from the product's runtime key — see docs/roadmap/agent-mesh-spike.md.
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Fetch Anthropic key from Key Vault
+        run: |
+          KEY="$(az keyvault secret show --vault-name kv-aisdlc-81c0 --name AnthropicApiKey --query value -o tsv)"
+          echo "::add-mask::$KEY"
+          echo "ANTHROPIC_API_KEY=$KEY" >> "$GITHUB_ENV"
+
       - name: Run worker agent
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
           # Bound the run so a confused task can't burn unbounded tokens. Tune as needed;
           # add `--model <id>` here to pick a cheaper model for routine worker tasks.
           claude_args: "--max-turns 20"

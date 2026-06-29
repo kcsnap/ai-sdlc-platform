@@ -69,13 +69,24 @@ one turn, decides next moves, and fires the next labels. (A reply comment can la
 
 ## Setup prerequisites
 
-1. **Repo secret `ANTHROPIC_API_KEY`** — add the Anthropic key as an Actions secret
-   (`Settings → Secrets and variables → Actions`). It can later be sourced from Key Vault
-   (`kv-aisdlc-81c0`) via the existing OIDC login instead of a duplicated secret.
+1. **Anthropic key (reused from Key Vault — no new secret).** The workflow logs in via the
+   existing OIDC service principal and pulls `AnthropicApiKey` from `kv-aisdlc-81c0`, the same
+   key the platform already uses. **One-time grant:** the CI service principal
+   (`sp-aisdlc-github`) needs read access to the vault's secrets — `Key Vault Secrets User`
+   (RBAC) or a get policy on `kv-aisdlc-81c0`. If the *Fetch Anthropic key from Key Vault* step
+   fails with a permissions error, that grant is missing. (Fallback: drop a repo secret
+   `ANTHROPIC_API_KEY` and point the run step at it instead.)
 2. **Label `agent:worker`** — create it once: `gh label create agent:worker -c '#5319e7' -d 'Mesh: dispatch to the yorrixx-agents worker'`.
 3. **Default-branch caveat** — `issues.labeled` runs the workflow from `main`. The label-driven
    path only goes live once `agent-worker.yml` is merged to `main`. Until then, test with
    `workflow_dispatch`.
+
+## Known shortcut / tech debt
+
+- **Shared Anthropic key.** For now the dev mesh reuses the *product's* runtime Anthropic key
+  from Key Vault. This conflates dev-rig spend with product spend and shares a blast radius.
+  **TODO:** provision a dedicated Anthropic key (own budget + rate limits) for the dev mesh and
+  point `agent-worker.yml` at it — either a separate Key Vault secret or its own Actions secret.
 
 ## Running the spike
 

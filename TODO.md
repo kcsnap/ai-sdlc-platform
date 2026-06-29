@@ -574,6 +574,7 @@ Ensure dotnet build and dotnet test pass.
 - [ ] Ensure no secrets are stored in source
 - [ ] Ensure local development uses user secrets or environment variables only
 - [ ] Add least-privilege permission model
+- [ ] Separate the dev-mesh Anthropic key from the product runtime key (the `agent-worker.yml` spike reuses `kv-aisdlc-81c0/AnthropicApiKey` for now — see `docs/roadmap/agent-mesh-spike.md`)
 
 ## 8.2 GitHub Actions to Azure
 
