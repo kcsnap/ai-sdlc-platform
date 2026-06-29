@@ -3,18 +3,17 @@ using System.Text;
 using AiSdlc.Orchestrator.Builds;
 using AiSdlc.Orchestrator.Provisioning;
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Provisioner.Contracts;
 using Xunit;
 
 namespace AiSdlc.Orchestrator.Tests;
 
 public sealed class ProvisionerClientTests
 {
-    private static ProvisionRequest SampleRequest() => new()
-    {
-        AppId = "app1", BuildId = "build-app1", StackProfile = "Static",
-        Capabilities = new ProvisionCapabilities(false, false, false, false, false),
-        Repo = new ProvisionRepo("yorrixx-apps", "user-app-app1", "main")
-    };
+    private static ProvisionSpec SampleRequest() => new(
+        AppId: "app1", BuildId: "build-app1", Env: "dev", Region: "northeurope", StackProfile: "Static",
+        Capabilities: new ProvisionCapabilities(false, false, false, false, false),
+        Repo: new ProvisionRepo("yorrixx-apps", "user-app-app1", "main"));
 
     [Fact]
     public async Task StartProvisionAsync_posts_the_request_to_provision()
@@ -65,7 +64,7 @@ public sealed class ProvisionerClientTests
     public void Capabilities_From_profile_maps_every_axis()
     {
         var profile = new CapabilityProfile { Api = true, Database = true, Auth = true, Payments = true, Email = false, AIApi = false };
-        var caps = ProvisionCapabilities.From(profile);
+        var caps = profile.ToProvisionCapabilities();
 
         Assert.True(caps.Auth);
         Assert.True(caps.Database);

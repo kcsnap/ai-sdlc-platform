@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Canonical provisioner⇄platform wire contract (ADR-XR-0001 A6). Relocated from yorrixx-app
+         with the provisioner. net8 per ADR §2 (.NET split: moved code targets net8); dependency-free
+         so it stays cleanly packageable. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

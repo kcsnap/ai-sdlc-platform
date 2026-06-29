@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Hosting interface seam (ADR-XR-0001). Dependency-free — no Yorrixx.Shared reference (verified: the
+       interfaces use no Shared types). net8 + ImplicitUsings + Nullable inherited from Directory.Build.props. -->
+
+</Project>

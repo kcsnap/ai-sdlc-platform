@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ARM provisioning engine (ADR-XR-0001, grandfathered copy). Sever: dropped Yorrixx.Shared (only
+       IModuleRegistration was used → re-homed here) and Yorrixx.Contracts.Generation (0 types used).
+       net8 inherited from Directory.Build.props. -->
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Yorrixx.Contracts.Hosting\Yorrixx.Contracts.Hosting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.13.0" />
+    <PackageReference Include="Azure.ResourceManager" Version="1.13.0" />
+    <PackageReference Include="Azure.ResourceManager.AppService" Version="1.3.0" />
+    <PackageReference Include="Azure.ResourceManager.ApplicationInsights" Version="1.0.1" />
+    <PackageReference Include="Azure.ResourceManager.Authorization" Version="1.1.4" />
+    <PackageReference Include="Azure.ResourceManager.CosmosDB" Version="1.3.2" />
+    <PackageReference Include="Azure.ResourceManager.KeyVault" Version="1.3.1" />
+    <PackageReference Include="Azure.ResourceManager.ManagedServiceIdentities" Version="1.3.0" />
+    <PackageReference Include="Azure.ResourceManager.Storage" Version="1.3.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.22.2" />
+  </ItemGroup>
+
+</Project>

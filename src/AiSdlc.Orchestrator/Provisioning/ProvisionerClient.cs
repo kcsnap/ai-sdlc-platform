@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using AiSdlc.Orchestrator.Builds;
+using Yorrixx.Provisioner.Contracts;
 
 namespace AiSdlc.Orchestrator.Provisioning;
 
@@ -10,7 +10,7 @@ namespace AiSdlc.Orchestrator.Provisioning;
 public interface IProvisionerClient
 {
     /// <summary>Call 1 — fire the async provision request (provisioner 202s; result arrives via callback).</summary>
-    Task StartProvisionAsync(ProvisionRequest request, CancellationToken cancellationToken);
+    Task StartProvisionAsync(ProvisionSpec request, CancellationToken cancellationToken);
 
     /// <summary>Poll fallback — GET /provision/{buildId}; null when no result is available yet.</summary>
     Task<ProvisionResult?> GetProvisionResultAsync(string buildId, CancellationToken cancellationToken);
@@ -28,7 +28,7 @@ public sealed class ProvisionerClient : IProvisionerClient
 
     public ProvisionerClient(HttpClient http) => _http = http;
 
-    public async Task StartProvisionAsync(ProvisionRequest request, CancellationToken cancellationToken)
+    public async Task StartProvisionAsync(ProvisionSpec request, CancellationToken cancellationToken)
     {
         using var response = await _http.PostAsJsonAsync("provision", request, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -51,6 +51,6 @@ public sealed class NoOpProvisionerClient : IProvisionerClient
     private static InvalidOperationException NotConfigured() =>
         new("Provisioner is not configured — set the ProvisionerUrl app setting to enable provisioning.");
 
-    public Task StartProvisionAsync(ProvisionRequest request, CancellationToken cancellationToken) => throw NotConfigured();
+    public Task StartProvisionAsync(ProvisionSpec request, CancellationToken cancellationToken) => throw NotConfigured();
     public Task<ProvisionResult?> GetProvisionResultAsync(string buildId, CancellationToken cancellationToken) => throw NotConfigured();
 }

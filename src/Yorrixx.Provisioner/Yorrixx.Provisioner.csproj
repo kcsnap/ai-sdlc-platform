@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Standalone provisioner host (ADR-XR-0001). Sever: dropped Yorrixx.DeployTemplate (only
+       DeployWorkflowTemplate was used → carried into Internal/). net8 inherited from Directory.Build.props. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Yorrixx.Provisioner.Contracts\Yorrixx.Provisioner.Contracts.csproj" />
+    <ProjectReference Include="..\Yorrixx.Contracts.Hosting\Yorrixx.Contracts.Hosting.csproj" />
+    <ProjectReference Include="..\Yorrixx.Modules.Hosting\Yorrixx.Modules.Hosting.csproj" />
+  </ItemGroup>
+
+</Project>
