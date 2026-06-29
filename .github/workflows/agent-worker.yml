@@ -1,14 +1,17 @@
 name: Agent Worker (mesh spike)
 
 # Zero-idle-burn worker for the agent mesh (see docs/roadmap/agent-mesh-spike.md).
-# The orchestrator dispatches work by opening an issue and applying the `agent:worker`
-# label. GitHub's event system is the "monitor"; this workflow is the "nudge" — Claude
-# only runs when there is a task, does the work, comments the result back, and exits.
+# The orchestrator dispatches by labelling an issue `agent:worker`. GitHub's event
+# system is the "monitor"; this workflow is the "nudge" — Claude runs headless only
+# when there is a task, the reply is posted back as a comment, and the run exits.
 # Nothing polls and nothing idles, so there is no token cost at rest.
 #
-# NOTE: `issues.labeled` runs the copy of this file on the DEFAULT branch (main), so the
-# label-driven path only goes live once this is merged. Use `workflow_dispatch` to test
-# the Claude round-trip from a feature branch first.
+# Reply delivery is deterministic: the agent WRITES its reply to .agent-reply.md
+# (no GitHub tools needed), and the final step posts that file as the issue comment.
+#
+# NOTE: `issues.labeled` runs the copy of this file on the DEFAULT branch (main), and
+# claude-code-action additionally requires the running workflow to match main. Use
+# `workflow_dispatch` only for the non-Claude steps; the model runs on the main copy.
 
 on:
   issues:
@@ -21,39 +24,47 @@ on:
         type: string
 
 permissions:
-  contents: write        # commit to a branch if the task needs code changes
+  contents: read
   issues: write          # post the reply comment
-  pull-requests: write   # open a PR when the task produces code
-  id-token: write        # claude-code-action GitHub App token exchange
+  id-token: write        # Azure OIDC login
 
-# Serialise runs per issue so a double-dispatch can't act twice on the same task.
 concurrency:
   group: agent-worker-${{ github.event.issue.number || inputs.issue_number }}
   cancel-in-progress: false
 
 jobs:
   worker:
-    # Event-driven gate: only the `agent:worker` label triggers a run. Manual dispatch
-    # always runs. Any other label change is ignored (no wasted minutes, no loop).
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.label.name == 'agent:worker'
     runs-on: ubuntu-latest
-    # The Azure OIDC secrets (AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID)
-    # are scoped to the `dev` GitHub environment, same as ci.yml's deploy job. Without
-    # this, azure/login receives empty values and fails before the Key Vault fetch.
+    # Azure OIDC secrets are scoped to the `dev` GitHub environment (as in ci.yml).
     environment: dev
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Resolve task issue number
+      - name: Fetch task (issue number + body)
         id: task
-        run: echo "number=${{ github.event.issue.number || inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NUM="${{ github.event.issue.number || inputs.issue_number }}"
+          echo "number=$NUM" >> "$GITHUB_OUTPUT"
+          BODY=$(curl -sS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/$NUM" \
+            | jq -r '.body // ""')
+          {
+            echo "body<<__TASK_EOF__"
+            echo "$BODY"
+            echo "__TASK_EOF__"
+          } >> "$GITHUB_OUTPUT"
 
-      # TEMPORARY: reuse the platform's existing Anthropic key from Key Vault so the dev mesh
-      # needs no new secret. TODO (tech debt): give the dev mesh its OWN Anthropic key/budget,
-      # separate from the product's runtime key — see docs/roadmap/agent-mesh-spike.md.
+      # TEMPORARY: reuse the platform's existing Anthropic key from Key Vault so the dev
+      # mesh needs no new secret. TODO (tech debt): give the dev mesh its own key/budget —
+      # see docs/roadmap/agent-mesh-spike.md.
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -71,33 +82,41 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
-          # Bound the run so a confused task can't burn unbounded tokens. Tune as needed;
-          # add `--model <id>` here to pick a cheaper model for routine worker tasks.
-          claude_args: "--max-turns 20"
+          # Sonnet is plenty for worker tasks (Opus thrashed + cost ~$0.55). Read-only
+          # toolset + Write (for the reply file). Bounded turns to cap cost.
+          claude_args: "--max-turns 8 --model claude-sonnet-4-6 --allowedTools Read,Grep,Glob,Write"
           prompt: |
-            You are the "yorrixx-agents" worker in repo ${{ github.repository }}, driven by the
-            orchestrator over GitHub issues (the mesh bus). Your task is in issue
-            #${{ steps.task.outputs.number }}.
+            You are the "yorrixx-agents" worker in repo ${{ github.repository }}, dispatched by the
+            orchestrator via issue #${{ steps.task.outputs.number }}.
 
-            Do this, in order:
-            1. Read issue #${{ steps.task.outputs.number }} (title + body) to get the task.
-            2. Perform it. If it needs code changes, work on a branch named
-               `agent/${{ steps.task.outputs.number }}-<short-slug>`, commit minimally, and open a PR
-               that closes the issue. If it is read-only/informational, no branch is needed.
-            3. Post your reply to the orchestrator as a comment on issue
-               #${{ steps.task.outputs.number }}, containing this exact marker block so the
-               orchestrator can parse it:
+            TASK (verbatim from the issue):
+            ${{ steps.task.outputs.body }}
 
-               <!-- yorrixx:reply v=1 -->
-               ### 🤖 Worker reply — ${{ github.repository }}
-               **Status:** COMPLETE | BLOCKED | FAILED
-               **Summary:** <one line>
-               **Details:**
-               <what you did; link any branch / PR / SHA; state anything the orchestrator must sequence next>
+            Use the Read / Grep / Glob tools against the repo to complete the task. Do NOT run shell,
+            git, or GitHub commands — you have no need for them.
 
-            Rules:
-            - Do NOT add or remove issue labels — that can retrigger the mesh.
-            - Do NOT close the issue yourself; the orchestrator sequences that.
-            - Keep changes minimal and scoped strictly to the task.
-            - If the task is ambiguous or you are blocked, reply with Status: BLOCKED and say
-              exactly what you need to proceed.
+            When finished, use the Write tool to create a file at the repo root named `.agent-reply.md`
+            containing EXACTLY this block (the workflow posts it back to the issue):
+
+            <!-- yorrixx:reply v=1 -->
+            ### 🤖 Worker reply — ${{ github.repository }}
+            **Status:** COMPLETE | BLOCKED | FAILED
+            **Summary:** <one line>
+            **Details:**
+            <your answer>
+
+      - name: Post worker reply
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f .agent-reply.md ]; then
+            BODY="$(cat .agent-reply.md)"
+          else
+            BODY="⚠️ Worker did not produce \`.agent-reply.md\` — see the Actions run log for this job."
+          fi
+          jq -nc --arg b "$BODY" '{body: $b}' | curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ steps.task.outputs.number }}/comments" \
+            -d @-
