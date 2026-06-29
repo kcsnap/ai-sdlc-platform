@@ -1,0 +1,83 @@
+name: Agent Worker (mesh spike)
+
+# Zero-idle-burn worker for the agent mesh (see docs/roadmap/agent-mesh-spike.md).
+# The orchestrator dispatches work by opening an issue and applying the `agent:worker`
+# label. GitHub's event system is the "monitor"; this workflow is the "nudge" — Claude
+# only runs when there is a task, does the work, comments the result back, and exits.
+# Nothing polls and nothing idles, so there is no token cost at rest.
+#
+# NOTE: `issues.labeled` runs the copy of this file on the DEFAULT branch (main), so the
+# label-driven path only goes live once this is merged. Use `workflow_dispatch` to test
+# the Claude round-trip from a feature branch first.
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number carrying the task"
+        required: true
+        type: string
+
+permissions:
+  contents: write        # commit to a branch if the task needs code changes
+  issues: write          # post the reply comment
+  pull-requests: write   # open a PR when the task produces code
+  id-token: write        # claude-code-action GitHub App token exchange
+
+# Serialise runs per issue so a double-dispatch can't act twice on the same task.
+concurrency:
+  group: agent-worker-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  worker:
+    # Event-driven gate: only the `agent:worker` label triggers a run. Manual dispatch
+    # always runs. Any other label change is ignored (no wasted minutes, no loop).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.label.name == 'agent:worker'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Resolve task issue number
+        id: task
+        run: echo "number=${{ github.event.issue.number || inputs.issue_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Run worker agent
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Bound the run so a confused task can't burn unbounded tokens. Tune as needed;
+          # add `--model <id>` here to pick a cheaper model for routine worker tasks.
+          claude_args: "--max-turns 20"
+          prompt: |
+            You are the "yorrixx-agents" worker in repo ${{ github.repository }}, driven by the
+            orchestrator over GitHub issues (the mesh bus). Your task is in issue
+            #${{ steps.task.outputs.number }}.
+
+            Do this, in order:
+            1. Read issue #${{ steps.task.outputs.number }} (title + body) to get the task.
+            2. Perform it. If it needs code changes, work on a branch named
+               `agent/${{ steps.task.outputs.number }}-<short-slug>`, commit minimally, and open a PR
+               that closes the issue. If it is read-only/informational, no branch is needed.
+            3. Post your reply to the orchestrator as a comment on issue
+               #${{ steps.task.outputs.number }}, containing this exact marker block so the
+               orchestrator can parse it:
+
+               <!-- yorrixx:reply v=1 -->
+               ### 🤖 Worker reply — ${{ github.repository }}
+               **Status:** COMPLETE | BLOCKED | FAILED
+               **Summary:** <one line>
+               **Details:**
+               <what you did; link any branch / PR / SHA; state anything the orchestrator must sequence next>
+
+            Rules:
+            - Do NOT add or remove issue labels — that can retrigger the mesh.
+            - Do NOT close the issue yourself; the orchestrator sequences that.
+            - Keep changes minimal and scoped strictly to the task.
+            - If the task is ambiguous or you are blocked, reply with Status: BLOCKED and say
+              exactly what you need to proceed.
