@@ -1,3 +1,4 @@
+using Yorrixx.Contracts.Hosting;
 using Yorrixx.Modules.Hosting;
 using Yorrixx.Provisioner.Contracts;
 using Yorrixx.Provisioner.Internal;
@@ -56,13 +57,24 @@ app.MapGet("/provision/{buildId}", (string buildId, ProvisionStore store, HttpCo
     return status is null ? Results.NotFound() : Results.Ok(status);
 });
 
-// Call 3 — deprovision. TODO (slice 3b): tag/id8-based teardown — the platform
-// sends only {appId}, but HostingService.DeprovisionAsync is name-derived
-// (needs appName). Honour the contract via the appId tag once tags are stamped.
-app.MapPost("/deprovision", (DeprovisionRequest _, HttpContext ctx) =>
+// Call 3 — deprovision. The platform sends only {appId}; HostingService.DeprovisionByAppIdAsync
+// tears down by the appId-derived id8 (every resource name embeds it) + the appId-keyed Clerk Org
+// and deploy identity. Best-effort + idempotent (a missing resource is success); catastrophic
+// failures (e.g. RG unreachable) surface as outcome "failed".
+app.MapPost("/deprovision", async (DeprovisionRequest req, IHostingService hosting, HttpContext ctx) =>
 {
     if (!Authorized(ctx)) return Results.Unauthorized();
-    return Results.StatusCode(StatusCodes.Status501NotImplemented);
+    if (string.IsNullOrWhiteSpace(req.AppId))
+        return Results.BadRequest(new { error = "appId is required" });
+    try
+    {
+        await hosting.DeprovisionByAppIdAsync(req.AppId, ctx.RequestAborted);
+        return Results.Ok(new DeprovisionResult("deprovisioned", null));
+    }
+    catch (Exception ex)
+    {
+        return Results.Ok(new DeprovisionResult("failed", ex.Message));
+    }
 });
 
 // Call 4 — hosting spend by appId tag. TODO (slice 3b): wire the Azure

@@ -499,6 +499,67 @@ internal sealed class HostingService : IHostingService
         _logger.LogInformation("deprovision complete app {AppId}", appId);
     }
 
+    public async Task DeprovisionByAppIdAsync(string appId, CancellationToken cancellationToken = default)
+    {
+        // The /deprovision contract carries only appId (no appName → no slug8), so we can't re-derive the
+        // exact resource names. Every per-app name embeds the appId-derived id8 (see ResourceNames), so
+        // enumerate the shared RG and delete by id8 match, in dependency order: sites (frontend Web App +
+        // Function App are both Microsoft.Web/sites) and static sites first, then plans (a plan won't
+        // delete while a site references it), then storage / identity / app-insights. Same best-effort,
+        // idempotent semantics as DeprovisionAsync — a failure on one resource is logged and the rest run.
+        var id8 = ResourceNames.From(appId, appName: string.Empty).Id8;
+        _logger.LogInformation("deprovisioning app {AppId} by id8={Id8}", appId, id8);
+        bool Match(string name) => name.Contains(id8, StringComparison.OrdinalIgnoreCase);
+
+        var rg = ResourceGroup();
+
+        await foreach (var site in rg.GetWebSites().GetAllAsync(cancellationToken: cancellationToken))
+            if (Match(site.Data.Name))
+                await SafeAsync($"delete web app {site.Data.Name}", appId,
+                    () => site.DeleteAsync(WaitUntil.Completed, deleteMetrics: true, deleteEmptyServerFarm: false, cancellationToken: cancellationToken));
+
+        await foreach (var swa in rg.GetStaticSites().GetAllAsync(cancellationToken: cancellationToken))
+            if (Match(swa.Data.Name))
+                await SafeAsync($"delete static web app {swa.Data.Name}", appId,
+                    () => swa.DeleteAsync(WaitUntil.Completed, cancellationToken));
+
+        await foreach (var plan in rg.GetAppServicePlans().GetAllAsync(cancellationToken: cancellationToken))
+            if (Match(plan.Data.Name))
+                await SafeAsync($"delete plan {plan.Data.Name}", appId,
+                    () => plan.DeleteAsync(WaitUntil.Completed, cancellationToken));
+
+        await foreach (var storage in rg.GetStorageAccounts().GetAllAsync(cancellationToken: cancellationToken))
+            if (Match(storage.Data.Name))
+                await SafeAsync($"delete storage {storage.Data.Name}", appId,
+                    () => storage.DeleteAsync(WaitUntil.Completed, cancellationToken));
+
+        await foreach (var mi in rg.GetUserAssignedIdentities().GetAllAsync(cancellationToken: cancellationToken))
+            if (Match(mi.Data.Name))
+                await SafeAsync($"delete identity {mi.Data.Name}", appId,
+                    () => mi.DeleteAsync(WaitUntil.Completed, cancellationToken));
+
+        await foreach (var ai in rg.GetApplicationInsightsComponents().GetAllAsync(cancellationToken: cancellationToken))
+            if (Match(ai.Data.Name))
+                await SafeAsync($"delete app insights {ai.Data.Name}", appId,
+                    () => ai.DeleteAsync(WaitUntil.Completed, cancellationToken));
+
+        // Cosmos container lives in the shared serverless account (separate RG) — enumerate + id8 match.
+        await SafeAsync("delete cosmos container", appId, async () =>
+        {
+            var account = _arm.GetCosmosDBAccountResource(CosmosAccountResourceId());
+            var db = (await account.GetCosmosDBSqlDatabaseAsync(_opts.UserdataCosmosDatabase, cancellationToken)).Value;
+            await foreach (var c in db.GetCosmosDBSqlContainers().GetAllAsync(cancellationToken: cancellationToken))
+                if (Match(c.Data.Name))
+                    await c.DeleteAsync(WaitUntil.Completed, cancellationToken);
+        });
+
+        // Clerk Org + deploy SP / app registration — already appId-keyed.
+        await SafeAsync("clerk org remove", appId, () => _clerk.RemoveAsync(appId, cancellationToken));
+        await SafeAsync("deploy identity remove", appId, () => _deployIdentity.RemoveAsync(appId, cancellationToken));
+
+        _logger.LogInformation("deprovision-by-appId complete app {AppId}", appId);
+    }
+
     private async Task DeleteWebSiteAsync(ResourceGroupResource rg, string name, CancellationToken ct) =>
         await DeleteResourceAsync("web app", name,
             async () => (await rg.GetWebSites().GetAsync(name, ct)).Value,

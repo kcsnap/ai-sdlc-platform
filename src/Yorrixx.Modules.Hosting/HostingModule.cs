@@ -106,6 +106,9 @@ internal sealed class StubHostingService : IHostingService
     public Task DeprovisionAsync(string appId, string appName, CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
 
+    public Task DeprovisionByAppIdAsync(string appId, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+
     public Task<int> CleanupE2eTestUsersAsync(string appId, CancellationToken cancellationToken = default) =>
         Task.FromResult(0);
 }

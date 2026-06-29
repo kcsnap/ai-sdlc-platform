@@ -100,6 +100,13 @@ public interface IHostingService
     /// deleting them needs a data-plane client this service doesn't hold.
     Task DeprovisionAsync(string appId, string appName, CancellationToken cancellationToken = default);
 
+    /// Tears down the app's infrastructure given only its <paramref name="appId"/> — the shape the
+    /// provisioner's /deprovision contract delivers (no appName). Every per-app resource name carries
+    /// the appId-derived id8, so the implementation enumerates the shared RG (+ Cosmos account) and
+    /// deletes by id8 match, then removes the appId-keyed Clerk Org + deploy identity. Same best-effort,
+    /// idempotent semantics as <see cref="DeprovisionAsync"/>.
+    Task DeprovisionByAppIdAsync(string appId, CancellationToken cancellationToken = default);
+
     /// Deletes Clerk users created by the seeded e2e auth spec for this app
     /// (see IClerkOrgProvisioner.CleanupE2eTestUsersAsync). Called by release
     /// verification after the UI-test check, pass or fail. Returns the number
