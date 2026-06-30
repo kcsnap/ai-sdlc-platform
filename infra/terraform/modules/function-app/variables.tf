@@ -39,11 +39,6 @@ variable "key_vault_uri" {
   type = string
 }
 
-variable "audit_storage_account_name" {
-  description = "Name of the audit storage account (accessed via managed identity)"
-  type        = string
-}
-
 variable "app_settings" {
   description = "Additional app settings to merge in"
   type        = map(string)

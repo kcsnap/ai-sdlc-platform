@@ -135,10 +135,17 @@ module "function_app" {
   user_assigned_identity_id      = module.managed_identity.id
   managed_identity_client_id     = module.managed_identity.client_id
   key_vault_uri                  = module.key_vault.vault_uri
-  audit_storage_account_name     = module.audit_storage.name
-
   app_settings = {
     # Org swept by ReconciliationSweepFunction for stranded ai-sdlc:bootstrap issues.
     ReconciliationOrg = "yorrixx-apps"
+
+    # App-specific settings, moved out of the function-app module so it stays cleanly reusable (the
+    # provisioner must not inherit these). Values are byte-identical to the module's prior hardcoded
+    # ones → the orchestrator's redeploy is inert.
+    AnthropicModel          = "claude-haiku-4-5-20251001"
+    AnthropicApiKey         = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/AnthropicApiKey)"
+    GitHubPat               = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/GitHubPat)"
+    GitHubWebhookSecret     = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/GitHubWebhookSecret)"
+    AuditStorageAccountName = module.audit_storage.name
   }
 }

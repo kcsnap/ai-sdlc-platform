@@ -68,7 +68,6 @@ module "provisioner_function" {
   user_assigned_identity_id      = azurerm_user_assigned_identity.provisioner.id
   managed_identity_client_id     = azurerm_user_assigned_identity.provisioner.client_id
   key_vault_uri                  = module.key_vault.vault_uri
-  audit_storage_account_name     = module.provisioner_storage.name # provisioner doesn't audit; harmless
 
   # Provisioner-specific NON-secret settings. Secrets (Provisioner__InboundKey, Hosting__ClerkSecretKey,
   # Platform__CallbackKey) are set out-of-band from Key Vault at deploy time — see the runbook.
