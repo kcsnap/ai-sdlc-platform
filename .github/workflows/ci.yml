@@ -100,10 +100,10 @@ jobs:
           --src-path dashboard.zip
           --type zip
 
-  # Provisioner Container App deploy — DRAFT, INERT until G3 STAGE 2.
+  # Provisioner Function deploy — DRAFT, INERT until G3 STAGE 2. Mirrors the orchestrator's deploy job.
   # Gated on the repo variable PROVISIONER_DEPLOY_ENABLED (unset today): merging this does NOT deploy, and
-  # won't fail against not-yet-created infra. After STAGE 2 stands up the Container App + ACR, set the repo
-  # variables: PROVISIONER_DEPLOY_ENABLED=true, PROVISIONER_ACR_NAME, PROVISIONER_APP_NAME, PROVISIONER_RG.
+  # won't fail against a not-yet-created Function app. After STAGE 2 stands up the Function, set the repo
+  # variables: PROVISIONER_DEPLOY_ENABLED=true, PROVISIONER_APP_NAME=func-aisdlc-prov-dev-81c0.
   deploy-provisioner:
     needs: build-test
     runs-on: ubuntu-latest
@@ -114,6 +114,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -121,18 +126,9 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build + push the provisioner image to ACR
-        run: |
-          az acr login --name "${{ vars.PROVISIONER_ACR_NAME }}"
-          TAG="$(date +%Y%m%d%H%M%S)"
-          REF="${{ vars.PROVISIONER_ACR_NAME }}.azurecr.io/yorrixx-provisioner:${TAG}"
-          docker build -f src/Yorrixx.Provisioner/Dockerfile -t "$REF" .
-          docker push "$REF"
-          echo "PROVISIONER_REF=$REF" >> "$GITHUB_ENV"
+      - name: Install Azure Functions Core Tools
+        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
 
-      - name: Roll the Container App to the new image
-        run: >
-          az containerapp update
-          --name "${{ vars.PROVISIONER_APP_NAME }}"
-          --resource-group "${{ vars.PROVISIONER_RG }}"
-          --image "$PROVISIONER_REF"
+      - name: Deploy provisioner to Azure Functions
+        run: func azure functionapp publish ${{ vars.PROVISIONER_APP_NAME }} --dotnet-isolated
+        working-directory: src/Yorrixx.Provisioner

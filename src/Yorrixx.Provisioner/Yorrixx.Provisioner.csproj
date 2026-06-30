@@ -1,7 +1,28 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Standalone provisioner host (ADR-XR-0001). Sever: dropped Yorrixx.DeployTemplate (only
-       DeployWorkflowTemplate was used → carried into Internal/). net8 inherited from Directory.Build.props. -->
+  <!-- Standalone provisioner — Azure Functions isolated worker (ADR-XR-0001 / G3 re-cut from Container App
+       to Flex Consumption Function, matching the platform stack). net8 inherited from Directory.Build.props.
+       Drops Yorrixx.DeployTemplate (DeployWorkflowTemplate carried into Internal/). -->
+  <PropertyGroup>
+    <AzureFunctionsVersion>v4</AzureFunctionsVersion>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="host.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Data.Tables" Version="12.9.1" />
+    <PackageReference Include="Azure.Identity" Version="1.13.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="1.22.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="1.17.4" OutputItemType="Analyzer" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http" Version="3.2.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Storage.Queues" Version="5.4.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.ApplicationInsights" Version="1.2.0" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Yorrixx.Provisioner.Contracts\Yorrixx.Provisioner.Contracts.csproj" />

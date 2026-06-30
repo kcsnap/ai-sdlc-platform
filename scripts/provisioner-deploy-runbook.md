@@ -1,15 +1,16 @@
 # Provisioner deploy runbook — ai-sdlc-platform (ADR-XR-0001 / G3)
 
-Stands up the standalone `Yorrixx.Provisioner` as an Azure Container App **in the platform's resource
-group** (`rg-aisdlc-dev`), with a **dedicated** managed identity (the platform's shared agent identity
-`id-aisdlc-dev` must never hold subscription write). Infra is Terraform; the high-privilege grants are a
-separate human-gated script; image build + secret config are deploy-time.
+Stands up the standalone `Yorrixx.Provisioner` as an **Azure Function** (Flex Consumption / FC1,
+dotnet-isolated 8.0) **in the platform's resource group** (`rg-aisdlc-dev`), with a **dedicated** managed
+identity (the platform's shared agent identity `id-aisdlc-dev` must never hold subscription write). Same
+stack as the platform Function App + admin app — no container registry. Infra is Terraform; the
+high-privilege grants are a separate human-gated script; secret config is deploy-time.
 
 > ⚠️ **STAGE 2 — requires explicit human authorization.** Applying the Terraform creates cloud resources
-> (Container App, ACR, environment, a UAMI) and running the grants script assigns subscription-scoped +
-> Graph privileges. Do not run any of this without sign-off. Nothing here runs on merge.
+> (Function app, FC1 plan, a storage account, a UAMI) and running the grants script assigns
+> subscription-scoped + Graph privileges. Nothing here runs on merge.
 
-> Output you owe back: the **provisioner base URL** (Step 4) → the platform sets its `ProvisionerUrl` at G4.
+> Output you owe back: the **provisioner base URL** (Step 5) → the platform sets its `ProvisionerUrl` at G4.
 
 ---
 
@@ -18,70 +19,71 @@ separate human-gated script; image build + secret config are deploy-time.
 $Sub   = "<subscription-id>"            # 66673944-…-81c0
 $Rg    = "rg-aisdlc-dev"
 $Kv    = "kv-aisdlc-81c0"
-$App   = "ca-aisdlc-provisioner-dev"
-$Acr   = "acraisdlcdev81c0"
-$Image = "yorrixx-provisioner"
+$App   = "func-aisdlc-prov-dev-81c0"
 $Uami  = "id-aisdlc-provisioner-dev"    # dedicated — created by Terraform, granted by the script
 az account set --subscription $Sub
 ```
 
-## Step 1 — apply infra (Terraform)
-Creates the UAMI, ACR (`AcrPull` for the UAMI), Container Apps environment, and the Container App.
+## Step 1 — apply infra (Terraform, apply -target on the provisioner resources only)
+Creates the UAMI, the provisioner storage (+ blob/queue/table RBAC for the UAMI), the FC1 plan, and the
+Function app. `-target` keeps the unrelated environments/dev WIP untouched.
 ```powershell
 cd infra/terraform/environments/dev
-terraform plan -out tfplan      # review — confirm only the provisioner.tf resources are added
+terraform plan `
+  -target=azurerm_user_assigned_identity.provisioner `
+  -target=module.provisioner_storage `
+  -target=azurerm_role_assignment.provisioner_storage_blob `
+  -target=azurerm_role_assignment.provisioner_storage_queue `
+  -target=azurerm_role_assignment.provisioner_storage_table `
+  -target=module.provisioner_function `
+  -out tfplan
 terraform apply tfplan
 ```
+> Pre-apply: parameterize the function-app module so it doesn't push the orchestrator's
+> Anthropic/GitHub/Audit settings onto the provisioner (see the note in provisioner.tf).
 
 ## Step 2 — grant the high-privilege roles (human/OPS)
-Contributor + User Access Administrator + **Cost Management Reader** (subscription scope) + Graph
+Contributor + User Access Administrator + **Cost Management Reader** (subscription) + Graph
 `Application.ReadWrite.OwnedBy`. **Review the script first.**
 ```powershell
 ./scripts/provisioner-identity-grants.ps1 -SubscriptionId $Sub
 ```
 
-## Step 3 — build + push the image
+## Step 3 — deploy the code
+Either set the gated CI variables (PROVISIONER_DEPLOY_ENABLED=true, PROVISIONER_APP_NAME=$App) and let CI
+publish on the next push to main, or publish directly:
 ```powershell
-az acr login --name $Acr
-$Tag = (Get-Date -Format "yyyyMMddHHmmss")
-$Ref = "$Acr.azurecr.io/$Image`:$Tag"
-docker build -f src/Yorrixx.Provisioner/Dockerfile -t $Ref .   # net8 image; build context = repo root
-docker push $Ref
-az containerapp update -n $App -g $Rg --image $Ref | Out-Null
+func azure functionapp publish $App --dotnet-isolated   # from src/Yorrixx.Provisioner
 ```
 
-## Step 4 — config (Hosting:* + platform/provisioner keys, from Key Vault)
+## Step 4 — secret config (from Key Vault; non-secrets are already set by Terraform)
 ```powershell
-$UamiClientId = az identity show -g $Rg -n $Uami --query clientId -o tsv
 $inbound = az keyvault secret show --vault-name $Kv --name ProvisionerInboundKey      --query value -o tsv
 $cbKey   = az keyvault secret show --vault-name $Kv --name ProvisionResultCallbackKey --query value -o tsv
-
-$pairs = @(
-  "AZURE_CLIENT_ID=$UamiClientId"        # DefaultAzureCredential selects the dedicated UAMI
-  "Hosting__ApiManagedIdentityClientId=$UamiClientId"
-  "Provisioner__InboundKey=$inbound"
-  "Platform__ProvisionResultUrl=https://func-aisdlc-dev-81c0.azurewebsites.net/api/provision-result"
-  "Platform__CallbackKey=$cbKey"
-  # plus Hosting__SubscriptionId / TenantId / ResourceGroup / Cosmos* / KeyVault* /
-  #      AppInsightsWorkspaceId / ClerkSecretKey  — from KV / the dev config set.
-)
-az containerapp update -n $App -g $Rg --set-env-vars @pairs | Out-Null
+az functionapp config appsettings set -n $App -g $Rg --settings `
+  "Provisioner__InboundKey=$inbound" `
+  "Platform__ProvisionResultUrl=https://func-aisdlc-dev-81c0.azurewebsites.net/api/provision-result" `
+  "Platform__CallbackKey=$cbKey" `
+  # plus Hosting__TenantId / Cosmos* / KeyVault* / AppInsightsWorkspaceId / ClerkSecretKey as needed.
+# The provisioner UAMI also needs Key Vault Secrets User on kv-aisdlc-81c0 to read these at runtime.
 ```
 
 ## Step 5 — base URL → send to the platform
 ```powershell
-$Fqdn = az containerapp show -n $App -g $Rg --query "properties.configuration.ingress.fqdn" -o tsv
-"PROVISIONER BASE URL = https://$Fqdn"   # platform sets ProvisionerUrl at G4 (do NOT flip BuildApiUrl early)
+$Host = az functionapp show -n $App -g $Rg --query "defaultHostName" -o tsv
+"PROVISIONER BASE URL = https://$Host"   # platform sets ProvisionerUrl at G4 (do NOT flip BuildApiUrl early)
 ```
 
 ## Step 6 — smoke test
 ```powershell
-(Invoke-WebRequest "https://$Fqdn/health").Content   # -> {"status":"ok"}
+(Invoke-WebRequest "https://$Host/health").Content   # -> {"status":"ok"}  (routePrefix is "" — no /api)
 ```
 
 ---
 
-## Ongoing deploys (after STAGE 2)
-The gated CI job `deploy-provisioner` (`.github/workflows/ci.yml`) automates Steps 3 once the repo
-variable `PROVISIONER_DEPLOY_ENABLED=true` and `PROVISIONER_ACR_NAME` / `PROVISIONER_APP_NAME` /
-`PROVISIONER_RG` are set. It is **inert until then** — merging this PR does not deploy anything.
+## Notes
+- Routes have NO `/api` prefix (host.json `routePrefix: ""`), so /provision, /spend, /health match the
+  platform's existing ProvisionerClient base URL — no platform change needed.
+- Long work is queue-decoupled: /provision and /deprovision return 202 + enqueue; the queue-triggered
+  workers run inside the FC1 per-invocation budget. Status persists in a Table so GET /provision/{buildId}
+  survives restarts.

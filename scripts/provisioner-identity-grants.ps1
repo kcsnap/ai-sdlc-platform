@@ -22,9 +22,9 @@
   Run as a subscription Owner + a directory role that can grant Graph app roles (Privileged Role Admin /
   Global Admin). Idempotent-ish (role-create is a no-op if the assignment exists).
 
-  Terraform (infra/terraform/environments/dev/provisioner.tf) creates the identity, ACR, Container Apps
-  environment, and Container App — but NOT these subscription-scoped / Graph grants. They are gated here
-  so the dangerous grants require an explicit human run, separate from infra apply.
+  Terraform (infra/terraform/environments/dev/provisioner.tf) creates the identity, the provisioner
+  storage, and the Flex Consumption Function app — but NOT these subscription-scoped / Graph grants. They
+  are gated here so the dangerous grants require an explicit human run, separate from infra apply.
 
 .NOTES
   Does NOT create the Container App or set the Clerk key — see scripts/provisioner-deploy-runbook.md.
@@ -71,7 +71,7 @@ az rest --method POST `
 Write-Host "4/4  Done. UAMI $UamiName is provisioner-ready."
 Write-Host ""
 Write-Host "REMAINING (deploy-time, see provisioner-deploy-runbook.md):"
-Write-Host "  a) Terraform apply creates the Container App with this UAMI assigned (DefaultAzureCredential picks it up)."
+Write-Host "  a) Terraform apply creates the Function app with this UAMI assigned (DefaultAzureCredential picks it up)."
 Write-Host "  b) Set its config/secrets from Key Vault (kv-aisdlc-81c0):"
 Write-Host "       Hosting__SubscriptionId / TenantId / ResourceGroup / Cosmos* / KeyVault* / AppInsightsWorkspaceId"
 Write-Host "       Hosting__ClerkSecretKey      (Clerk management key — same custody class as Azure)"
