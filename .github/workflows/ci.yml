@@ -64,42 +64,6 @@ jobs:
         run: func azure functionapp publish ${{ secrets.AZURE_FUNCTION_APP_NAME }} --dotnet-isolated
         working-directory: src/AiSdlc.Orchestrator
 
-  deploy-dashboard:
-    needs: build-test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    environment: dev
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 8.0.x
-
-      - name: Publish dashboard
-        run: dotnet publish src/AiSdlc.Dashboard/AiSdlc.Dashboard.csproj --configuration Release --output ./dashboard-publish
-
-      - name: Zip publish output
-        run: cd dashboard-publish && zip -r ../dashboard.zip . && cd ..
-
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Deploy to App Service
-        run: >
-          az webapp deploy
-          --resource-group rg-aisdlc-dev
-          --name app-aisdlc-dash-dev-81c0
-          --src-path dashboard.zip
-          --type zip
-
   # Provisioner Function deploy — DRAFT, INERT until G3 STAGE 2. Mirrors the orchestrator's deploy job.
   # Gated on the repo variable PROVISIONER_DEPLOY_ENABLED (unset today): merging this does NOT deploy, and
   # won't fail against a not-yet-created Function app. After STAGE 2 stands up the Function, set the repo
