@@ -63,3 +63,76 @@ jobs:
       - name: Deploy to Azure Functions
         run: func azure functionapp publish ${{ secrets.AZURE_FUNCTION_APP_NAME }} --dotnet-isolated
         working-directory: src/AiSdlc.Orchestrator
+
+  deploy-dashboard:
+    needs: build-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish dashboard
+        run: dotnet publish src/AiSdlc.Dashboard/AiSdlc.Dashboard.csproj --configuration Release --output ./dashboard-publish
+
+      - name: Zip publish output
+        run: cd dashboard-publish && zip -r ../dashboard.zip . && cd ..
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to App Service
+        run: >
+          az webapp deploy
+          --resource-group rg-aisdlc-dev
+          --name app-aisdlc-dash-dev-81c0
+          --src-path dashboard.zip
+          --type zip
+
+  # Provisioner Container App deploy — DRAFT, INERT until G3 STAGE 2.
+  # Gated on the repo variable PROVISIONER_DEPLOY_ENABLED (unset today): merging this does NOT deploy, and
+  # won't fail against not-yet-created infra. After STAGE 2 stands up the Container App + ACR, set the repo
+  # variables: PROVISIONER_DEPLOY_ENABLED=true, PROVISIONER_ACR_NAME, PROVISIONER_APP_NAME, PROVISIONER_RG.
+  deploy-provisioner:
+    needs: build-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && vars.PROVISIONER_DEPLOY_ENABLED == 'true'
+    environment: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build + push the provisioner image to ACR
+        run: |
+          az acr login --name "${{ vars.PROVISIONER_ACR_NAME }}"
+          TAG="$(date +%Y%m%d%H%M%S)"
+          REF="${{ vars.PROVISIONER_ACR_NAME }}.azurecr.io/yorrixx-provisioner:${TAG}"
+          docker build -f src/Yorrixx.Provisioner/Dockerfile -t "$REF" .
+          docker push "$REF"
+          echo "PROVISIONER_REF=$REF" >> "$GITHUB_ENV"
+
+      - name: Roll the Container App to the new image
+        run: >
+          az containerapp update
+          --name "${{ vars.PROVISIONER_APP_NAME }}"
+          --resource-group "${{ vars.PROVISIONER_RG }}"
+          --image "$PROVISIONER_REF"
