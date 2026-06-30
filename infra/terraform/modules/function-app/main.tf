@@ -7,25 +7,21 @@ terraform {
 }
 
 locals {
-  # keyVaultReferenceIdentity is set on the app, so references use the simple URI-only form.
-  # Including ManagedIdentityClientId in the reference string causes InvalidSyntax.
-  kv_ref = "@Microsoft.KeyVault(SecretUri=${var.key_vault_uri}secrets"
-
+  # GENERIC Functions-host settings only — every app on this module needs these. App-SPECIFIC settings
+  # (Anthropic*, GitHub*, AuditStorageAccountName, …) are caller-supplied via var.app_settings so the
+  # module is cleanly reusable (e.g. the provisioner must not inherit the orchestrator's Anthropic/GitHub
+  # Key Vault references). keyVaultReferenceIdentity is set on the app, so KV references in caller settings
+  # use the simple URI-only form: "@Microsoft.KeyVault(SecretUri=${key_vault_uri}secrets/<name>)".
   app_settings_list = [
     for k, v in merge(
       {
         APPLICATIONINSIGHTS_CONNECTION_STRING = var.app_insights_connection_string
         AZURE_CLIENT_ID                       = var.managed_identity_client_id
         KeyVaultUri                           = var.key_vault_uri
-        AuditStorageAccountName               = var.audit_storage_account_name
         FUNCTIONS_EXTENSION_VERSION           = "~4"
         AzureWebJobsStorage__accountName      = var.storage_account_name
         AzureWebJobsStorage__credential       = "managedidentity"
         AzureWebJobsStorage__clientId         = var.managed_identity_client_id
-        AnthropicModel                        = "claude-haiku-4-5-20251001"
-        AnthropicApiKey                       = "${local.kv_ref}/AnthropicApiKey)"
-        GitHubPat                             = "${local.kv_ref}/GitHubPat)"
-        GitHubWebhookSecret                   = "${local.kv_ref}/GitHubWebhookSecret)"
       },
       var.app_settings
     ) : { name = k, value = v }
