@@ -75,7 +75,8 @@ module "provisioner_function" {
   app_settings = {
     "Provisioner__StorageAccountName" = module.provisioner_storage.name
     "Hosting__SubscriptionId"         = var.subscription_id
-    "Hosting__ResourceGroup"          = azurerm_resource_group.this.name
+    # Per-app COMPUTE target — a yorrixx-owned RG, NOT this stack's rg-aisdlc-dev (and not the shared rg-yorrixx-dev).
+    "Hosting__ResourceGroup" = "rg-yorrixx-userapps-dev"
 
     # G4 — identity + platform-callback wiring.
     "Hosting__TenantId"                   = var.tenant_id
@@ -88,12 +89,22 @@ module "provisioner_function" {
     "Hosting__ClerkSecretKey" = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ClerkClientSecret)"
     "Platform__CallbackKey"   = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ProvisionResultCallbackKey)"
 
-    # DEFERRED (follow-up, needs values from the existing/old provisioner config — the yorrixx shared platform
-    # stack in rg-yorrixx-dev, which this session doesn't own): the config the provisioner needs to actually
-    # PROVISION — Hosting__UserdataCosmos{AccountName,Endpoint,ResourceGroup}, Hosting__KeyVault{Name,ResourceGroup},
-    # Hosting__AppInsightsWorkspaceId, Hosting__Location, Hosting__Clerk{Authority,PublishableKeyFallback}. Also
-    # confirm the Hosting__ResourceGroup provisioning target (currently rg-aisdlc-dev). Without these, the
-    # provisioner is fully CALLABLE (G4) but a real provision fails at the Cosmos/KV/App-Insights step.
+    # Shared user-app platform stack (yorrixx-owned, rg-yorrixx-dev) that the provisioner provisions INTO.
+    # Sourced from yorrixx-app's live in-process Hosting config (G4 finalize) so the relocated provisioner
+    # is a true drop-in.
+    "Hosting__Location"                    = "westeurope" # per-app compute region (uksouth F1 quota = 0)
+    "Hosting__UserdataCosmosAccountName"   = "cosmos-yorrixx-dev-userdata-96mj"
+    "Hosting__UserdataCosmosEndpoint"      = "https://cosmos-yorrixx-dev-userdata-96mj.documents.azure.com:443/"
+    "Hosting__UserdataCosmosResourceGroup" = "rg-yorrixx-dev"
+    "Hosting__UserdataCosmosDatabase"      = "userapps"
+    "Hosting__KeyVaultName"                = "kv-yorrixx-dev"
+    "Hosting__KeyVaultResourceGroup"       = "rg-yorrixx-dev"
+    "Hosting__AppInsightsWorkspaceId"      = "/subscriptions/${var.subscription_id}/resourceGroups/rg-yorrixx-dev/providers/Microsoft.OperationalInsights/workspaces/log-yorrixx-dev"
+    "Hosting__ClerkAuthority"              = "https://mint-boar-35.clerk.accounts.dev"
+    "Hosting__ClerkPublishableKeyFallback" = "pk_test_bWludC1ib2FyLTM1LmNsZXJrLmFjY291bnRzLmRldiQ=" # publishable (non-secret)
+    "Hosting__UserAppRepoOwner"            = "yorrixx-apps"
+    "Hosting__UserAppRepoNamePrefix"       = "user-app"
+    "Hosting__UserAppDefaultBranch"        = "main"
   }
 }
 
