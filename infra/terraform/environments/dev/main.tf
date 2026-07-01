@@ -147,5 +147,13 @@ module "function_app" {
     GitHubPat               = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/GitHubPat)"
     GitHubWebhookSecret     = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/GitHubWebhookSecret)"
     AuditStorageAccountName = module.audit_storage.name
+
+    # G4 — platform → provisioner wiring. The orchestrator presents ProvisionerInboundKey as the
+    # X-Platform-Provision-Key header on outbound /provision calls, and validates the inbound
+    # /api/provision-result callback against ProvisionResultCallbackKey. Provisioner hostname is built from
+    # the name expression (not module.provisioner_function output) to avoid a module dependency cycle.
+    ProvisionerUrl             = "https://func-aisdlc-prov-${var.environment}-${var.suffix}.azurewebsites.net"
+    ProvisionerInboundKey      = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ProvisionerInboundKey)"
+    ProvisionResultCallbackKey = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ProvisionResultCallbackKey)"
   }
 }

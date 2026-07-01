@@ -69,12 +69,42 @@ module "provisioner_function" {
   managed_identity_client_id     = azurerm_user_assigned_identity.provisioner.client_id
   key_vault_uri                  = module.key_vault.vault_uri
 
-  # Provisioner-specific NON-secret settings. Secrets (Provisioner__InboundKey, Hosting__ClerkSecretKey,
-  # Platform__CallbackKey) are set out-of-band from Key Vault at deploy time — see the runbook.
+  # The function-app module owns the FULL appSettings array, so the secrets live here too (KV-reference
+  # form, resolved via the provisioner UAMI's Key Vault access policy) — otherwise a terraform apply would
+  # wipe settings that were set out-of-band.
   app_settings = {
     "Provisioner__StorageAccountName" = module.provisioner_storage.name
     "Hosting__SubscriptionId"         = var.subscription_id
-    "Hosting__ResourceGroup"          = azurerm_resource_group.this.name
+    # Per-app COMPUTE target — a yorrixx-owned RG, NOT this stack's rg-aisdlc-dev (and not the shared rg-yorrixx-dev).
+    "Hosting__ResourceGroup" = "rg-yorrixx-userapps-dev"
+
+    # G4 — identity + platform-callback wiring.
+    "Hosting__TenantId"                   = var.tenant_id
+    "Hosting__ApiManagedIdentityClientId" = azurerm_user_assigned_identity.provisioner.client_id
+    # Callback to the orchestrator (Call 2). Hostname from the name expression to avoid a module cycle.
+    "Platform__ProvisionResultUrl" = "https://func-aisdlc-${var.environment}-${var.suffix}.azurewebsites.net/api/provision-result"
+
+    # Secrets (KV references, resolved via the provisioner UAMI's Key Vault access policy).
+    "Provisioner__InboundKey" = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ProvisionerInboundKey)"
+    "Hosting__ClerkSecretKey" = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ClerkClientSecret)"
+    "Platform__CallbackKey"   = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ProvisionResultCallbackKey)"
+
+    # Shared user-app platform stack (yorrixx-owned, rg-yorrixx-dev) that the provisioner provisions INTO.
+    # Sourced from yorrixx-app's live in-process Hosting config (G4 finalize) so the relocated provisioner
+    # is a true drop-in.
+    "Hosting__Location"                    = "westeurope" # per-app compute region (uksouth F1 quota = 0)
+    "Hosting__UserdataCosmosAccountName"   = "cosmos-yorrixx-dev-userdata-96mj"
+    "Hosting__UserdataCosmosEndpoint"      = "https://cosmos-yorrixx-dev-userdata-96mj.documents.azure.com:443/"
+    "Hosting__UserdataCosmosResourceGroup" = "rg-yorrixx-dev"
+    "Hosting__UserdataCosmosDatabase"      = "userapps"
+    "Hosting__KeyVaultName"                = "kv-yorrixx-dev"
+    "Hosting__KeyVaultResourceGroup"       = "rg-yorrixx-dev"
+    "Hosting__AppInsightsWorkspaceId"      = "/subscriptions/${var.subscription_id}/resourceGroups/rg-yorrixx-dev/providers/Microsoft.OperationalInsights/workspaces/log-yorrixx-dev"
+    "Hosting__ClerkAuthority"              = "https://mint-boar-35.clerk.accounts.dev"
+    "Hosting__ClerkPublishableKeyFallback" = "pk_test_bWludC1ib2FyLTM1LmNsZXJrLmFjY291bnRzLmRldiQ=" # publishable (non-secret)
+    "Hosting__UserAppRepoOwner"            = "yorrixx-apps"
+    "Hosting__UserAppRepoNamePrefix"       = "user-app"
+    "Hosting__UserAppDefaultBranch"        = "main"
   }
 }
 
