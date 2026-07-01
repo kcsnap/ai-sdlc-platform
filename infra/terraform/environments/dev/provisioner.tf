@@ -69,12 +69,31 @@ module "provisioner_function" {
   managed_identity_client_id     = azurerm_user_assigned_identity.provisioner.client_id
   key_vault_uri                  = module.key_vault.vault_uri
 
-  # Provisioner-specific NON-secret settings. Secrets (Provisioner__InboundKey, Hosting__ClerkSecretKey,
-  # Platform__CallbackKey) are set out-of-band from Key Vault at deploy time — see the runbook.
+  # The function-app module owns the FULL appSettings array, so the secrets live here too (KV-reference
+  # form, resolved via the provisioner UAMI's Key Vault access policy) — otherwise a terraform apply would
+  # wipe settings that were set out-of-band.
   app_settings = {
     "Provisioner__StorageAccountName" = module.provisioner_storage.name
     "Hosting__SubscriptionId"         = var.subscription_id
     "Hosting__ResourceGroup"          = azurerm_resource_group.this.name
+
+    # G4 — identity + platform-callback wiring.
+    "Hosting__TenantId"                   = var.tenant_id
+    "Hosting__ApiManagedIdentityClientId" = azurerm_user_assigned_identity.provisioner.client_id
+    # Callback to the orchestrator (Call 2). Hostname from the name expression to avoid a module cycle.
+    "Platform__ProvisionResultUrl" = "https://func-aisdlc-${var.environment}-${var.suffix}.azurewebsites.net/api/provision-result"
+
+    # Secrets (KV references, resolved via the provisioner UAMI's Key Vault access policy).
+    "Provisioner__InboundKey" = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ProvisionerInboundKey)"
+    "Hosting__ClerkSecretKey" = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ClerkClientSecret)"
+    "Platform__CallbackKey"   = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ProvisionResultCallbackKey)"
+
+    # DEFERRED (follow-up, needs values from the existing/old provisioner config — the yorrixx shared platform
+    # stack in rg-yorrixx-dev, which this session doesn't own): the config the provisioner needs to actually
+    # PROVISION — Hosting__UserdataCosmos{AccountName,Endpoint,ResourceGroup}, Hosting__KeyVault{Name,ResourceGroup},
+    # Hosting__AppInsightsWorkspaceId, Hosting__Location, Hosting__Clerk{Authority,PublishableKeyFallback}. Also
+    # confirm the Hosting__ResourceGroup provisioning target (currently rg-aisdlc-dev). Without these, the
+    # provisioner is fully CALLABLE (G4) but a real provision fails at the Cosmos/KV/App-Insights step.
   }
 }
 
