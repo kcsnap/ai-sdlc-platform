@@ -85,7 +85,7 @@ module "key_vault" {
   tenant_id           = var.tenant_id
   tags                = local.tags
 
-  secret_reader_principal_ids  = [module.managed_identity.principal_id]
+  secret_reader_principal_ids  = [module.managed_identity.principal_id, azurerm_user_assigned_identity.provisioner.principal_id]
   secret_officer_principal_ids = [var.deployment_principal_object_id]
 }
 

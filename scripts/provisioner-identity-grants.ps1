@@ -62,11 +62,13 @@ foreach ($role in @("Contributor", "User Access Administrator", "Cost Management
 Write-Host "3/4  Granting Graph Application.ReadWrite.OwnedBy ..."
 $graphAppId = "00000003-0000-0000-c000-000000000000"      # Microsoft Graph
 $graphSpId  = az ad sp show --id $graphAppId --query id -o tsv
-$appRoleId  = "18a4783c-866b-4cc7-a460-3d0e455a2f73"       # Application.ReadWrite.OwnedBy
-$body = @{ principalId = $principalId; resourceId = $graphSpId; appRoleId = $appRoleId } | ConvertTo-Json -Compress
+$appRoleId  = "18a4783c-866b-4cc7-a460-3d5e5662c884"       # Application.ReadWrite.OwnedBy (Graph app role)
+# Write the body to a file — inline `--body <json>` is mangled by az.cmd quote-handling on Windows PowerShell.
+$graphBody = Join-Path $env:TEMP "provisioner-graph-approle.json"
+(@{ principalId = $principalId; resourceId = $graphSpId; appRoleId = $appRoleId } | ConvertTo-Json -Compress) | Out-File -FilePath $graphBody -Encoding ascii -NoNewline
 az rest --method POST `
   --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$principalId/appRoleAssignments" `
-  --headers "Content-Type=application/json" --body $body | Out-Null
+  --headers "Content-Type=application/json" --body "@$graphBody" | Out-Null
 
 Write-Host "4/4  Done. UAMI $UamiName is provisioner-ready."
 Write-Host ""
