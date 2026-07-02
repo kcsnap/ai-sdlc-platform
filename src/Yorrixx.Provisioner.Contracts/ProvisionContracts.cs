@@ -14,7 +14,13 @@ public sealed record ProvisionSpec(
     string Region,                    // "northeurope" (default)
     string StackProfile,              // "Static" | "FullStack" — deterministic, platform-derived
     ProvisionCapabilities Capabilities,
-    ProvisionRepo Repo);
+    ProvisionRepo Repo,
+    // Optional (additive, G5): Clerk user id of the app owner — becomes created_by on the Clerk org.
+    // Null/empty ⇒ the org is created without a creator (test/ownerless builds).
+    string? OwnerUserId = null,
+    // Optional (additive, G5): app display name — feeds the resource-name slug + Clerk org name.
+    // Null/empty ⇒ the provisioner falls back to Repo.Name (pre-G5 behaviour).
+    string? AppName = null);
 
 /// Resolved capability axes. The provisioner maps these to a resource topology
 /// (e.g. Cosmos iff Database, Clerk org iff Auth, Functions API iff an API is implied).

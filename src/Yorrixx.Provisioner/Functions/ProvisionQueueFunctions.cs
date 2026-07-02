@@ -49,10 +49,14 @@ public sealed class ProvisionQueueFunctions
         {
             var caps = ProvisionMapper.ToCapabilities(spec.Capabilities);
 
-            // The provisioner owns HOW: appName feeds the resource slug — pass the repo name (the platform
-            // doesn't send a separate display name) so naming stays stable across the build.
+            // The provisioner owns HOW: appName feeds the resource slug (fallback: repo name, the pre-G5
+            // behaviour); ownerUserId is the owner's Clerk user id — empty means "no creator" (a placeholder
+            // here 400s at Clerk with organization_creator_not_found, found the hard way in G5).
             var deployed = await _hosting.EnsureProvisionedAsync(
-                spec.AppId, ownerUserId: spec.AppId, appName: spec.Repo.Name, caps, cancellationToken);
+                spec.AppId,
+                ownerUserId: spec.OwnerUserId ?? string.Empty,
+                appName: string.IsNullOrWhiteSpace(spec.AppName) ? spec.Repo.Name : spec.AppName!,
+                caps, cancellationToken);
 
             var identity = await _deployIdentity.EnsureAsync(
                 spec.AppId, spec.Repo.Owner, spec.Repo.Name, spec.Repo.DefaultBranch, cancellationToken);
