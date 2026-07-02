@@ -155,5 +155,9 @@ module "function_app" {
     ProvisionerUrl             = "https://func-aisdlc-prov-${var.environment}-${var.suffix}.azurewebsites.net"
     ProvisionerInboundKey      = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ProvisionerInboundKey)"
     ProvisionResultCallbackKey = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/ProvisionResultCallbackKey)"
+
+    # G5-SEC — inbound auth on /api/builds (CreateBuildFunction validates X-Platform-Build-Key against
+    # this; unset means validation is SKIPPED). yorrixx-app presents the same secret at G6.
+    PlatformBuildKey = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/PlatformBuildKey)"
   }
 }
