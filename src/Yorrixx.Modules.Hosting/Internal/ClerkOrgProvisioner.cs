@@ -55,7 +55,7 @@ internal sealed class ClerkOrgProvisioner : IClerkOrgProvisioner
         var createReq = new CreateOrganizationRequest(
             Name: appName,
             Slug: slug,
-            CreatedBy: builderUserId);
+            CreatedBy: string.IsNullOrWhiteSpace(builderUserId) ? null : builderUserId);
 
         using var resp = await _http.PostAsJsonAsync("organizations", createReq, cancellationToken);
         if (!resp.IsSuccessStatusCode)
@@ -180,7 +180,9 @@ internal sealed class ClerkOrgProvisioner : IClerkOrgProvisioner
     private sealed record CreateOrganizationRequest(
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("slug")] string Slug,
-        [property: JsonPropertyName("created_by")] string CreatedBy);
+        // Optional: omitted (null) when the caller has no real Clerk user for the owner — Clerk 400s
+        // organization_creator_not_found on any id that isn't a real user, so no-creator beats placeholder.
+        [property: JsonPropertyName("created_by"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CreatedBy);
 
     private sealed record OrganizationResponse(
         [property: JsonPropertyName("id")] string Id,

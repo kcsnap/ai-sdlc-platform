@@ -66,7 +66,11 @@ public static class NewAppBuildOrchestrator
             StackProfile: stackProfile.ToString(),
             Capabilities: CapabilityResolver.Resolve(charter, databaseDerived: charter.Constraints.NeedsPersistence)
                               .ToProvisionCapabilities(),
-            Repo:         new ProvisionRepo(repoOwner, repoName, repo.DefaultBranch));
+            Repo:         new ProvisionRepo(repoOwner, repoName, repo.DefaultBranch),
+            // OwnerRef is the owner's Clerk user id (opaque to the platform) — the provisioner needs it as
+            // created_by on the Clerk org. AppName feeds the resource slug + org display name.
+            OwnerUserId:  string.IsNullOrWhiteSpace(request.OwnerRef) ? null : request.OwnerRef,
+            AppName:      string.IsNullOrWhiteSpace(charter.Identity.AppName) ? null : charter.Identity.AppName);
         await context.CallActivityAsync(nameof(BuildActivityFunctions.StartProvisionAsync), provisionSpec);
 
         ProvisionResult? result;
