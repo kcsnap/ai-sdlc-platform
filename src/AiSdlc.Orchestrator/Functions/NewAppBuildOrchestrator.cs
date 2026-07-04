@@ -37,10 +37,24 @@ public static class NewAppBuildOrchestrator
         var charter = request.Charter
             ?? throw new InvalidOperationException("Build input must include a Charter.");
 
-        // Fire-and-forget callbacks to Yorrixx (the activity swallows transport errors).
-        Task Emit(string kind, object payload) => context.CallActivityAsync(
-            nameof(BuildActivityFunctions.SendCallbackAsync),
-            new CallbackMessage(request.CallbackBaseUrl, request.AppId, kind, JsonSerializer.Serialize(payload, CallbackJson)));
+        // Callbacks to Yorrixx. Delivery failures are retried inside the activity, then recorded here and
+        // surfaced via custom status + the run output (G6 P4) — a dead callback never fails the build, but
+        // it can never look green either.
+        var callbackFailures = 0;
+        async Task Emit(string kind, object payload)
+        {
+            try
+            {
+                await context.CallActivityAsync(
+                    nameof(BuildActivityFunctions.SendCallbackAsync),
+                    new CallbackMessage(request.CallbackBaseUrl, request.AppId, kind, JsonSerializer.Serialize(payload, CallbackJson)));
+            }
+            catch (TaskFailedException)
+            {
+                callbackFailures++;
+                context.SetCustomStatus(new { callbackFailures });
+            }
+        }
         Task Status(string status, string? phase = null, string? detail = null) =>
             Emit("status", new { status, phase, detail });
 
@@ -135,13 +149,13 @@ public static class NewAppBuildOrchestrator
         if (!string.Equals(verification.Outcome, "passed", StringComparison.OrdinalIgnoreCase))
         {
             await Status("failed", "Verify", "verification did not pass");
-            return $"failed:{request.AppId}";
+            return $"failed:{request.AppId}{CallbackSuffix(callbackFailures)}";
         }
 
         // Dev PO gate auto-approves → ready-for-review is transient → live (fires the publish email).
         await Status("ready-for-review", "Review");
         await Status("live", "Live");
-        return $"live:{request.AppId}:{result.HostedUrl}";
+        return $"live:{request.AppId}:{result.HostedUrl}{CallbackSuffix(callbackFailures)}";
     }
 
     private static (string Owner, string Name) SplitFullName(string fullName)
@@ -149,4 +163,8 @@ public static class NewAppBuildOrchestrator
         var i = fullName.IndexOf('/');
         return i > 0 ? (fullName[..i], fullName[(i + 1)..]) : (string.Empty, fullName);
     }
+
+    // Non-empty only when callbacks were lost — makes a delivery-degraded run visible in its output (G6 P4).
+    internal static string CallbackSuffix(int callbackFailures) =>
+        callbackFailures > 0 ? $":callbacksFailed={callbackFailures}" : string.Empty;
 }

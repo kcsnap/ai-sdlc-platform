@@ -106,25 +106,52 @@ public sealed class BuildActivityFunctions
     [Function(nameof(SendCallbackAsync))]
     public async Task SendCallbackAsync([ActivityTrigger] CallbackMessage message, CancellationToken cancellationToken)
     {
-        // Fire-and-forget: a callback failure (incl. a 404 for an unknown app) must never fail the build.
-        try
-        {
-            using var http = _httpFactory.CreateClient();
-            http.Timeout = TimeSpan.FromSeconds(20);
-            using var request = new HttpRequestMessage(HttpMethod.Post, CallbackUrl(message.CallbackBaseUrl, message.AppId, message.Kind));
-            var adminKey = Environment.GetEnvironmentVariable("YorrixxAdminKey");
-            if (!string.IsNullOrWhiteSpace(adminKey))
-                request.Headers.Add("X-Yorrixx-Admin-Key", adminKey);
-            request.Content = new StringContent(message.PayloadJson, Encoding.UTF8, "application/json");
+        // G6 P4: a dead callback must be VISIBLE, never silently green. Retry transient failures here,
+        // then THROW — the activity shows Failed in the orchestration history and the orchestrator
+        // records it in the run status (without failing the build).
+        var delays = new[] { TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5) };
+        int? lastStatus = null;
+        Exception? lastError = null;
 
-            using var response = await http.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-                _logger.LogWarning("Callback {Kind} for {AppId} returned {Status}.", message.Kind, message.AppId, (int)response.StatusCode);
-        }
-        catch (Exception ex)
+        foreach (var delay in delays)
         {
-            _logger.LogWarning(ex, "Callback {Kind} for {AppId} failed (fire-and-forget).", message.Kind, message.AppId);
+            if (delay > TimeSpan.Zero)
+                await Task.Delay(delay, cancellationToken);
+
+            try
+            {
+                using var http = _httpFactory.CreateClient();
+                http.Timeout = TimeSpan.FromSeconds(20);
+                using var request = new HttpRequestMessage(HttpMethod.Post, CallbackUrl(message.CallbackBaseUrl, message.AppId, message.Kind));
+                var adminKey = Environment.GetEnvironmentVariable("YorrixxAdminKey");
+                if (!string.IsNullOrWhiteSpace(adminKey))
+                    request.Headers.Add("X-Yorrixx-Admin-Key", adminKey);
+                request.Content = new StringContent(message.PayloadJson, Encoding.UTF8, "application/json");
+
+                using var response = await http.SendAsync(request, cancellationToken);
+                if (response.IsSuccessStatusCode)
+                    return;
+
+                lastStatus = (int)response.StatusCode;
+                _logger.LogWarning("Callback {Kind} for {AppId} returned {Status}.", message.Kind, message.AppId, lastStatus);
+
+                // Deterministic 4xx (bad key, unknown app) won't heal on retry — fail fast.
+                if (lastStatus is >= 400 and < 500 and not (408 or 429))
+                    break;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                lastError = ex;
+                _logger.LogWarning(ex, "Callback {Kind} for {AppId} attempt failed.", message.Kind, message.AppId);
+            }
         }
+
+        _logger.LogError(lastError,
+            "Callback {Kind} for {AppId} FAILED after retries (lastStatus={Status}).",
+            message.Kind, message.AppId, lastStatus);
+        throw new InvalidOperationException(
+            $"Callback {message.Kind} for {message.AppId} failed (lastStatus={lastStatus?.ToString() ?? lastError?.GetType().Name ?? "none"}).",
+            lastError);
     }
 
     internal static string CallbackUrl(string callbackBaseUrl, string appId, string kind) =>
@@ -165,5 +192,14 @@ public sealed class BuildActivityFunctions
         return $"{owner}/{repo}";
     }
 
-    internal static string RepoName(string appId) => $"user-app-{appId}";
+    // Contract (G6 P2): repos are user-app-{appId8}, where appId8 = first 8 chars of the hyphen-stripped,
+    // lowercased appId (padded with '0' when shorter) — EXACTLY the provisioner's ResourceNames derivation,
+    // so the deploy identity's federated-credential subject (repo:{owner}/user-app-{appId8}:ref:…) matches
+    // the repo the workflow actually runs in. The full 32-char name broke OIDC on every G6 deploy.
+    internal static string RepoName(string appId)
+    {
+        var clean = appId.Replace("-", "").ToLowerInvariant();
+        var id8 = clean.Length >= 8 ? clean[..8] : clean.PadRight(8, '0');
+        return $"user-app-{id8}";
+    }
 }

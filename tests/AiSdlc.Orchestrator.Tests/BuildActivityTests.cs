@@ -28,6 +28,27 @@ public sealed class BuildActivityTests
         Assert.Equal("user-app-dd0e9574", BuildActivityFunctions.RepoName("dd0e9574"));
     }
 
+    // G6 P2: repos must be user-app-{appId8} (first 8 of the hyphen-stripped, lowercased appId — the
+    // provisioner's ResourceNames derivation) so the federated-credential subject matches the repo.
+    [Theory]
+    [InlineData("c50cb42440c2462a93a9777a800cc44d",     "user-app-c50cb424")] // full 32-char production id
+    [InlineData("b5acec87-1111-2222-3333-444455556666", "user-app-b5acec87")] // hyphenated GUID form
+    [InlineData("C50CB42440C2462A93A9777A800CC44D",     "user-app-c50cb424")] // lowercased
+    [InlineData("g5x0702d-test",                        "user-app-g5x0702d")] // hyphen stripped before slicing
+    [InlineData("ab-12",                                "user-app-ab120000")] // short ids padded with '0'
+    public void RepoName_uses_appId8_matching_the_federated_credential_subject(string appId, string expected)
+    {
+        Assert.Equal(expected, BuildActivityFunctions.RepoName(appId));
+    }
+
+    // G6 P4: lost callbacks must be visible in the run output.
+    [Fact]
+    public void CallbackSuffix_is_empty_when_all_callbacks_delivered_and_counts_failures()
+    {
+        Assert.Equal(string.Empty, NewAppBuildOrchestrator.CallbackSuffix(0));
+        Assert.Equal(":callbacksFailed=3", NewAppBuildOrchestrator.CallbackSuffix(3));
+    }
+
     private static CheckRunResult Check(string status, string conclusion) =>
         new() { Name = "deploy", Status = status, Conclusion = conclusion };
 

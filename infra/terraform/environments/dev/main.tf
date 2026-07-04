@@ -159,5 +159,10 @@ module "function_app" {
     # G5-SEC — inbound auth on /api/builds (CreateBuildFunction validates X-Platform-Build-Key against
     # this; unset means validation is SKIPPED). yorrixx-app presents the same secret at G6.
     PlatformBuildKey = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/PlatformBuildKey)"
+
+    # G6 P1 — outbound auth on the Yorrixx status/runtime/verification callbacks: SendCallbackAsync presents
+    # this as X-Yorrixx-Admin-Key on {CallbackBaseUrl}/apps/{appId}/{kind}. Unset ⇒ the header is silently
+    # omitted and every callback 401s (the G6 cutover failure).
+    YorrixxAdminKey = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/YorrixxAdminKey)"
   }
 }

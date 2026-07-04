@@ -400,10 +400,23 @@ public sealed class GitHubApiClient : IGitHubService
         string templateRepository, string targetOwner, string name, bool isPrivate, string description,
         CancellationToken cancellationToken)
     {
-        var json = await PostAsync<GeneratedRepoJson>(
+        using var response = await _http.PostAsJsonAsync(
             $"/repos/{templateRepository}/generate",
             new { owner = targetOwner, name, @private = isPrivate, description },
-            cancellationToken);
+            JsonOptions, cancellationToken);
+
+        // Ensure semantics (G6 P3): GitHub 422s "Name already exists" when a cold-start-lost create-build
+        // is re-kicked. The repo from the earlier attempt IS the desired state — fetch and return it. If
+        // the 422 was some other validation error, the GET 404s and surfaces that instead.
+        if (response.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
+        {
+            var existing = await GetAsync<GeneratedRepoJson>($"/repos/{targetOwner}/{name}", cancellationToken);
+            return new CreatedRepository(existing.FullName, existing.HtmlUrl, existing.DefaultBranch);
+        }
+
+        await EnsureSuccessAsync(response, $"POST /repos/{templateRepository}/generate", cancellationToken);
+        var json = await response.Content.ReadFromJsonAsync<GeneratedRepoJson>(JsonOptions, cancellationToken)
+                   ?? throw new InvalidOperationException($"Empty response from GitHub API: POST /repos/{templateRepository}/generate");
         return new CreatedRepository(json.FullName, json.HtmlUrl, json.DefaultBranch);
     }
 
