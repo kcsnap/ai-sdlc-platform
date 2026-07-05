@@ -166,3 +166,31 @@ module "function_app" {
     YorrixxAdminKey = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/YorrixxAdminKey)"
   }
 }
+
+# G6 flip-#2 fix — keep the build-intake's http trigger group warm. FC1 alwaysReady is a SOFT target: the
+# platform deallocated the warm instance overnight (2026-07-05) and the canary's POST /api/builds hit a
+# >100s lazy re-specialization despite alwaysReady http=1. This availability ping executes a REAL
+# http-group function (/api/health — the site root "/" is front-end-served and proves nothing) every
+# 5 minutes from two locations: worst case after a platform recycle, one ping absorbs the cold start and
+# callers land on a warm worker. Doubles as the first truthful uptime signal for the intake.
+resource "azurerm_application_insights_standard_web_test" "intake_keepwarm" {
+  name                    = "ping-builds-intake-${var.environment}"
+  resource_group_name     = azurerm_resource_group.this.name
+  location                = var.location # must match the App Insights component's region
+  application_insights_id = module.app_insights.id
+  enabled                 = true
+  frequency               = 300
+  timeout                 = 120 # generous so the ping itself can absorb a full cold start
+  retry_enabled           = true
+  geo_locations           = ["emea-nl-ams-azr", "emea-gb-db3-azr"]
+
+  request {
+    url = "https://func-aisdlc-${var.environment}-${var.suffix}.azurewebsites.net/api/health"
+  }
+
+  validation_rules {
+    expected_status_code = 200
+  }
+
+  tags = local.tags
+}

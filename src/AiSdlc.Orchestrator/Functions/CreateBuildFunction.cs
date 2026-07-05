@@ -68,12 +68,28 @@ public sealed class CreateBuildFunction
             if (existing is not null)
                 await durableClient.PurgeInstanceAsync(buildId, cancellation: cancellationToken);
 
-            await durableClient.ScheduleNewOrchestrationInstanceAsync(
-                nameof(NewAppBuildOrchestrator),
-                buildRequest,
-                new StartOrchestrationOptions { InstanceId = buildId },
-                cancellationToken);
-            _logger.LogInformation("Started build {BuildId} for app {AppId}.", buildId, buildRequest.AppId);
+            try
+            {
+                await durableClient.ScheduleNewOrchestrationInstanceAsync(
+                    nameof(NewAppBuildOrchestrator),
+                    buildRequest,
+                    new StartOrchestrationOptions { InstanceId = buildId },
+                    cancellationToken);
+                _logger.LogInformation("Started build {BuildId} for app {AppId}.", buildId, buildRequest.AppId);
+            }
+            catch (Exception ex)
+            {
+                // Concurrent-duplicate race (yorrixx's timeout-retry can land while the original request
+                // is still scheduling): both readers saw no instance, both scheduled, the loser throws.
+                // If an instance exists now, the build IS running — same-buildId ack is the correct
+                // idempotent answer. Anything else is a genuine failure.
+                var raced = await durableClient.GetInstanceAsync(buildId, cancellation: cancellationToken);
+                if (raced is null)
+                    throw;
+                _logger.LogInformation(ex,
+                    "create-build for {AppId} raced a concurrent duplicate ({BuildId}) — instance exists, treating as accepted.",
+                    buildRequest.AppId, buildId);
+            }
         }
 
         var response = request.CreateResponse(HttpStatusCode.Accepted);
