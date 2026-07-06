@@ -5,6 +5,10 @@ using Microsoft.Extensions.Logging;
 
 namespace AiSdlc.RepoIndex.Charter;
 
+// Inside this namespace the simple name "Charter" binds to the namespace itself, so the contract-package
+// import must live INSIDE the namespace body (inner-scope usings win the lookup).
+using Yorrixx.Contracts.Generation;
+
 public sealed class GitHubCharterReader : ICharterReader
 {
     public const string CharterPath = ".yorrixx/charter.json";

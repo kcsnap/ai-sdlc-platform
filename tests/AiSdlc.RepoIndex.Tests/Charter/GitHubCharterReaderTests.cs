@@ -1,5 +1,6 @@
 using AiSdlc.GitHub;
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Contracts.Generation;
 using AiSdlc.Shared;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;

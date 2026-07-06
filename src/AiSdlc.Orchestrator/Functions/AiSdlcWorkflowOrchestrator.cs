@@ -5,6 +5,7 @@ using AiSdlc.GitHub;
 using AiSdlc.GitHub.Webhooks;
 using AiSdlc.RepoIndex;
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Contracts.Generation;
 using AiSdlc.Shared;
 using AiSdlc.Shared.AutoMerge;
 using Microsoft.Azure.Functions.Worker;

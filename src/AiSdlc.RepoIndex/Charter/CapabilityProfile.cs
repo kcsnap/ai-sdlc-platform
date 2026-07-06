@@ -1,4 +1,9 @@
+
 namespace AiSdlc.RepoIndex.Charter;
+
+// Inside this namespace the simple name "Charter" binds to the namespace itself, so the contract-package
+// import must live INSIDE the namespace body (inner-scope usings win the lookup).
+using Yorrixx.Contracts.Generation;
 
 /// <summary>
 /// The resolved set of backend capabilities for a FullStack app, fixed before build from the explicit

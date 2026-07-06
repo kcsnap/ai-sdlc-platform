@@ -121,7 +121,9 @@ public sealed class CreateBuildFunction
         if (string.IsNullOrWhiteSpace(req.CallbackBaseUrl)) return (null, "callbackBaseUrl is required");
         if (!Uri.TryCreate(req.CallbackBaseUrl, UriKind.Absolute, out _)) return (null, "callbackBaseUrl must be an absolute URL");
         if (req.Charter is null) return (null, "charter is required");
-        if (string.IsNullOrWhiteSpace(req.Charter.Identity.AppName)) return (null, "charter.Identity.AppName is required");
+        // The package Charter records are positional: a section absent from the JSON deserializes to NULL
+        // (the old hand-mirror defaulted them), so guard Identity before dereferencing.
+        if (string.IsNullOrWhiteSpace(req.Charter.Identity?.AppName)) return (null, "charter.Identity.AppName is required");
 
         return (req, null);
     }

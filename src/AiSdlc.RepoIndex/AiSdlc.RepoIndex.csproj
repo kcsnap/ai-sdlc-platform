@@ -8,6 +8,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.*" />
+    <!-- App-owned Charter contract (ADR-XR-0001 / A4): canonical Charter types + the Phase-0-locked
+         StackProfiles.Resolve rule, published from kcsnap/yorrixx-app. Namespace Yorrixx.Contracts.Generation.
+         Replaces the hand-mirrored Charter.cs/StackProfile.cs that used to live in this project. -->
+    <PackageReference Include="Yorrixx.Contracts.Charter" Version="1.0.0" />
     <PackageReference Include="YamlDotNet" Version="16.*" />
   </ItemGroup>
 

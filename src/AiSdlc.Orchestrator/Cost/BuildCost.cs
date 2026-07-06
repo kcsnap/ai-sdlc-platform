@@ -3,19 +3,9 @@ using AiSdlc.Agents;
 
 namespace AiSdlc.Orchestrator.Cost;
 
-/// <summary>The cost-telemetry body POSTed to Yorrixx per LLM call (raw Anthropic usage; £ derived downstream).</summary>
-public sealed record BuildCostCallback
-{
-    public string Model { get; init; } = string.Empty;
-    public string Phase { get; init; } = string.Empty;
-    public int Iteration { get; init; }
-    public long InputTokens { get; init; }
-    public long OutputTokens { get; init; }
-    public long CacheReadTokens { get; init; }
-    public long CacheWriteTokens { get; init; }
-    public int Calls { get; init; } = 1;
-    public string? RequestId { get; init; }
-}
+// BuildCostCallback moved to the platform-owned AiSdlc.Contracts.Callbacks package (A11) — the record is
+// cross-repo contract; the attribution plumbing below (CostScope/BuildCostContext/CostPhase) stays
+// platform-internal.
 
 /// <summary>Per-build cost attribution carried across the agent→provider call chain.</summary>
 public sealed record CostScope(string AppId, int Iteration);

@@ -1,4 +1,5 @@
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Contracts.Generation;
 using Xunit;
 
 namespace AiSdlc.RepoIndex.Tests.Charter;
@@ -8,23 +9,20 @@ public sealed class CharterMarkdownRendererTests
     [Fact]
     public void Renders_canonical_charter_shape()
     {
-        var charter = new AiSdlc.RepoIndex.Charter.Charter
-        {
-            SchemaVersion = 1,
-            Identity = new() { AppName = "TaskFlow", OneLineDescription = "Personal task tracker for indie devs" },
-            Audience = new() { PrimaryUserDescription = "Solo developers", ExpectedScale = ExpectedScale.Solo },
-            Purpose = new() { ProblemBeingSolved = "I lose track of tasks", SuccessCriteria = new[] { "Capture in <5s" } },
-            Features = new[]
-            {
-                new CharterFeature
-                {
-                    Id = "f1", Name = "Capture task", Description = "Quick-add modal",
-                    Status = FeatureStatus.Planned, Priority = FeaturePriority.MustHave, AddedIn = "charter"
-                }
-            },
-            Constraints = new() { DataSensitivity = DataSensitivity.Low, NeedsAuth = true, NeedsPayments = false },
-            AdditionalContext = "Mobile-first; offline important."
-        };
+        var charter = TestCharters.Make(
+            appName: "TaskFlow",
+            description: "Personal task tracker for indie devs",
+            primaryUser: "Solo developers",
+            scale: ExpectedScale.Solo,
+            problem: "I lose track of tasks",
+            successCriteria: ["Capture in <5s"],
+            features:
+            [
+                new CharterFeature("f1", "Capture task", "Quick-add modal", FeatureStatus.Planned, "charter", FeaturePriority.MustHave)
+            ],
+            sensitivity: DataSensitivity.Low,
+            auth: true,
+            additionalContext: "Mobile-first; offline important.");
 
         var md = CharterMarkdownRenderer.Render(charter);
 
@@ -42,27 +40,36 @@ public sealed class CharterMarkdownRendererTests
     }
 
     [Fact]
-    public void Omits_unknown_enum_values()
+    public void Structured_integrations_render_name_and_purpose()
     {
-        var charter = new AiSdlc.RepoIndex.Charter.Charter
-        {
-            SchemaVersion = 1,
-            Identity = new() { AppName = "X" }
-            // Audience.ExpectedScale, Constraints.DataSensitivity left at Unknown
-        };
+        var charter = TestCharters.Make(integrations:
+        [
+            new CharterIntegration("Stripe", "payments"),
+            new CharterIntegration("Postmark", "")
+        ]);
 
         var md = CharterMarkdownRenderer.Render(charter);
 
-        Assert.DoesNotContain("Expected scale:", md);
-        Assert.DoesNotContain("Data sensitivity:", md);
+        Assert.Contains("### Integrations", md);
+        Assert.Contains("- **Stripe** — payments", md);
+        Assert.Contains("- Postmark", md);
+    }
+
+    // The package enums carry no Unknown sentinel, so scale/sensitivity always render now
+    // (pre-package behaviour omitted them when left at Unknown).
+    [Fact]
+    public void Scale_and_sensitivity_always_render()
+    {
+        var md = CharterMarkdownRenderer.Render(TestCharters.Make(appName: "X"));
+
+        Assert.Contains("**Expected scale:** Solo", md);
+        Assert.Contains("**Data sensitivity:** Low", md);
     }
 
     [Fact]
     public void Empty_features_section_is_omitted()
     {
-        var charter = new AiSdlc.RepoIndex.Charter.Charter { SchemaVersion = 1, Identity = new() { AppName = "X" } };
-
-        var md = CharterMarkdownRenderer.Render(charter);
+        var md = CharterMarkdownRenderer.Render(TestCharters.Make(appName: "X"));
 
         Assert.DoesNotContain("### Features", md);
     }

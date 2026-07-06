@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Contracts.Generation;
 using Xunit;
 
 namespace AiSdlc.RepoIndex.Tests.Charter;
@@ -47,7 +48,7 @@ public sealed class CharterParseTests
     [Fact]
     public void Parses_canonical_yorrixx_sample()
     {
-        var charter = JsonSerializer.Deserialize<AiSdlc.RepoIndex.Charter.Charter>(CanonicalSampleJson, JsonOptions);
+        var charter = JsonSerializer.Deserialize<Yorrixx.Contracts.Generation.Charter>(CanonicalSampleJson, JsonOptions);
 
         Assert.NotNull(charter);
         Assert.Equal(1, charter!.SchemaVersion);
@@ -73,22 +74,27 @@ public sealed class CharterParseTests
         // Strict by design — GitHubCharterReader catches this and logs.
         var json = CanonicalSampleJson.Replace("\"Solo\"", "\"Galactic\"");
         Assert.Throws<JsonException>(() =>
-            JsonSerializer.Deserialize<AiSdlc.RepoIndex.Charter.Charter>(json, JsonOptions));
+            JsonSerializer.Deserialize<Yorrixx.Contracts.Generation.Charter>(json, JsonOptions));
     }
 
+    // DRIFT PIN — package semantics for a minimal charter differ from the old hand-mirror: the package
+    // records are positional, so sections absent from the JSON deserialize to NULL (not empty defaults),
+    // and the enums have no Unknown sentinel. Anything consuming a charter must treat sections as
+    // potentially null unless the producer guarantees the full shape (yorrixx-app serializes complete
+    // objects, so full-shape is the wire norm — see Parses_canonical_yorrixx_sample above).
     [Fact]
-    public void Missing_optional_fields_default_safely()
+    public void Minimal_charter_deserializes_with_null_sections()
     {
         var minimal = """{ "SchemaVersion": 1, "Identity": { "AppName": "X" } }""";
 
-        var charter = JsonSerializer.Deserialize<AiSdlc.RepoIndex.Charter.Charter>(minimal, JsonOptions);
+        var charter = JsonSerializer.Deserialize<Yorrixx.Contracts.Generation.Charter>(minimal, JsonOptions);
 
         Assert.NotNull(charter);
-        Assert.Equal("X", charter!.Identity.AppName);
-        Assert.Empty(charter.Features);
-        Assert.Empty(charter.Integrations);
-        Assert.Equal(string.Empty, charter.AdditionalContext);
-        Assert.Equal(ExpectedScale.Unknown, charter.Audience.ExpectedScale);
-        Assert.Equal(DataSensitivity.Unknown, charter.Constraints.DataSensitivity);
+        Assert.Equal(1, charter!.SchemaVersion);
+        Assert.Equal("X", charter.Identity.AppName);
+        Assert.Null(charter.Audience);
+        Assert.Null(charter.Constraints);
+        Assert.Null(charter.Features);
+        Assert.Null(charter.Integrations);
     }
 }

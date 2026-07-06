@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AiSdlc.Contracts.Callbacks;
 using AiSdlc.ModelProviders;
 using Microsoft.Extensions.Logging;
 

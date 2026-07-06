@@ -1,5 +1,6 @@
 using AiSdlc.Orchestrator.Functions;
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Contracts.Generation;
 using Xunit;
 
 namespace AiSdlc.Orchestrator.Tests;

@@ -302,8 +302,8 @@ public sealed class AgentActivityAuditTests
 
     private sealed class StubCharterReader : RepoIndex.Charter.ICharterReader
     {
-        public Task<RepoIndex.Charter.Charter?> ReadAsync(string repository, CancellationToken ct) =>
-            Task.FromResult<RepoIndex.Charter.Charter?>(null);
+        public Task<Yorrixx.Contracts.Generation.Charter?> ReadAsync(string repository, CancellationToken ct) =>
+            Task.FromResult<Yorrixx.Contracts.Generation.Charter?>(null);
     }
 
     // Minimal IGitHubService stub — these tests never hit the GitHub paths.

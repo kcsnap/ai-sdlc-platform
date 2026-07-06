@@ -1,4 +1,5 @@
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Contracts.Generation;
 using Yorrixx.Provisioner.Contracts;
 
 namespace AiSdlc.Orchestrator.Builds;
