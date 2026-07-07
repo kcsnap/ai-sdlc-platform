@@ -2,6 +2,10 @@ using System.Text;
 
 namespace AiSdlc.RepoIndex.Charter;
 
+// Inside this namespace the simple name "Charter" binds to the namespace itself, so the contract-package
+// import must live INSIDE the namespace body (inner-scope usings win the lookup).
+using Yorrixx.Contracts.Generation;
+
 public static class CharterMarkdownRenderer
 {
     public static string Render(Charter charter)
@@ -20,8 +24,9 @@ public static class CharterMarkdownRenderer
         sb.AppendLine("### Audience");
         if (!string.IsNullOrWhiteSpace(charter.Audience.PrimaryUserDescription))
             sb.AppendLine($"- **Primary user:** {charter.Audience.PrimaryUserDescription}");
-        if (charter.Audience.ExpectedScale != ExpectedScale.Unknown)
-            sb.AppendLine($"- **Expected scale:** {charter.Audience.ExpectedScale}");
+        // Package enums have no Unknown sentinel (a missing field deserializes to the first member),
+        // so scale/priority/status/sensitivity render unconditionally now.
+        sb.AppendLine($"- **Expected scale:** {charter.Audience.ExpectedScale}");
         sb.AppendLine();
 
         sb.AppendLine("### Purpose");
@@ -40,16 +45,13 @@ public static class CharterMarkdownRenderer
             sb.AppendLine("### Features");
             foreach (var f in charter.Features)
             {
-                var tag = f.Priority != FeaturePriority.Unknown ? $" ({f.Priority})" : string.Empty;
-                var status = f.Status != FeatureStatus.Unknown ? $" [{f.Status}]" : string.Empty;
-                sb.AppendLine($"- **{f.Name}**{tag}{status} — {f.Description}");
+                sb.AppendLine($"- **{f.Name}** ({f.Priority}) [{f.Status}] — {f.Description}");
             }
             sb.AppendLine();
         }
 
         sb.AppendLine("### Constraints");
-        if (charter.Constraints.DataSensitivity != DataSensitivity.Unknown)
-            sb.AppendLine($"- **Data sensitivity:** {charter.Constraints.DataSensitivity}");
+        sb.AppendLine($"- **Data sensitivity:** {charter.Constraints.DataSensitivity}");
         sb.AppendLine($"- Needs auth: {YesNo(charter.Constraints.NeedsAuth)}");
         sb.AppendLine($"- Needs payments: {YesNo(charter.Constraints.NeedsPayments)}");
         sb.AppendLine($"- Needs email: {YesNo(charter.Constraints.NeedsEmail)}");
@@ -59,8 +61,9 @@ public static class CharterMarkdownRenderer
         if (charter.Integrations.Count > 0)
         {
             sb.AppendLine("### Integrations");
+            // Integrations are structured in the contract package (Name + Purpose), not bare strings.
             foreach (var i in charter.Integrations)
-                sb.AppendLine($"- {i}");
+                sb.AppendLine(string.IsNullOrWhiteSpace(i.Purpose) ? $"- {i.Name}" : $"- **{i.Name}** — {i.Purpose}");
             sb.AppendLine();
         }
 

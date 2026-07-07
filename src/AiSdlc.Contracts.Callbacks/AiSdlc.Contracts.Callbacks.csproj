@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>AiSdlc.Contracts.Callbacks</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>kcsnap</Authors>
+    <Company>kcsnap</Company>
+    <Description>Platform-owned build-callback contract (A11): the named payloads the AI SDLC platform POSTs to yorrixx-app's admin API (status / runtime / verification / cost) plus the canonical build-status vocabulary. Wire shape: camelCase, nulls omitted.</Description>
+    <PackageProjectUrl>https://github.com/kcsnap/ai-sdlc-platform</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/kcsnap/ai-sdlc-platform</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>aisdlc;callbacks;contract;yorrixx</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

@@ -3,6 +3,7 @@ using System.Text;
 using AiSdlc.Orchestrator.Builds;
 using AiSdlc.Orchestrator.Provisioning;
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Contracts.Generation;
 using Yorrixx.Provisioner.Contracts;
 using Xunit;
 

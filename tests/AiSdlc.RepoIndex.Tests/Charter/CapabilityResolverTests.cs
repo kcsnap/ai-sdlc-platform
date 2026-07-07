@@ -1,6 +1,7 @@
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Contracts.Generation;
 using Xunit;
-using CharterDoc = AiSdlc.RepoIndex.Charter.Charter;
+using CharterDoc = Yorrixx.Contracts.Generation.Charter;
 
 namespace AiSdlc.RepoIndex.Tests.Charter;
 
@@ -9,16 +10,7 @@ public sealed class CapabilityResolverTests
     private static CharterDoc CharterWith(
         bool needsAuth = false, bool needsPayments = false,
         bool needsEmail = false, bool needsAIApi = false) =>
-        new()
-        {
-            Constraints = new CharterConstraints
-            {
-                NeedsAuth = needsAuth,
-                NeedsPayments = needsPayments,
-                NeedsEmail = needsEmail,
-                NeedsAIApi = needsAIApi,
-            }
-        };
+        TestCharters.Make(auth: needsAuth, payments: needsPayments, email: needsEmail, aiApi: needsAIApi);
 
     // ── The enforced invariant: NeedsPayments ⟹ Database (§4a) ──────────────────
 

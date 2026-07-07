@@ -1,8 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
+using AiSdlc.Contracts.Callbacks;
 using AiSdlc.Orchestrator.Builds;
+// The Builds namespace has its own (internal) VerificationCheck; the wire payload uses the CONTRACT one.
+using ContractVerificationCheck = AiSdlc.Contracts.Callbacks.VerificationCheck;
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Contracts.Generation;
 using AiSdlc.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.DurableTask;
@@ -23,7 +27,9 @@ public static class NewAppBuildOrchestrator
     private static readonly TimeSpan DeployPollInterval = TimeSpan.FromSeconds(30);
     private const int MaxDeployPolls = 40;   // ~20 min for the deploy workflow to finish
 
-    private static readonly JsonSerializerOptions CallbackJson = new()
+    // Wire options for every Yorrixx callback (camelCase, nulls omitted). Internal so the golden wire-shape
+    // tests serialize with EXACTLY the sender's options (A11: named records must stay byte-identical).
+    internal static readonly JsonSerializerOptions CallbackJson = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
@@ -56,12 +62,12 @@ public static class NewAppBuildOrchestrator
             }
         }
         Task Status(string status, string? phase = null, string? detail = null) =>
-            Emit("status", new { status, phase, detail });
+            Emit("status", new StatusCallback(status, phase, detail));
 
-        await Status("queued");
+        await Status(CanonicalBuildStatus.Queued);
 
         // Component 2 — deterministic profile gate (no LLM): Static iff no backend need; else FullStack.
-        var stackProfile = StackProfileResolver.Resolve(charter);
+        var stackProfile = StackProfiles.Resolve(charter);
 
         // Component 3 — create the user-app repo from the stack-appropriate template (GitHub App).
         var repo = await context.CallActivityAsync<CreatedRepository>(
@@ -70,7 +76,7 @@ public static class NewAppBuildOrchestrator
 
         // Component 4 — provision via the dedicated provisioner. Call 1 is async; the Call-2 callback raises
         // 'provision-result', and a GET poll is the fallback if it's dropped.
-        await Status("provisioning", "Provision");
+        await Status(CanonicalBuildStatus.Provisioning, "Provision");
         var (repoOwner, repoName) = SplitFullName(repo.FullName);
         var provisionSpec = new ProvisionSpec(
             AppId:        request.AppId,
@@ -103,7 +109,7 @@ public static class NewAppBuildOrchestrator
         if (result is null || !string.Equals(result.Outcome, "provisioned", StringComparison.OrdinalIgnoreCase))
         {
             var detail = result?.Detail ?? "no provision result before timeout";
-            await Status("failed", "Provision", detail);
+            await Status(CanonicalBuildStatus.Failed, "Provision", detail);
             throw new InvalidOperationException($"Provisioning failed for {request.AppId}: {detail}.");
         }
 
@@ -114,12 +120,13 @@ public static class NewAppBuildOrchestrator
                 nameof(BuildActivityFunctions.CommitDeployWorkflowAsync),
                 new CommitDeployInput(repo.FullName, result.DeployYaml, repo.DefaultBranch));
 
-        // /runtime BEFORE any 'live' — so the publish email carries the hosted URL.
-        await Emit("runtime", new { repoUrl = repo.HtmlUrl, hostedUrl = result.HostedUrl });
-        await Status("building", "Build");
+        // /runtime BEFORE any 'live' — so the publish email carries the hosted URL. RepoUrl is part of the
+        // named contract record (F2): it has been on this wire since the emit was introduced.
+        await Emit("runtime", new RuntimeCallback(repo.HtmlUrl, result.HostedUrl));
+        await Status(CanonicalBuildStatus.Building, "Build");
 
         // Component 5 — verification gate: wait for the template's deploy workflow, then probe the hosted URL.
-        await Status("verifying", "Verify");
+        await Status(CanonicalBuildStatus.Verifying, "Verify");
         var deployStatus = "none";
         for (var poll = 0; poll < MaxDeployPolls; poll++)
         {
@@ -139,22 +146,20 @@ public static class NewAppBuildOrchestrator
             deployStatus, servesStatus, stackProfile == StackProfile.Static);
 
         var at = context.CurrentUtcDateTime.ToString("o");
-        await Emit("verification", new
-        {
-            outcome = verification.Outcome,
-            attempt = 1,
-            checks  = verification.Checks.Select(c => new { c.CheckId, c.Name, c.Status, c.Evidence, at }),
-        });
+        await Emit("verification", new VerificationCallback(
+            verification.Outcome,
+            Attempt: 1,
+            verification.Checks.Select(c => new ContractVerificationCheck(c.CheckId, c.Name, c.Status, c.Evidence, at)).ToArray()));
 
         if (!string.Equals(verification.Outcome, "passed", StringComparison.OrdinalIgnoreCase))
         {
-            await Status("failed", "Verify", "verification did not pass");
+            await Status(CanonicalBuildStatus.Failed, "Verify", "verification did not pass");
             return $"failed:{request.AppId}{CallbackSuffix(callbackFailures)}";
         }
 
         // Dev PO gate auto-approves → ready-for-review is transient → live (fires the publish email).
-        await Status("ready-for-review", "Review");
-        await Status("live", "Live");
+        await Status(CanonicalBuildStatus.ReadyForReview, "Review");
+        await Status(CanonicalBuildStatus.Live, "Live");
         return $"live:{request.AppId}:{result.HostedUrl}{CallbackSuffix(callbackFailures)}";
     }
 

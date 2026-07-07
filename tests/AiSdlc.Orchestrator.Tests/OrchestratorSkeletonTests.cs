@@ -283,8 +283,8 @@ public sealed class OrchestratorSkeletonTests
 
     private sealed class NoOpCharterReader : AiSdlc.RepoIndex.Charter.ICharterReader
     {
-        public Task<AiSdlc.RepoIndex.Charter.Charter?> ReadAsync(string repository, CancellationToken cancellationToken)
-            => Task.FromResult<AiSdlc.RepoIndex.Charter.Charter?>(null);
+        public Task<Yorrixx.Contracts.Generation.Charter?> ReadAsync(string repository, CancellationToken cancellationToken)
+            => Task.FromResult<Yorrixx.Contracts.Generation.Charter?>(null);
     }
 
     // Minimal no-op IGitHubService — returns empty/stub values; swallows writes.

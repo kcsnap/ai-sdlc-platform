@@ -186,7 +186,7 @@ public sealed class BuildActivityFunctions
     // Static → the plain HTML/CSS template; anything else (FullStack) → the React+.NET template.
     internal static string ResolveTemplateRepo(string stackProfile, string owner, string staticTemplate, string fullStackTemplate)
     {
-        var repo = string.Equals(stackProfile, nameof(AiSdlc.RepoIndex.Charter.StackProfile.Static), StringComparison.OrdinalIgnoreCase)
+        var repo = string.Equals(stackProfile, nameof(Yorrixx.Contracts.Generation.StackProfile.Static), StringComparison.OrdinalIgnoreCase)
             ? staticTemplate
             : fullStackTemplate;
         return $"{owner}/{repo}";

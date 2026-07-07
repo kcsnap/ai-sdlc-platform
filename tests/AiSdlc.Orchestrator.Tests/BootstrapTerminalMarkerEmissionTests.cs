@@ -9,6 +9,7 @@ using AiSdlc.Orchestrator.Imagery;
 using AiSdlc.Orchestrator.Functions;
 using AiSdlc.RepoIndex;
 using AiSdlc.RepoIndex.Charter;
+using Yorrixx.Contracts.Generation;
 using AiSdlc.Shared;
 using AiSdlc.Shared.AutoMerge;
 using Microsoft.Extensions.Logging.Abstractions;

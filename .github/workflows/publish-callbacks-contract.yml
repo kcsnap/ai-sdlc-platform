@@ -1,0 +1,56 @@
+# Publishes AiSdlc.Contracts.Callbacks to GitHub Packages. Tag-triggered and HELD: nothing publishes on
+# merge — pushing a `callbacks-v*` tag is an explicit, human-authorized release action (A11; mirrors
+# publish-contract.yml for AiSdlc.Events.Contract).
+name: Publish AiSdlc.Contracts.Callbacks
+
+on:
+  push:
+    tags:
+      - 'callbacks-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Derive version from tag
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/callbacks-v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/callbacks-v}"
+          else
+            VERSION="$(grep -oP '(?<=<Version>)[^<]+' src/AiSdlc.Contracts.Callbacks/AiSdlc.Contracts.Callbacks.csproj)"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved package version: ${VERSION}"
+
+      - name: Restore
+        run: dotnet restore src/AiSdlc.Contracts.Callbacks/AiSdlc.Contracts.Callbacks.csproj
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        run: dotnet build src/AiSdlc.Contracts.Callbacks/AiSdlc.Contracts.Callbacks.csproj --configuration Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Pack
+        run: dotnet pack src/AiSdlc.Contracts.Callbacks/AiSdlc.Contracts.Callbacks.csproj --configuration Release --no-build --output ./artifacts -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Push to GitHub Packages
+        run: |
+          dotnet nuget push "./artifacts/*.nupkg" \
+            --api-key ${{ secrets.GITHUB_TOKEN }} \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --skip-duplicate
