@@ -33,7 +33,11 @@ var host = new HostBuilder()
             //   AnthropicModelOverrides="Code Implementer=claude-opus-4-8;UX / Accessibility Reviewer=claude-opus-4-8"
             // Unset → every agent uses the global model above (no behaviour change).
             ModelOverridesByAgent = ModelProviderOptions.ParseOverrides(
-                Environment.GetEnvironmentVariable("AnthropicModelOverrides"))
+                Environment.GetEnvironmentVariable("AnthropicModelOverrides")),
+            // Prompt caching on by default — caches the system prompt + context-document prefix that the
+            // batch/recovery/repair loops re-send. Set AnthropicPromptCaching=false to disable.
+            EnablePromptCaching = !string.Equals(
+                Environment.GetEnvironmentVariable("AnthropicPromptCaching"), "false", StringComparison.OrdinalIgnoreCase)
         });
 
         services.AddSingleton<IRedactionService, RegexRedactionService>();

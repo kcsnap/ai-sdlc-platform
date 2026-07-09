@@ -7,6 +7,17 @@ public sealed record ModelProviderOptions
     public int DefaultMaxTokens { get; init; } = 2048;
 
     /// <summary>
+    /// Marks the system prompt and the context-document prefix with <c>cache_control</c> so Anthropic
+    /// reuses them across the many calls that share them — the Code Implementer's batch + recovery loop,
+    /// the CI-repair re-runs, and the parallel reviewers all re-send an identical large prefix that
+    /// differs only in the trailing instruction. Cached input reads at ~10% of the base rate and lowers
+    /// TTFT. On by default; set <c>AnthropicPromptCaching=false</c> to disable (e.g. to isolate a cost
+    /// regression). Blocks below the model's minimum cacheable size are silently not cached by the API,
+    /// so this never errors on small prompts.
+    /// </summary>
+    public bool EnablePromptCaching { get; init; } = true;
+
+    /// <summary>
     /// Per-agent model overrides (agent name → model id). A request whose <c>AgentName</c> is keyed
     /// here runs on the mapped model; every other agent uses the global <see cref="ModelName"/>.
     /// Lets the design-critical steps run on a stronger (costlier) model while cheap agents stay on

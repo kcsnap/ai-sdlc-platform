@@ -108,6 +108,32 @@ module "provisioner_function" {
   }
 }
 
+# Ramp prep — same FC1 soft-alwaysReady failure mode as the intake (see intake_keepwarm in main.tf):
+# a deallocated provisioner turns Call 1 into a >60s lazy re-specialization and fails the build's
+# provision step (ProvisionerClient timeout). Ping the REAL /health function (routePrefix is "" on the
+# provisioner — no /api) every 5 minutes so callers land on a warm worker.
+resource "azurerm_application_insights_standard_web_test" "provisioner_keepwarm" {
+  name                    = "ping-provisioner-${var.environment}"
+  resource_group_name     = azurerm_resource_group.this.name
+  location                = var.location # must match the App Insights component's region
+  application_insights_id = module.app_insights.id
+  enabled                 = true
+  frequency               = 300
+  timeout                 = 120 # generous so the ping itself can absorb a full cold start
+  retry_enabled           = true
+  geo_locations           = ["emea-nl-ams-azr", "emea-gb-db3-azr"]
+
+  request {
+    url = "https://func-aisdlc-prov-${var.environment}-${var.suffix}.azurewebsites.net/health"
+  }
+
+  validation_rules {
+    expected_status_code = 200
+  }
+
+  tags = local.tags
+}
+
 output "provisioner_base_url" {
   description = "Provisioner Function base URL — the platform sets this as ProvisionerUrl at G4 wiring."
   value       = "https://${module.provisioner_function.default_hostname}"

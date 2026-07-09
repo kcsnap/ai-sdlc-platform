@@ -30,19 +30,48 @@ public sealed class ProvisionerClient : IProvisionerClient
 
     public async Task StartProvisionAsync(ProvisionSpec request, CancellationToken cancellationToken)
     {
-        using var response = await _http.PostAsJsonAsync("provision", request, JsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        try
+        {
+            await PostProvisionAsync(request, cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException
+                                   && !cancellationToken.IsCancellationRequested)
+        {
+            // One guarded retry for a cold-start timeout. The failed POST may still have LANDED (202 lost
+            // in transit), and a blind re-POST double-enqueues the provision worker — so only re-POST when
+            // the provisioner has no record of this buildId.
+            if (await GetStatusAsync(request.BuildId, cancellationToken) is not null) return;
+            await PostProvisionAsync(request, cancellationToken);
+        }
     }
 
     public async Task<ProvisionResult?> GetProvisionResultAsync(string buildId, CancellationToken cancellationToken)
     {
+        var status = await GetStatusAsync(buildId, cancellationToken);
+        // Result is populated only on terminal states; while "accepted" it is null — still provisioning.
+        return status?.Result;
+    }
+
+    private async Task PostProvisionAsync(ProvisionSpec request, CancellationToken cancellationToken)
+    {
+        using var response = await _http.PostAsJsonAsync("provision", request, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    private async Task<ProvisionStatusEnvelope?> GetStatusAsync(string buildId, CancellationToken cancellationToken)
+    {
         using var response = await _http.GetAsync($"provision/{buildId}", cancellationToken);
-        // Not ready yet (still provisioning) → no result to act on.
+        // Unknown buildId / not ready yet → no record to act on.
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Accepted or HttpStatusCode.NoContent)
             return null;
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<ProvisionResult>(JsonOptions, cancellationToken);
+        return await response.Content.ReadFromJsonAsync<ProvisionStatusEnvelope>(JsonOptions, cancellationToken);
     }
+
+    // Mirrors the provisioner's GET /provision/{buildId} wire shape (ProvisionStatus: {status, result}).
+    // The result is NESTED — deserializing the body as a bare ProvisionResult reads Outcome as null and
+    // turns every poll into a reported failure.
+    private sealed record ProvisionStatusEnvelope(string? Status, ProvisionResult? Result);
 }
 
 /// <summary>Inert client when no provisioner is configured (local/dev) — throws if actually used.</summary>

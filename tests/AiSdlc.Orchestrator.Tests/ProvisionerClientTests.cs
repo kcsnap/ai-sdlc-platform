@@ -30,12 +30,16 @@ public sealed class ProvisionerClientTests
         Assert.Contains("build-app1", handler.LastBody);
     }
 
+    // The GET serves the provisioner's ProvisionStatus envelope — the result is NESTED under "result".
+    // (This test previously pinned a flat ProvisionResult body, which the provisioner never emits; the
+    // client deserialized Outcome as null and the poll fallback could only ever report failure.)
     [Fact]
-    public async Task GetProvisionResultAsync_returns_the_result_when_available()
+    public async Task GetProvisionResultAsync_unwraps_the_status_envelope()
     {
         const string body = """
-            {"appId":"app1","buildId":"build-app1","outcome":"provisioned","hostedUrl":"https://app1.example",
-             "deploy":{"method":"oidc-federated","clientId":"c","tenantId":"t","subscriptionId":"s"}}
+            {"status":"provisioned","result":
+             {"appId":"app1","buildId":"build-app1","outcome":"provisioned","hostedUrl":"https://app1.example",
+              "deploy":{"method":"oidc-federated","clientId":"c","tenantId":"t","subscriptionId":"s"}}}
             """;
         var handler = new CapturingHandler(HttpStatusCode.OK, body);
         var client  = new ProvisionerClient(new HttpClient(handler) { BaseAddress = new Uri("https://prov.example/") });
@@ -47,6 +51,44 @@ public sealed class ProvisionerClientTests
         Assert.Equal("https://app1.example", result.HostedUrl);
         Assert.Equal("c", result.Deploy!.ClientId);
         Assert.Equal("/provision/build-app1", handler.LastPath);
+    }
+
+    [Fact]
+    public async Task GetProvisionResultAsync_returns_null_while_accepted()
+    {
+        var handler = new CapturingHandler(HttpStatusCode.OK, """{"status":"accepted","result":null}""");
+        var client  = new ProvisionerClient(new HttpClient(handler) { BaseAddress = new Uri("https://prov.example/") });
+
+        Assert.Null(await client.GetProvisionResultAsync("build-app1", CancellationToken.None));
+    }
+
+    // Cold-start hardening: a transport failure on Call 1 gets ONE retry, guarded by a status check so a
+    // POST whose 202 was lost in transit is never re-sent (re-POST double-enqueues the provision worker).
+    [Fact]
+    public async Task StartProvisionAsync_retries_once_when_the_post_fails_and_the_build_is_unknown()
+    {
+        var handler = new ScriptedHandler(
+            _ => throw new TaskCanceledException("timeout"),                        // POST #1: cold start
+            _ => Respond(HttpStatusCode.NotFound, ""),                              // GET: no record → safe
+            _ => Respond(HttpStatusCode.Accepted, """{"status":"accepted"}"""));    // POST #2: lands
+
+        var client = new ProvisionerClient(new HttpClient(handler) { BaseAddress = new Uri("https://prov.example/") });
+        await client.StartProvisionAsync(SampleRequest(), CancellationToken.None);
+
+        Assert.Equal(["POST /provision", "GET /provision/build-app1", "POST /provision"], handler.Calls);
+    }
+
+    [Fact]
+    public async Task StartProvisionAsync_does_not_repost_when_the_provisioner_already_accepted_the_build()
+    {
+        var handler = new ScriptedHandler(
+            _ => throw new HttpRequestException("connection reset"),                 // POST #1: reply lost
+            _ => Respond(HttpStatusCode.OK, """{"status":"accepted","result":null}""")); // GET: it landed
+
+        var client = new ProvisionerClient(new HttpClient(handler) { BaseAddress = new Uri("https://prov.example/") });
+        await client.StartProvisionAsync(SampleRequest(), CancellationToken.None);
+
+        Assert.Equal(["POST /provision", "GET /provision/build-app1"], handler.Calls);
     }
 
     [Theory]
@@ -72,6 +114,23 @@ public sealed class ProvisionerClientTests
         Assert.True(caps.Payments);
         Assert.False(caps.Email);
         Assert.False(caps.AiApi);
+    }
+
+    private static HttpResponseMessage Respond(HttpStatusCode status, string body) =>
+        new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
+    /// One canned reaction per expected call, in order; records "METHOD /path" for each call made.
+    private sealed class ScriptedHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] script) : HttpMessageHandler
+    {
+        private int _next;
+        public List<string> Calls { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls.Add($"{request.Method} {request.RequestUri!.AbsolutePath}");
+            Assert.InRange(_next, 0, script.Length - 1); // more calls than scripted = the test is wrong
+            return Task.FromResult(script[_next++](request));
+        }
     }
 
     private sealed class CapturingHandler(HttpStatusCode status, string body) : HttpMessageHandler

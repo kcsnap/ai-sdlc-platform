@@ -168,6 +168,11 @@ module "function_app" {
     # F1 — review gate dev convenience: auto-approve ready-for-review → live WITHOUT owner signoff.
     # Code default (unset) is the gate ON; dev keeps the old auto-publish EXPLICITLY. Never set in prod.
     AutoApproveReview = "true"
+
+    # Ramp prep — the AnthropicRateLimiter semaphore is APP-WIDE (code default 2): at 5 concurrent
+    # builds every agent stage queues behind two slots. 6 = 5 parallel builds + one slot of headroom;
+    # the existing 429 exponential backoff still yields if the API-side limit is lower.
+    AnthropicMaxConcurrentRequests = "6"
   }
 }
 

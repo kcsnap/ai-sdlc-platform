@@ -121,6 +121,64 @@ public sealed class AnthropicModelProviderTests
         Assert.Contains("\"model\":\"claude-haiku-4-5-20251001\"", handler.LastRequestBody);
     }
 
+    [Fact]
+    public async Task CompleteAsync_CachingEnabled_MarksSystemAndLastDocumentWithCacheControl()
+    {
+        // Default options have EnablePromptCaching = true. The system prompt and the context-document
+        // prefix are the bytes reused across the Code Implementer's many calls, so both carry an
+        // ephemeral breakpoint; the variable user prompt trails uncached.
+        var handler  = new CapturingHandler(SuccessBody);
+        var provider = MakeProvider(handler, Options);
+
+        var request = SampleRequest with
+        {
+            ContextDocuments = new Dictionary<string, string>
+            {
+                ["Scaffold Contract"] = "first document body",
+                ["Architecture"]      = "second document body"
+            }
+        };
+
+        await provider.CompleteAsync(request, CancellationToken.None);
+
+        var body = handler.LastRequestBody;
+        // Two breakpoints: one on the system block, one on the last document block.
+        Assert.Equal(2, CountOccurrences(body, "\"cache_control\""));
+        Assert.Contains("\"type\":\"ephemeral\"", body);
+        // System is sent as a block array (not a bare string) so it can carry cache_control.
+        Assert.Contains("\"system\":[", body);
+        // The variable user prompt is still present, after the documents.
+        Assert.Contains("Summarise this issue.", body);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_CachingDisabled_SendsPlainStringSystemAndNoCacheControl()
+    {
+        var options  = Options with { EnablePromptCaching = false };
+        var handler  = new CapturingHandler(SuccessBody);
+        var provider = MakeProvider(handler, options);
+
+        var request = SampleRequest with
+        {
+            ContextDocuments = new Dictionary<string, string> { ["Scaffold Contract"] = "doc body" }
+        };
+
+        await provider.CompleteAsync(request, CancellationToken.None);
+
+        var body = handler.LastRequestBody;
+        Assert.DoesNotContain("cache_control", body);
+        Assert.Contains("\"system\":\"You are a helpful assistant.\"", body);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            count++;
+        return count;
+    }
+
     private static AnthropicModelProvider MakeProvider(HttpMessageHandler handler) => MakeProvider(handler, Options);
 
     private static AnthropicModelProvider MakeProvider(HttpMessageHandler handler, ModelProviderOptions options)
