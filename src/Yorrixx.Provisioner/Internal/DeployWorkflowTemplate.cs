@@ -55,10 +55,11 @@ public static class DeployWorkflowTemplate
 
     /// Emits a deploy step that replaces the contact-form endpoint placeholder
     /// with this app's real Yorrixx relay URL across html/js under `root`, before
-    /// the build/zip — so a generated marketing-page form POSTs to
-    /// `{apiBaseUrl}/api/forms/{appId}/submit` while the committed source keeps
-    /// the guard-safe token. No-op if the token is absent (apps with no form) or
-    /// when appId/apiBaseUrl aren't known. Mirrors AppendContactEmailSubstitution.
+    /// the build/zip — so a generated marketing-page form POSTs to the FLAT relay
+    /// `{apiBaseUrl}/api/forms/submit` (there are NO per-form routes — Q1a: this
+    /// comment previously said /api/forms/{appId}/submit and misled codegen) while
+    /// the committed source keeps the guard-safe token. No-op if the token is
+    /// absent (apps with no form) or when appId/apiBaseUrl aren't known.
     private static void AppendFormSubstitution(StringBuilder sb, string root, string? apiBaseUrl, string? formSharedToken)
     {
         if (string.IsNullOrWhiteSpace(apiBaseUrl) && string.IsNullOrWhiteSpace(formSharedToken)) return;

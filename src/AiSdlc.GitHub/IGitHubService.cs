@@ -57,4 +57,12 @@ public interface IGitHubService
     /// client/tenant/subscription IDs the generated <c>deploy.yml</c> authenticates with).
     /// </summary>
     Task SetRepoVariableAsync(string repository, string name, string value, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Opens an issue (<c>POST /repos/{repository}/issues</c>). The new build path seeds the
+    /// <c>ai-sdlc:bootstrap</c> issue itself — API-initiated repos are created by the platform, so no
+    /// external party exists to open it (F3).
+    /// </summary>
+    Task<GitHubIssueReference> CreateIssueAsync(
+        string repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken);
 }

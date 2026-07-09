@@ -86,6 +86,44 @@ public sealed class BuildActivityFunctions
         return SummarizeDeploy(checks);
     }
 
+    // F3: the platform seeds the ai-sdlc:bootstrap issue on API-initiated repos (it created the repo, so no
+    // external party exists to open it — the silent hole that shipped scaffold content on flip #4).
+    [Function(nameof(SeedBootstrapIssueAsync))]
+    public async Task<GitHubIssueReference> SeedBootstrapIssueAsync(
+        [ActivityTrigger] SeedBootstrapIssueInput input, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Seeding bootstrap issue on {Repository}.", input.Repository);
+        return await _gitHub.CreateIssueAsync(
+            input.Repository, input.Title, input.Body,
+            [Webhooks.GitHubWebhookProcessor.BootstrapLabel], cancellationToken);
+    }
+
+    // F1: the review gate's dev-convenience switch. Orchestrator code must stay deterministic, so the env
+    // read happens in an activity. Default (unset/anything-but-true) = gate ON.
+    [Function(nameof(GetReviewAutoApproveAsync))]
+    public Task<bool> GetReviewAutoApproveAsync([ActivityTrigger] string? _)
+        => Task.FromResult(string.Equals(
+            Environment.GetEnvironmentVariable("AutoApproveReview"), "true", StringComparison.OrdinalIgnoreCase));
+
+    // F3(b)/Q1(c): fetch the hosted page's HTML so verification can assert real charter-derived content
+    // (and retry past a stale-CDN window). Empty string on any failure — the checks treat that as fail.
+    [Function(nameof(FetchPageAsync))]
+    public async Task<string> FetchPageAsync([ActivityTrigger] string url, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var http = _httpFactory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(30);
+            var html = await http.GetStringAsync(url, cancellationToken);
+            return html.Length <= 65536 ? html : html[..65536];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Page fetch of {Url} failed.", url);
+            return string.Empty;
+        }
+    }
+
     [Function(nameof(ProbeUrlAsync))]
     public async Task<int> ProbeUrlAsync([ActivityTrigger] string url, CancellationToken cancellationToken)
     {
@@ -165,8 +203,22 @@ public sealed class BuildActivityFunctions
         return checks.All(c => string.Equals(c.Conclusion, "success", StringComparison.OrdinalIgnoreCase)) ? "success" : "failed";
     }
 
-    // Builds the verification check table from the deploy status + a hosted-URL probe.
-    internal static VerificationResult AssembleVerification(string deployStatus, int servesStatus, bool isStatic)
+    // F3(b): scaffold detector — the flip-#4 canary went LIVE with raw template content and 3 green checks.
+    // Content passes only when it carries the charter's app name AND none of the template's scaffold markers.
+    internal static bool ContentLooksScaffold(string? pageHtml, string appName)
+    {
+        if (string.IsNullOrWhiteSpace(pageHtml)) return true; // unfetchable ⇒ cannot prove it's real content
+        if (pageHtml.Contains("<title>App</title>", StringComparison.OrdinalIgnoreCase)) return true;
+        if (pageHtml.Contains("{{", StringComparison.Ordinal) && pageHtml.Contains("}}", StringComparison.Ordinal))
+            return true; // unfilled template tokens
+        return !string.IsNullOrWhiteSpace(appName)
+            && !pageHtml.Contains(appName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Builds the verification check table from the deploy status + a hosted-URL probe (+ the fetched HTML
+    // for the scaffold gate; pass null appName to skip the content check — test back-compat only).
+    internal static VerificationResult AssembleVerification(
+        string deployStatus, int servesStatus, bool isStatic, string? pageHtml = null, string? appName = null)
     {
         var serves = servesStatus is >= 200 and < 400;
         var checks = new List<VerificationCheck>
@@ -179,6 +231,13 @@ public sealed class BuildActivityFunctions
                 ? new("api-health", "API health", "skipped", "static app — no API")
                 : new("api-health", "API health", serves ? "pass" : "fail", $"hosted URL HTTP {servesStatus}"),
         };
+        if (appName is not null)
+        {
+            var scaffold = ContentLooksScaffold(pageHtml, appName);
+            checks.Add(new("content-not-scaffold", "Hosted content is charter-derived, not template scaffold",
+                scaffold ? "fail" : "pass",
+                scaffold ? "page missing app name or carrying scaffold markers" : $"page mentions '{appName}'"));
+        }
         var outcome = checks.Any(c => c.Status == "fail") ? "failed" : "passed";
         return new VerificationResult(outcome, checks);
     }

@@ -164,6 +164,10 @@ module "function_app" {
     # this as X-Yorrixx-Admin-Key on {CallbackBaseUrl}/apps/{appId}/{kind}. Unset ⇒ the header is silently
     # omitted and every callback 401s (the G6 cutover failure).
     YorrixxAdminKey = "@Microsoft.KeyVault(SecretUri=${module.key_vault.vault_uri}secrets/YorrixxAdminKey)"
+
+    # F1 — review gate dev convenience: auto-approve ready-for-review → live WITHOUT owner signoff.
+    # Code default (unset) is the gate ON; dev keeps the old auto-publish EXPLICITLY. Never set in prod.
+    AutoApproveReview = "true"
   }
 }
 

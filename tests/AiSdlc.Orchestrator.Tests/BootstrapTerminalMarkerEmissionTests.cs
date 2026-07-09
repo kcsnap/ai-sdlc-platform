@@ -126,6 +126,7 @@ public sealed class BootstrapTerminalMarkerEmissionTests
         public Task<IReadOnlyList<OrgIssueSearchHit>> SearchOpenOrgIssuesByLabelAsync(string o, string l, CancellationToken ct) => throw new NotImplementedException();
         public Task<CreatedRepository> CreateRepositoryFromTemplateAsync(string t, string o, string n, bool p, string d, CancellationToken ct) => throw new NotImplementedException();
         public Task SetRepoVariableAsync(string r, string n, string v, CancellationToken ct) => throw new NotImplementedException();
+        public Task<GitHubIssueReference> CreateIssueAsync(string r, string t, string b, IReadOnlyList<string> l, CancellationToken ct) => throw new NotImplementedException();
     }
 
     private sealed class StubRepoIndexer : IRepoIndexer
