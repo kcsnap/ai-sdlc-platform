@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using AiSdlc.Contracts.Callbacks;
 using AiSdlc.Orchestrator.Builds;
+using AiSdlc.Orchestrator.Webhooks;
 // The Builds namespace has its own (internal) VerificationCheck; the wire payload uses the CONTRACT one.
 using ContractVerificationCheck = AiSdlc.Contracts.Callbacks.VerificationCheck;
 using AiSdlc.RepoIndex.Charter;
@@ -26,6 +27,17 @@ public static class NewAppBuildOrchestrator
     private static readonly TimeSpan ProvisionTimeout = TimeSpan.FromMinutes(20);
     private static readonly TimeSpan DeployPollInterval = TimeSpan.FromSeconds(30);
     private const int MaxDeployPolls = 40;   // ~20 min for the deploy workflow to finish
+
+    // F1: how long a build may sit at ready-for-review awaiting the owner's signoff before failing.
+    private static readonly TimeSpan ReviewApprovalTimeout = TimeSpan.FromDays(7);
+
+    // Charter file wire shape (.yorrixx/charter.json): PascalCase + STRING enums — the exact shape
+    // GitHubCharterReader parses (pinned by CharterParseTests).
+    private static readonly JsonSerializerOptions CharterJson = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
 
     // Wire options for every Yorrixx callback (camelCase, nulls omitted). Internal so the golden wire-shape
     // tests serialize with EXACTLY the sender's options (A11: named records must stay byte-identical).
@@ -125,7 +137,42 @@ public static class NewAppBuildOrchestrator
         await Emit("runtime", new RuntimeCallback(repo.HtmlUrl, result.HostedUrl));
         await Status(CanonicalBuildStatus.Building, "Build");
 
-        // Component 5 — verification gate: wait for the template's deploy workflow, then probe the hosted URL.
+        // Component 5 — THE AGENT BUILD (F3). This stage was silently absent: the platform creates the repo
+        // on this path, so nothing seeded the charter file or the ai-sdlc:bootstrap issue the agent pipeline
+        // is driven by — flip-#4 shipped raw template scaffold as "live". The platform now seeds both and
+        // runs the agent pipeline as a SUB-ORCHESTRATION on the issue-derived instance id (comment commands
+        // keep routing to it; the reconciliation sweep sees an active instance and stays out; bootstrap mode
+        // needs no webhook — risk gates auto-override and merges are orchestrator-driven).
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.CommitFileAsync),
+            new CommitFileInput(repo.FullName, ".yorrixx/charter.json",
+                JsonSerializer.Serialize(charter, CharterJson),
+                "chore: seed charter for the agent build", repo.DefaultBranch));
+
+        var issueTitle = $"Bootstrap build: {charter.Identity.AppName}";
+        var issueBody  = CharterMarkdownRenderer.Render(charter);
+        var issue = await context.CallActivityAsync<GitHubIssueReference>(
+            nameof(BuildActivityFunctions.SeedBootstrapIssueAsync),
+            new SeedBootstrapIssueInput(repo.FullName, issueTitle, issueBody));
+
+        var subInstanceId = GitHubWebhookProcessor.BuildInstanceId(repo.FullName, issue.IssueNumber);
+        var agentContext = GitHubWebhookProcessor.BuildAgentContext(
+            subInstanceId, repo.FullName, issue.IssueNumber, WorkflowMode.Bootstrap,
+            issueTitle, issueBody, issue.Url, "yorrixx-platform");
+
+        try
+        {
+            await context.CallSubOrchestratorAsync(
+                nameof(AiSdlcWorkflowOrchestrator), agentContext,
+                new SubOrchestrationOptions { InstanceId = subInstanceId });
+        }
+        catch (TaskFailedException ex)
+        {
+            await Status(CanonicalBuildStatus.Failed, "Build", $"agent build failed: {ex.Message}");
+            throw new InvalidOperationException($"Agent build failed for {request.AppId}: {ex.Message}", ex);
+        }
+
+        // Component 6 — verification gate: wait for the (post-content-merge) deploy workflow, then probe.
         await Status(CanonicalBuildStatus.Verifying, "Verify");
         var deployStatus = "none";
         for (var poll = 0; poll < MaxDeployPolls; poll++)
@@ -138,12 +185,24 @@ public static class NewAppBuildOrchestrator
             await context.CreateTimer(context.CurrentUtcDateTime.Add(DeployPollInterval), CancellationToken.None);
         }
 
-        var servesStatus = string.IsNullOrWhiteSpace(result.HostedUrl)
-            ? 0
-            : await context.CallActivityAsync<int>(nameof(BuildActivityFunctions.ProbeUrlAsync), result.HostedUrl);
+        // F3(b) + Q1(c): probe AND read the page. Retry past stale-CDN/deploy-propagation windows until the
+        // content stops looking like scaffold; if it never does, the content-not-scaffold check fails the run.
+        var servesStatus = 0;
+        var pageHtml = string.Empty;
+        if (!string.IsNullOrWhiteSpace(result.HostedUrl))
+        {
+            for (var attempt = 0; attempt < 4; attempt++)
+            {
+                servesStatus = await context.CallActivityAsync<int>(nameof(BuildActivityFunctions.ProbeUrlAsync), result.HostedUrl);
+                pageHtml = await context.CallActivityAsync<string>(nameof(BuildActivityFunctions.FetchPageAsync), result.HostedUrl);
+                if (!BuildActivityFunctions.ContentLooksScaffold(pageHtml, charter.Identity.AppName))
+                    break;
+                await context.CreateTimer(context.CurrentUtcDateTime.AddSeconds(15), CancellationToken.None);
+            }
+        }
 
         var verification = BuildActivityFunctions.AssembleVerification(
-            deployStatus, servesStatus, stackProfile == StackProfile.Static);
+            deployStatus, servesStatus, stackProfile == StackProfile.Static, pageHtml, charter.Identity.AppName);
 
         var at = context.CurrentUtcDateTime.ToString("o");
         await Emit("verification", new VerificationCallback(
@@ -157,8 +216,37 @@ public static class NewAppBuildOrchestrator
             return $"failed:{request.AppId}{CallbackSuffix(callbackFailures)}";
         }
 
-        // Dev PO gate auto-approves → ready-for-review is transient → live (fires the publish email).
         await Status(CanonicalBuildStatus.ReadyForReview, "Review");
+
+        // F1 — going LIVE requires the owner's signoff, relayed by yorrixx-app to
+        // POST /api/builds/{appId}/approve (or /request-changes). AutoApproveReview=true restores the old
+        // auto-publish as an explicit dev convenience; the code default is the gate ON.
+        var autoApprove = await context.CallActivityAsync<bool>(
+            nameof(BuildActivityFunctions.GetReviewAutoApproveAsync), (object?)null);
+        if (!autoApprove)
+        {
+            ApprovalSignal? signal;
+            using (var cts = new CancellationTokenSource())
+            {
+                var approvalTask = context.WaitForExternalEvent<ApprovalSignal>(ApproveBuildFunction.EventName, cts.Token);
+                var timeoutTask  = context.CreateTimer(context.CurrentUtcDateTime.Add(ReviewApprovalTimeout), cts.Token);
+                var winner       = await Task.WhenAny(approvalTask, timeoutTask);
+                cts.Cancel();
+                signal = winner == approvalTask ? await approvalTask : null;
+            }
+
+            if (signal is null)
+            {
+                await Status(CanonicalBuildStatus.Failed, "Review", "owner signoff not received before timeout");
+                return $"failed:{request.AppId}{CallbackSuffix(callbackFailures)}";
+            }
+            if (!signal.Approved)
+            {
+                await Status(CanonicalBuildStatus.Failed, "Review", signal.Detail ?? "owner requested changes");
+                return $"failed:{request.AppId}{CallbackSuffix(callbackFailures)}";
+            }
+        }
+
         await Status(CanonicalBuildStatus.Live, "Live");
         return $"live:{request.AppId}:{result.HostedUrl}{CallbackSuffix(callbackFailures)}";
     }

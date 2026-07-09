@@ -556,14 +556,34 @@ public sealed class AgentActivityFunctions
     /// maintained but never gutted (see IsAcceptanceSpecRegression); pass its existing content
     /// so a gutting change is dropped.
     /// </summary>
+    // Q1(b): content lint for GENERATED acceptance tests — the known-bad patterns that shipped broken
+    // suites (My Crochets): an invented Playwright API and the wrong form-relay endpoint shape. A
+    // violating spec is rejected (dropped like a regression), so the repair loop re-authors it.
+    internal static IReadOnlyList<string> AcceptanceSpecLintViolations(string content)
+    {
+        var violations = new List<string>();
+        if (content.Contains("toHaveJSProperty", StringComparison.Ordinal))
+            violations.Add("uses toHaveJSProperty (invalid here) — assert via toHaveAttribute or locator.evaluate");
+        if (System.Text.RegularExpressions.Regex.IsMatch(content, @"/api/forms/[A-Za-z0-9_-]+/submit"))
+            violations.Add("asserts a per-form endpoint /api/forms/{id}/submit — the contract is the flat /api/forms/submit relay");
+        return violations;
+    }
+
+    // Composite acceptance-spec screen shared by first-build and repair sanitization.
+    internal static bool IsRejectedAcceptanceSpec(FileChange change, string? existingAcceptanceSpec, bool isRepair) =>
+        IsAcceptanceSpec(change.Path) &&
+        (AcceptanceSpecLintViolations(change.Content).Count > 0
+         || (isRepair && IsAcceptanceSpecRegression(existingAcceptanceSpec, change.Content)));
+
     internal static List<FileChange> FilterRepairChanges(
         IReadOnlyList<FileChange> changes, string findingsText, string? existingAcceptanceSpec = null)
     {
         // Immutable harness (.github/, tests/e2e/ except acceptance.spec.ts) is always dropped.
-        // acceptance.spec.ts is dropped only when the change would regress it (or can't be verified).
+        // acceptance.spec.ts is dropped when the change would regress it (or can't be verified) or when
+        // its content trips the generated-test lint (Q1b).
         var allowed = changes.Where(c =>
             !IsProtectedPath(c.Path) &&
-            !(IsAcceptanceSpec(c.Path) && IsAcceptanceSpecRegression(existingAcceptanceSpec, c.Content)))
+            !IsRejectedAcceptanceSpec(c, existingAcceptanceSpec, isRepair: true))
             .ToList();
         var implicated = allowed.Where(c => IsImplicatedByFindings(c.Path, findingsText)).ToList();
         return implicated.Count > 0 ? implicated : allowed;

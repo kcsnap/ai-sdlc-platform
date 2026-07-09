@@ -11,6 +11,9 @@ namespace AiSdlc.Orchestrator.Builds;
 /// <summary>Input to the commit-deploy-workflow activity: commit the canonical deploy.yml verbatim.</summary>
 public sealed record CommitDeployInput(string Repository, string DeployYaml, string Branch);
 
+/// <summary>Input to the seed-bootstrap-issue activity (F3): the platform opens the agent-build issue itself.</summary>
+public sealed record SeedBootstrapIssueInput(string Repository, string Title, string Body);
+
 /// <summary>
 /// Maps the platform's resolved FullStack capability profile to the dependency-free provision wire shape.
 /// Replaces the old <c>ProvisionCapabilities.From</c> factory, which coupled the contract to

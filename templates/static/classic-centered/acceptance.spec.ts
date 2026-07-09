@@ -38,4 +38,16 @@ test.describe("static template — render-only acceptance", () => {
     const body = await page.locator("body").innerText();
     expect(body).not.toMatch(/\{\{[^}]+\}\}/); // every content slot was filled at assembly
   });
+
+  // Q1(d): an <img> can render as an element while its src is broken — 10 broken images once shipped
+  // green. Assert every image actually LOADED (evaluate, never a HEAD probe: picsum 405s HEAD).
+  test("every image on the page actually loads", async ({ page }) => {
+    await page.waitForLoadState("load");
+    for (const img of await page.locator("img").all()) {
+      expect(
+        await img.evaluate((el) => (el as HTMLImageElement).complete && (el as HTMLImageElement).naturalWidth > 0),
+        `broken image: ${await img.getAttribute("src")}`
+      ).toBe(true);
+    }
+  });
 });

@@ -210,16 +210,21 @@ internal static class ScaffoldContract
           client-side filter over hard-coded data, or form handling (below). No bundler, no npm packages.
         - Hard-code any fixed data (e.g. a list of items) directly into the page. Do NOT call your own
           backend or persist anything — there is none.
-        - IMAGERY: generative by default (CSS gradients/mesh, bespoke inline SVG illustration + icons). If
-          an "Available Photography" list is supplied in your context, you MAY use those exact image URLs
-          sparingly per its guidance; otherwise stay fully generative. Never invent or hotlink any other
-          image URL — it will 404.
+        - IMAGERY: if an "Available Photography" list is supplied in your context, use those exact image
+          URLs sparingly per its guidance. If NONE is supplied, the keyless floor is deterministic picsum
+          placeholders — `https://picsum.photos/seed/<stable-topic-slug>/<width>/<height>` (pick a stable
+          seed per image so reloads don't shuffle) — combined with generative CSS (gradients/mesh) and
+          bespoke inline SVG for illustration + icons. Never invent or hotlink any OTHER image host — it
+          will 404. Every `<img>` needs real `alt` text and intrinsic `width`/`height` attributes.
         - FUNCTIONAL FORMS: any form must genuinely WORK. Use real <label>s, correct input types and
           `required`, and validate on submit in app.js (preventDefault) with inline field errors and an
           accessible success confirmation (aria-live region), then reset. A static page has no backend,
           so by DEFAULT complete client-side (no server call) — never a dead button or an action="#"
           no-op. If a "Form Capture" service is supplied in your context, submit the validated data to
-          it instead (and reflect its response); otherwise stay client-side.
+          it instead (and reflect its response); otherwise stay client-side. FORM ENDPOINT SHAPE: the
+          capture service is ONE FLAT relay — after deploy substitution every form posts to
+          `<apiBase>/api/forms/submit`. NEVER invent per-form routes like `/api/forms/<name>/submit`
+          (in code OR in tests): they do not exist and 404.
         - FILTERS vs FORMS: a client-side filter / search box (no submission) is a `<div role="search">`
           wrapping the inputs — NOT a `<form>`. A `<form>` with no submit button fails the wcag/h32
           accessibility lint; reserve `<form>` for genuine submissions and always give it a submit button.
@@ -236,7 +241,12 @@ internal static class ScaffoldContract
           contact `mailto:` links use the `__CONTACT_EMAIL__` placeholder, replaced with a real address
           at deploy. These tests run against the DEPLOYED site, so NEVER assert the token or the exact
           mailto href (the deployed value differs) — assert only that the link renders and that its
-          `href` starts with `mailto:`.
+          `href` starts with `mailto:`. IMAGES: any test touching an image must assert it actually
+          LOADS — `await img.evaluate(el => el.complete && el.naturalWidth > 0)` — not merely that the
+          `<img>` exists (broken images render as elements too; note picsum rejects HEAD requests, so
+          never probe with HEAD). PLAYWRIGHT API DISCIPLINE: use only real Playwright assertions —
+          `toHaveJSProperty` with a callback is NOT an API and fails the run; prefer `toHaveAttribute`,
+          `toBeVisible`, or `locator.evaluate`.
 
         IMMUTABLE — do NOT author, modify, or recreate (machine-managed): `.github/workflows/**` (the
         static deploy + verify workflows) and the rest of `tests/e2e/**` (the render-only harness).

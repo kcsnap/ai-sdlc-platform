@@ -463,6 +463,9 @@ public static class AiSdlcWorkflowOrchestrator
 
             var fileChanges = CodeChangeParser.Parse(implContent)
                 .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path)) // .github/ is Yorrixx-owned
+                // Q1(b): a generated acceptance spec with known-bad content (invalid Playwright API /
+                // wrong form endpoint) is rejected — the stubs stay, e2e fails, and the repair re-authors.
+                .Where(f => !AgentActivityFunctions.IsRejectedAcceptanceSpec(f, existingAcceptanceSpec: null, isRepair: false))
                 .ToList();
 
             // Any repair run — resume (open PR), in-run CI, OR a reopened-issue verification

@@ -49,6 +49,41 @@ public sealed class BuildActivityTests
         Assert.Equal(":callbacksFailed=3", NewAppBuildOrchestrator.CallbackSuffix(3));
     }
 
+    // F3(b): the scaffold gate — flip #4 went LIVE with raw template content and green checks.
+    [Theory]
+    [InlineData(null,                                          "TaskFlow", true)]  // unfetchable ⇒ scaffold
+    [InlineData("",                                            "TaskFlow", true)]
+    [InlineData("<html><title>App</title>TaskFlow</html>",     "TaskFlow", true)]  // template scaffold title
+    [InlineData("<html><h1>{{HERO_TITLE}}</h1>TaskFlow</html>", "TaskFlow", true)] // unfilled tokens
+    [InlineData("<html><title>Something</title></html>",       "TaskFlow", true)]  // app name absent
+    [InlineData("<html><title>TaskFlow — tasks</title></html>", "TaskFlow", false)]
+    [InlineData("<html><h1>taskflow</h1></html>",              "TaskFlow", false)] // case-insensitive
+    public void ContentLooksScaffold_detects_template_output(string? html, string appName, bool expected)
+    {
+        Assert.Equal(expected, BuildActivityFunctions.ContentLooksScaffold(html, appName));
+    }
+
+    [Fact]
+    public void AssembleVerification_fails_on_scaffold_content_even_when_deploy_and_probe_pass()
+    {
+        var v = BuildActivityFunctions.AssembleVerification(
+            "success", 200, isStatic: true, pageHtml: "<title>App</title>", appName: "TaskFlow");
+
+        Assert.Equal("failed", v.Outcome);
+        var content = Assert.Single(v.Checks, c => c.CheckId == "content-not-scaffold");
+        Assert.Equal("fail", content.Status);
+    }
+
+    [Fact]
+    public void AssembleVerification_passes_when_content_is_charter_derived()
+    {
+        var v = BuildActivityFunctions.AssembleVerification(
+            "success", 200, isStatic: true, pageHtml: "<title>TaskFlow</title><h1>TaskFlow</h1>", appName: "TaskFlow");
+
+        Assert.Equal("passed", v.Outcome);
+        Assert.Equal(4, v.Checks.Count);
+    }
+
     private static CheckRunResult Check(string status, string conclusion) =>
         new() { Name = "deploy", Status = status, Conclusion = conclusion };
 
