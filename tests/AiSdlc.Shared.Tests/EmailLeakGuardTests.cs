@@ -93,4 +93,52 @@ public sealed class EmailLeakGuardTests
     [Fact]
     public void Ignores_empty_content()
         => Assert.Empty(EmailLeakGuard.Scan(new[] { new FileChange("styles.css", "") }));
+
+    // Ramp wave-1: an invented your@email.com stopped the whole agent build. Sanitize rewrites literals
+    // to the deploy-substituted token instead — the no-literal-email invariant holds AND the build ships.
+    [Fact]
+    public void Sanitize_rewrites_literal_emails_to_the_contact_token()
+    {
+        var files = new[]
+        {
+            new FileChange("src/frontend/src/features/Contact.tsx",
+                "<a href=\"mailto:your@email.com\">your@email.com</a>")
+        };
+
+        var sanitized = EmailLeakGuard.Sanitize(files);
+
+        var f = Assert.Single(sanitized);
+        Assert.Equal("<a href=\"mailto:__CONTACT_EMAIL__\">__CONTACT_EMAIL__</a>", f.Content);
+        Assert.Empty(EmailLeakGuard.Scan(sanitized)); // post-condition: nothing left to flag
+    }
+
+    [Fact]
+    public void Sanitize_preserves_allowed_example_domains_and_placeholder_tokens()
+    {
+        var files = new[]
+        {
+            new FileChange("acceptance.spec.ts", "await page.fill('#email', 'name@example.com');"),
+            new FileChange("index.html", "<a href=\"mailto:__CONTACT_EMAIL__\">Email</a>")
+        };
+
+        var sanitized = EmailLeakGuard.Sanitize(files);
+
+        Assert.Equal("await page.fill('#email', 'name@example.com');", sanitized[0].Content);
+        Assert.Equal("<a href=\"mailto:__CONTACT_EMAIL__\">Email</a>", sanitized[1].Content);
+    }
+
+    [Fact]
+    public void Sanitize_rewrites_every_distinct_address_and_leaves_clean_files_untouched()
+    {
+        var files = new[]
+        {
+            new FileChange("index.html", "mailto:a@real.com and mailto:b@real.com"),
+            new FileChange("styles.css", "body { color: red; }")
+        };
+
+        var sanitized = EmailLeakGuard.Sanitize(files);
+
+        Assert.Equal("mailto:__CONTACT_EMAIL__ and mailto:__CONTACT_EMAIL__", sanitized[0].Content);
+        Assert.Same(files[1], sanitized[1]); // untouched file passes through by reference
+    }
 }

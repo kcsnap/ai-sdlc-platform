@@ -47,6 +47,11 @@ public static class NewAppBuildOrchestrator
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
+    // .yorrixx/profile.json wire shape — must parse back via AgentActivityFunctions.ParseStackProfile
+    // (pinned by test) or the agent pipeline silently falls back to FullStack.
+    internal static string StackProfileStamp(string stackProfile) =>
+        JsonSerializer.Serialize(new Dictionary<string, string> { ["stackProfile"] = stackProfile });
+
     [Function(nameof(NewAppBuildOrchestrator))]
     public static async Task<string> RunAsync([OrchestrationTrigger] TaskOrchestrationContext context)
     {
@@ -149,6 +154,16 @@ public static class NewAppBuildOrchestrator
                 JsonSerializer.Serialize(charter, CharterJson),
                 "chore: seed charter for the agent build", repo.DefaultBranch));
 
+        // Stamp the stack profile too — the agent pipeline reads .yorrixx/profile.json (derive-once-stamp;
+        // Yorrixx stamps it on the OLD seeding path) and defaults to FullStack when absent. Ramp wave-1:
+        // no stamp ⇒ a Static build ran the FullStack Code Implementer and generated a React tree for a
+        // static SWA. The same stamp routes Static builds onto the template-first assembler when enabled.
+        await context.CallActivityAsync(
+            nameof(AgentActivityFunctions.CommitFileAsync),
+            new CommitFileInput(repo.FullName, AgentActivityFunctions.StackProfilePath,
+                StackProfileStamp(stackProfile.ToString()),
+                "chore: stamp stack profile for the agent build", repo.DefaultBranch));
+
         var issueTitle = $"Bootstrap build: {charter.Identity.AppName}";
         var issueBody  = CharterMarkdownRenderer.Render(charter);
         var issue = await context.CallActivityAsync<GitHubIssueReference>(
@@ -160,9 +175,10 @@ public static class NewAppBuildOrchestrator
             subInstanceId, repo.FullName, issue.IssueNumber, WorkflowMode.Bootstrap,
             issueTitle, issueBody, issue.Url, "yorrixx-platform");
 
+        WorkflowRun? agentRun;
         try
         {
-            await context.CallSubOrchestratorAsync(
+            agentRun = await context.CallSubOrchestratorAsync<WorkflowRun>(
                 nameof(AiSdlcWorkflowOrchestrator), agentContext,
                 new SubOrchestrationOptions { InstanceId = subInstanceId });
         }
@@ -170,6 +186,16 @@ public static class NewAppBuildOrchestrator
         {
             await Status(CanonicalBuildStatus.Failed, "Build", $"agent build failed: {ex.Message}");
             throw new InvalidOperationException($"Agent build failed for {request.AppId}: {ex.Message}", ex);
+        }
+
+        // Ramp wave-1: guard stops complete the sub-orchestration NORMALLY (WorkflowRun.Status=Stopped,
+        // no exception), so the parent sailed on and verified raw scaffold. Only a Released run has
+        // merged agent code — anything else means no content shipped, so fail the Build phase here.
+        if (agentRun is null || agentRun.Status != WorkflowRunStatus.Released)
+        {
+            var detail = $"agent build ended in status {agentRun?.Status.ToString() ?? "unknown"} without releasing code (see issue #{issue.IssueNumber})";
+            await Status(CanonicalBuildStatus.Failed, "Build", detail);
+            throw new InvalidOperationException($"Agent build did not release for {request.AppId}: {detail}.");
         }
 
         // Component 6 — verification gate: wait for the (post-content-merge) deploy workflow, then probe.

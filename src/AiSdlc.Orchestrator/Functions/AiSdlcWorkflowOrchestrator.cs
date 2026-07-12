@@ -512,18 +512,17 @@ public static class AiSdlcWorkflowOrchestrator
             }
 
             // Pre-commit email-leak guard: a literal contact email in generated output is a leak
-            // (the model invented one instead of the deploy-substituted placeholder). Stop before it
-            // reaches the repo / live site. Pure regex over in-memory content — deterministic.
+            // (the model invented one instead of the deploy-substituted placeholder). SANITIZE it —
+            // rewrite to __CONTACT_EMAIL__ (ramp wave-1: stopping the build over an invented
+            // your@email.com parked an otherwise-good run). Pure regex, deterministic.
             var emailLeaks = EmailLeakGuard.Scan(fileChanges);
             if (emailLeaks.Count > 0)
             {
+                fileChanges = EmailLeakGuard.Sanitize(fileChanges).ToList();
                 await context.CallActivityAsync(
                     nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                     new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                        BuildEmailLeakComment(emailLeaks)));
-                await RecordWorkflowExitAsync(context, agentContext, "Stopped",
-                    $"Email-leak guard: {emailLeaks.Count} literal email(s) in generated output");
-                return Stopped(agentContext.RunId, issue, createdAt, context);
+                        BuildEmailSanitizedComment(emailLeaks)));
             }
 
             // ── Step 11: Create branch and commit files ────────────────────────
@@ -645,13 +644,11 @@ public static class AiSdlcWorkflowOrchestrator
                     var fixLeaks = EmailLeakGuard.Scan(fixedChanges);
                     if (fixLeaks.Count > 0)
                     {
+                        fixedChanges = EmailLeakGuard.Sanitize(fixedChanges).ToList();
                         await context.CallActivityAsync(
                             nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                             new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                                BuildEmailLeakComment(fixLeaks)));
-                        await RecordWorkflowExitAsync(context, agentContext, "Stopped",
-                            $"Email-leak guard: {fixLeaks.Count} literal email(s) in PO-fix output");
-                        return Stopped(agentContext.RunId, issue, createdAt, context);
+                                BuildEmailSanitizedComment(fixLeaks)));
                     }
 
                     if (fixedChanges.Count > 0)
@@ -835,13 +832,11 @@ public static class AiSdlcWorkflowOrchestrator
                 var repairLeaks = EmailLeakGuard.Scan(repairedChanges);
                 if (repairLeaks.Count > 0)
                 {
+                    repairedChanges = EmailLeakGuard.Sanitize(repairedChanges).ToList();
                     await context.CallActivityAsync(
                         nameof(AgentActivityFunctions.PostGitHubCommentAsync),
                         new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
-                            BuildEmailLeakComment(repairLeaks)));
-                    await RecordWorkflowExitAsync(context, agentContext, "Stopped",
-                        $"Email-leak guard: {repairLeaks.Count} literal email(s) in CI-repair output");
-                    return Stopped(agentContext.RunId, issue, createdAt, context);
+                            BuildEmailSanitizedComment(repairLeaks)));
                 }
 
                 var repairMsg = $"fix: repair CI failures (closes #{agentContext.IssueNumber}) [ai-sdlc]";
@@ -1300,21 +1295,19 @@ public static class AiSdlcWorkflowOrchestrator
         return sb.ToString();
     }
 
-    private static string BuildEmailLeakComment(IReadOnlyList<EmailLeakGuard.Violation> leaks)
+    private static string BuildEmailSanitizedComment(IReadOnlyList<EmailLeakGuard.Violation> leaks)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("## AI SDLC — Build Stopped: Email Leak");
+        sb.AppendLine("## AI SDLC — Contact Emails Normalized");
         sb.AppendLine();
-        sb.AppendLine("Generated output contains a literal email address. Contact emails are substituted " +
-                      "at deploy via a placeholder token — a real address in the source is a leak (invented " +
-                      "or PII), so the build is stopped before it reaches the repo or the live site.");
+        sb.AppendLine("Generated output contained literal email address(es). Contact emails are substituted " +
+                      "at deploy via the `" + EmailLeakGuard.ContactEmailToken + "` placeholder — a real " +
+                      "address in the source would be a leak (invented or PII), so each one was rewritten " +
+                      "to the placeholder before commit. The build continues.");
         sb.AppendLine();
-        sb.AppendLine("**Found:**");
+        sb.AppendLine("**Rewritten:**");
         foreach (var leak in leaks)
             sb.AppendLine($"- `{leak.Path}` → `{leak.Email}`");
-        sb.AppendLine();
-        sb.AppendLine("Use the contact-email placeholder in every `mailto:` (coach/team/staff grids, footers, " +
-                      "hero, newsletter) instead of a literal address, then close and reopen this issue to retry.");
         return sb.ToString();
     }
 
