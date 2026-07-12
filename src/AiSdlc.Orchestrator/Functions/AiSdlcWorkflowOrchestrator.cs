@@ -431,12 +431,14 @@ public static class AiSdlcWorkflowOrchestrator
                     "Static", StringComparison.OrdinalIgnoreCase);
 
             AgentResult implResult;
+            var templateBuilt = false;
             if (useStaticTemplate)
             {
                 try
                 {
                     implResult = await context.CallActivityAsync<AgentResult>(
                         nameof(AgentActivityFunctions.RunStaticTemplateBuilderAsync), agentContext, AgentRetryOptions);
+                    templateBuilt = true;
                 }
                 catch (TaskFailedException)
                 {
@@ -466,6 +468,7 @@ public static class AiSdlcWorkflowOrchestrator
                 // Q1(b): a generated acceptance spec with known-bad content (invalid Playwright API /
                 // wrong form endpoint) is rejected — the stubs stay, e2e fails, and the repair re-authors.
                 .Where(f => !AgentActivityFunctions.IsRejectedAcceptanceSpec(f, existingAcceptanceSpec: null, isRepair: false))
+                .Where(f => !AgentActivityFunctions.ContainsRedactionEcho(f)) // never commit echoed redaction masks
                 .ToList();
 
             // Any repair run — resume (open PR), in-run CI, OR a reopened-issue verification
@@ -601,7 +604,14 @@ public static class AiSdlcWorkflowOrchestrator
             // dies before the CI gate. A repair is a surgical fix of an already-reviewed app;
             // like the in-gate repair loop (Step 12a), CI is its sole arbiter. Fresh first
             // builds are still reviewed.
-            if (!resumeMode && !AgentActivityFunctions.IsRepairRun(agentContext.Metadata))
+            //
+            // ALSO SKIPPED for template-first builds (w1proof0): the review judges platform
+            // conventions it cannot know — it flagged the deploy-substituted __CONTACT_EMAIL__
+            // token and the platform-injected legal pages as CRITICAL, and its fix loop re-
+            // generated deterministic template output through the LLM (which corrupted it via
+            // redaction echo). Template output is pre-validated by the shipped acceptance suite;
+            // the scaffold gate + verification are its arbiters.
+            if (!resumeMode && !templateBuilt && !AgentActivityFunctions.IsRepairRun(agentContext.Metadata))
             {
                 var reviewFilePaths = fileChanges.Select(f => f.Path).ToArray();
                 var branchReviewResult = await RunStageWithRecoveryAsync(context, agentContext, "Implementation Review",
@@ -640,6 +650,7 @@ public static class AiSdlcWorkflowOrchestrator
                     // immutable harness (.github/, tests/e2e/ except acceptance.spec.ts) is dropped.
                     var fixedChanges = CodeChangeParser.Parse(fixContent)
                         .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path))
+                        .Where(f => !AgentActivityFunctions.ContainsRedactionEcho(f)) // w1proof0: echoed masks corrupted SVGs
                         .ToList();
                     var fixLeaks = EmailLeakGuard.Scan(fixedChanges);
                     if (fixLeaks.Count > 0)

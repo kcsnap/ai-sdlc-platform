@@ -287,4 +287,29 @@ public sealed class CiRepairLoopTests
         Assert.Contains("check-4", rendered);       // newest sections survive
         Assert.DoesNotContain("## Check: check-0", rendered); // oldest dropped whole
     }
+    // w1proof0: the PO-fix round-trip echoed prompt-redaction masks ([REDACTED:SORT_CODE]) into SVG
+    // path data and shipped corrupt graphics. Echoed masks must never be committed on any seam.
+    [Fact]
+    public void ContainsRedactionEcho_flags_echoed_masks_only()
+    {
+        Assert.True(AgentActivityFunctions.ContainsRedactionEcho(
+            new AiSdlc.Shared.FileChange("favicon.svg", "<path d=\"M10 20 Q [REDACTED:SORT_CODE] 40\"/>")));
+        Assert.False(AgentActivityFunctions.ContainsRedactionEcho(
+            new AiSdlc.Shared.FileChange("index.html", "<h1>Harbor Lane Florist</h1>")));
+    }
+
+    [Fact]
+    public void Repair_filter_drops_changes_carrying_redaction_echo()
+    {
+        var changes = new List<AiSdlc.Shared.FileChange>
+        {
+            new("index.html", "phone: +44 (0)1584 [REDACTED:SORT_CODE]"),
+            new("styles.css", ".hero { color: plum; }"),
+        };
+
+        var filtered = AgentActivityFunctions.FilterRepairChanges(changes, "index.html styles.css");
+
+        var kept = Assert.Single(filtered);
+        Assert.Equal("styles.css", kept.Path);
+    }
 }
