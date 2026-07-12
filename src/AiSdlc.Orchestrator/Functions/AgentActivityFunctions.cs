@@ -575,14 +575,23 @@ public sealed class AgentActivityFunctions
         (AcceptanceSpecLintViolations(change.Content).Count > 0
          || (isRepair && IsAcceptanceSpecRegression(existingAcceptanceSpec, change.Content)));
 
+    // Redaction echo: RegexRedactionService masks the OUTBOUND prompt, so when existing file content
+    // rides through a fix/repair prompt the model can echo the mask back into the "fixed" file
+    // (w1proof0: SVG Bézier coordinates matched the sort-code pattern and "[REDACTED:SORT_CODE]"
+    // shipped inside path data — corrupt graphics and a mangled phone number). A change carrying the
+    // mask is dropped; the original committed file stays as-is.
+    internal static bool ContainsRedactionEcho(FileChange change) =>
+        change.Content?.Contains("[REDACTED:", StringComparison.Ordinal) == true;
+
     internal static List<FileChange> FilterRepairChanges(
         IReadOnlyList<FileChange> changes, string findingsText, string? existingAcceptanceSpec = null)
     {
         // Immutable harness (.github/, tests/e2e/ except acceptance.spec.ts) is always dropped.
         // acceptance.spec.ts is dropped when the change would regress it (or can't be verified) or when
-        // its content trips the generated-test lint (Q1b).
+        // its content trips the generated-test lint (Q1b). Redaction-echoed content is never committed.
         var allowed = changes.Where(c =>
             !IsProtectedPath(c.Path) &&
+            !ContainsRedactionEcho(c) &&
             !IsRejectedAcceptanceSpec(c, existingAcceptanceSpec, isRepair: true))
             .ToList();
         var implicated = allowed.Where(c => IsImplicatedByFindings(c.Path, findingsText)).ToList();
