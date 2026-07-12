@@ -41,6 +41,19 @@ public sealed class BuildActivityTests
         Assert.Equal(expected, BuildActivityFunctions.RepoName(appId));
     }
 
+    // Ramp wave-1: the new path never stamped .yorrixx/profile.json, so FetchStackProfileAsync
+    // defaulted to FullStack and a Static build ran the FullStack Code Implementer. Pin the stamp
+    // round-trip: what NewAppBuildOrchestrator writes must parse back to the same profile.
+    [Theory]
+    [InlineData("Static", "Static")]
+    [InlineData("FullStack", "FullStack")]
+    public void StackProfileStamp_round_trips_through_ParseStackProfile(string profile, string expected)
+    {
+        var json = NewAppBuildOrchestrator.StackProfileStamp(profile);
+
+        Assert.Equal(expected, AgentActivityFunctions.ParseStackProfile(json));
+    }
+
     // G6 P4: lost callbacks must be visible in the run output.
     [Fact]
     public void CallbackSuffix_is_empty_when_all_callbacks_delivered_and_counts_failures()

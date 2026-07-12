@@ -173,6 +173,12 @@ module "function_app" {
     # builds every agent stage queues behind two slots. 6 = 5 parallel builds + one slot of headroom;
     # the existing 429 exponential backoff still yields if the API-side limit is lower.
     AnthropicMaxConcurrentRequests = "6"
+
+    # Ramp wave-1 fix — activate the template-first Static path (#193/#195 shipped it env-gated OFF).
+    # With the profile stamped Static, a fresh Static build fills a pre-built template instead of
+    # generating markup from scratch (cheaper, and structurally can't invent literal emails — the
+    # templates already carry __CONTACT_EMAIL__). Falls back to the Code Implementer on any failure.
+    StaticTemplateFirst = "true"
   }
 }
 
