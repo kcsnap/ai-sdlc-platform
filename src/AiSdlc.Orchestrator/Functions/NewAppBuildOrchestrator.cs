@@ -174,6 +174,9 @@ public static class NewAppBuildOrchestrator
         var agentContext = GitHubWebhookProcessor.BuildAgentContext(
             subInstanceId, repo.FullName, issue.IssueNumber, WorkflowMode.Bootstrap,
             issueTitle, issueBody, issue.Url, "yorrixx-platform");
+        // Full appId for cost attribution: Yorrixx keys /apps/{appId}/cost by the 32-char id, and the
+        // repo name only carries appId8 — without this, every cost emit 404s (wave-1 "zero cost").
+        agentContext.Metadata["appId"] = request.AppId;
 
         WorkflowRun? agentRun;
         try

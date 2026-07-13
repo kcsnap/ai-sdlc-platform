@@ -878,6 +878,18 @@ public static class AiSdlcWorkflowOrchestrator
                     nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
                     new GetHeadShaInput(agentContext.Repository, branchName));
 
+                // The ref read is eventually consistent: w1proof1's repair commit landed at :31, the
+                // re-read at :32 still returned the PRE-commit head, and the run was falsely declared
+                // a no-op while the repair's CI went green 5s later. Give the ref a few beats to
+                // converge before trusting "unchanged".
+                for (var refRead = 0; prHeadSha == previousSha && refRead < 3; refRead++)
+                {
+                    await context.CreateTimer(context.CurrentUtcDateTime.AddSeconds(10), CancellationToken.None);
+                    prHeadSha = await context.CallActivityAsync<string>(
+                        nameof(AgentActivityFunctions.GetDefaultBranchShaActivityAsync),
+                        new GetHeadShaInput(agentContext.Repository, branchName));
+                }
+
                 // No-op repair: identical content makes every commit a no-change, leaving the
                 // same failed sha — re-polling it would instantly re-fail and silently burn
                 // the remaining attempt (observed on 624d97a2 issue #13: two "repairs", zero

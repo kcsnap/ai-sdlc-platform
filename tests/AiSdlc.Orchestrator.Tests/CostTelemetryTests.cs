@@ -34,6 +34,20 @@ public sealed class CostTelemetryTests
         Assert.Equal(1, AgentActivityFunctions.BuildCostScope(ctx).Iteration);
     }
 
+    // Yorrixx keys /apps/{appId}/cost by the FULL 32-char id; repo names only carry appId8 (G6 P2),
+    // so the new build path stamps the full id into metadata — it must win over the repo-name fallback,
+    // including after Durable checkpointing turns metadata strings into JsonElement.
+    [Fact]
+    public void BuildCostScope_prefers_full_appId_from_metadata()
+    {
+        var ctx = MakeContext();
+        ctx.Metadata["appId"] = "b39b1f7f49c14c02a3a9777a800cc44d";
+        Assert.Equal("b39b1f7f49c14c02a3a9777a800cc44d", AgentActivityFunctions.BuildCostScope(ctx).AppId);
+
+        ctx.Metadata["appId"] = JsonSerializer.Deserialize<JsonElement>("\"c50cb42440c2462a93a9777a800cc44d\"");
+        Assert.Equal("c50cb42440c2462a93a9777a800cc44d", AgentActivityFunctions.BuildCostScope(ctx).AppId);
+    }
+
     [Fact]
     public async Task Emits_cost_with_usage_phase_and_requestId()
     {
