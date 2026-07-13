@@ -66,6 +66,37 @@ public sealed class TemplateAssemblerTests
         Assert.Equal(new[] { "index.html", "styles.css" }, files.Select(f => f.Path).OrderBy(p => p));
     }
 
+    // w1proof3: "Bouquets & Ludlow" filled into index.html raw → html-validate no-raw-characters →
+    // build failed. Values are entity-encoded in HTML-context files (decode-then-encode, so copy the
+    // model pre-encoded is NOT double-encoded); non-HTML files take values verbatim.
+    [Fact]
+    public void Html_encodes_filled_values_in_html_files_only()
+    {
+        var input = new TemplateAssemblyInput
+        {
+            Brand = new Dictionary<string, string> { ["PRIMARY"] = "#123456" }, // css: must stay verbatim
+            Content = new Dictionary<string, string> { ["HERO"] = "Bouquets & <Ludlow> Market" },
+            Platform = new Dictionary<string, string> { ["YEAR"] = "2026" },
+            Repeat = new Dictionary<string, IReadOnlyList<IReadOnlyDictionary<string, string>>>
+            {
+                ["feature"] = new IReadOnlyDictionary<string, string>[]
+                {
+                    new Dictionary<string, string> { ["TITLE"] = "Fish & Chips" },
+                    new Dictionary<string, string> { ["TITLE"] = "Already &amp; Encoded" }
+                }
+            }
+        };
+
+        var files = TemplateAssembler.Assemble(SampleTemplate(), input);
+
+        var page = Assert.Single(files, f => f.Path == "index.html");
+        Assert.Contains("<h1>Bouquets &amp; &lt;Ludlow&gt; Market</h1>", page.Content);
+        Assert.Contains("<li>Fish &amp; Chips</li>", page.Content);
+        Assert.Contains("<li>Already &amp; Encoded</li>", page.Content); // no &amp;amp;
+        var css = Assert.Single(files, f => f.Path == "styles.css");
+        Assert.Contains("--p:#123456", css.Content);
+    }
+
     [Fact]
     public void Leaves_deploy_token_untouched_for_deploy_substitution()
     {
