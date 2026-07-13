@@ -52,8 +52,13 @@ public static partial class TemplateAssembler
                 continue;
             }
 
-            content = ExpandRepeats(content, input.Repeat);
-            content = Substitute(content, scalars);
+            // Model-authored copy is PLAIN TEXT by contract; in HTML-context files it must be entity-
+            // encoded at fill time (w1proof3: "Bouquets & Ludlow" hit html-validate's no-raw-characters
+            // and failed the build). Decode-then-encode so copy the model pre-encoded ("&amp;") doesn't
+            // double-encode. Non-HTML files (css/js/spec) take values verbatim.
+            var htmlContext = HtmlExtensions.Contains(Path.GetExtension(outputPath));
+            content = ExpandRepeats(content, input.Repeat, htmlContext);
+            content = Substitute(content, scalars, htmlContext);
 
             foreach (var unresolved in AnyToken().Matches(content).Select(m => m.Value).Distinct())
                 problems.Add($"file '{outputPath}': unresolved token {unresolved}.");
@@ -67,9 +72,13 @@ public static partial class TemplateAssembler
         return outputs;
     }
 
+    private static readonly HashSet<string> HtmlExtensions =
+        new(StringComparer.OrdinalIgnoreCase) { ".html", ".htm", ".svg", ".xml" };
+
     private static string ExpandRepeats(
         string content,
-        IReadOnlyDictionary<string, IReadOnlyList<IReadOnlyDictionary<string, string>>> repeat) =>
+        IReadOnlyDictionary<string, IReadOnlyList<IReadOnlyDictionary<string, string>>> repeat,
+        bool htmlEncode) =>
         RepeatBlock().Replace(content, match =>
         {
             var name = match.Groups[1].Value;
@@ -79,11 +88,18 @@ public static partial class TemplateAssembler
 
             var sb = new StringBuilder();
             foreach (var item in items)
-                sb.Append(Substitute(inner, item));
+                sb.Append(Substitute(inner, item, htmlEncode));
             return sb.ToString();
         });
 
-    private static string Substitute(string content, IReadOnlyDictionary<string, string> values) =>
+    private static string Substitute(string content, IReadOnlyDictionary<string, string> values, bool htmlEncode) =>
         Token().Replace(content, match =>
-            values.TryGetValue(match.Groups[1].Value, out var value) ? value : match.Value);
+            values.TryGetValue(match.Groups[1].Value, out var value)
+                ? (htmlEncode ? EncodeForHtml(value) : value)
+                : match.Value);
+
+    // Decode-then-encode: idempotent for values the model already entity-encoded, and turns raw
+    // & < > " into valid entities everywhere else.
+    private static string EncodeForHtml(string value) =>
+        System.Net.WebUtility.HtmlEncode(System.Net.WebUtility.HtmlDecode(value));
 }

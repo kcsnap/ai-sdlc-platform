@@ -174,6 +174,11 @@ module "function_app" {
     # the existing 429 exponential backoff still yields if the API-side limit is lower.
     AnthropicMaxConcurrentRequests = "6"
 
+    # Cost telemetry (proof w1proof2): CostEmittingModelProvider is INERT unless YorrixxApiBase +
+    # YorrixxAdminKey are both set — this was never configured, so no build ever emitted cost.
+    # No trailing /v1/admin: the emitter appends /v1/admin/apps/{appId}/cost itself.
+    YorrixxApiBase = "https://ca-yorrixx-dev-api.proudpebble-018b8327.uksouth.azurecontainerapps.io"
+
     # Ramp wave-1 fix — activate the template-first Static path (#193/#195 shipped it env-gated OFF).
     # With the profile stamped Static, a fresh Static build fills a pre-built template instead of
     # generating markup from scratch (cheaper, and structurally can't invent literal emails — the
