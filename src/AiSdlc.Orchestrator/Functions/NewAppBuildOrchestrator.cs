@@ -224,7 +224,7 @@ public static class NewAppBuildOrchestrator
             {
                 servesStatus = await context.CallActivityAsync<int>(nameof(BuildActivityFunctions.ProbeUrlAsync), result.HostedUrl);
                 pageHtml = await context.CallActivityAsync<string>(nameof(BuildActivityFunctions.FetchPageAsync), result.HostedUrl);
-                if (!BuildActivityFunctions.ContentLooksScaffold(pageHtml, charter.Identity.AppName))
+                if (!BuildActivityFunctions.ContentLooksScaffold(pageHtml))
                     break;
                 await context.CreateTimer(context.CurrentUtcDateTime.AddSeconds(15), CancellationToken.None);
             }

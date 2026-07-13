@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <!-- Real-world verifier fixtures (F4): live pages captured from ramp builds. -->
+    <Content Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\AiSdlc.Orchestrator\AiSdlc.Orchestrator.csproj" />
     <ProjectReference Include="..\..\src\AiSdlc.Agents\AiSdlc.Agents.csproj" />
     <ProjectReference Include="..\..\src\AiSdlc.ModelProviders\AiSdlc.ModelProviders.csproj" />
