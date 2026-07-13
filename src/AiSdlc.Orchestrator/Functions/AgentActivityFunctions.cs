@@ -774,11 +774,23 @@ public sealed class AgentActivityFunctions
     // best-effort build iteration (a reopen = a new verify cycle; 0 on the first build).
     internal static CostScope BuildCostScope(AgentContext context)
     {
+        var iteration = context.Metadata.ContainsKey("reopened") ? 1 : 0;
+
+        // Prefer the FULL appId when the build pipeline provided it: Yorrixx keys /apps/{appId}/cost by
+        // the full 32-char id, but repo names carry only appId8 (G6 P2) — deriving from the repo name
+        // posted cost to /apps/7e85f46c/cost and every emit 404'd (wave-1 "zero cost" signal).
+        var fromMetadata = context.Metadata.TryGetValue("appId", out var raw) switch
+        {
+            true => raw as string ?? (raw is System.Text.Json.JsonElement je && je.ValueKind == System.Text.Json.JsonValueKind.String ? je.GetString() : null),
+            false => null
+        };
+        if (!string.IsNullOrWhiteSpace(fromMetadata))
+            return new CostScope(fromMetadata, iteration);
+
         var segment = context.Repository.Split('/')[^1];
         var appId = segment.StartsWith("user-app-", StringComparison.Ordinal)
             ? segment["user-app-".Length..]
             : segment;
-        var iteration = context.Metadata.ContainsKey("reopened") ? 1 : 0;
         return new CostScope(appId, iteration);
     }
 
