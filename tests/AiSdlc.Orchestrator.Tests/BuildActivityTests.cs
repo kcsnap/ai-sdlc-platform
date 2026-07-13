@@ -63,17 +63,36 @@ public sealed class BuildActivityTests
     }
 
     // F3(b): the scaffold gate — flip #4 went LIVE with raw template content and green checks.
+    // F4: POSITIVE evidence only — a missing app name is advisory (AppNameEchoed), never a failure.
     [Theory]
-    [InlineData(null,                                          "TaskFlow", true)]  // unfetchable ⇒ scaffold
-    [InlineData("",                                            "TaskFlow", true)]
-    [InlineData("<html><title>App</title>TaskFlow</html>",     "TaskFlow", true)]  // template scaffold title
-    [InlineData("<html><h1>{{HERO_TITLE}}</h1>TaskFlow</html>", "TaskFlow", true)] // unfilled tokens
-    [InlineData("<html><title>Something</title></html>",       "TaskFlow", true)]  // app name absent
-    [InlineData("<html><title>TaskFlow — tasks</title></html>", "TaskFlow", false)]
-    [InlineData("<html><h1>taskflow</h1></html>",              "TaskFlow", false)] // case-insensitive
-    public void ContentLooksScaffold_detects_template_output(string? html, string appName, bool expected)
+    [InlineData(null,                                            true)]  // unfetchable ⇒ scaffold
+    [InlineData("",                                              true)]
+    [InlineData("<html><title>App</title>TaskFlow</html>",       true)]  // template scaffold title
+    [InlineData("<html><h1>{{HERO_TITLE}}</h1>TaskFlow</html>",  true)]  // unfilled tokens
+    [InlineData("<a href=\"mailto:__CONTACT_EMAIL__\">e</a>",    true)]  // unsubstituted deploy token
+    [InlineData("<html><title>Something</title></html>",         false)] // app name absent — NOT evidence (F4)
+    [InlineData("<script>a.__proto__=b</script>",                false)] // lowercase dunder never matches
+    [InlineData("<html><title>TaskFlow — tasks</title></html>",  false)]
+    public void ContentLooksScaffold_detects_positive_template_evidence_only(string? html, bool expected)
     {
-        Assert.Equal(expected, BuildActivityFunctions.ContentLooksScaffold(html, appName));
+        Assert.Equal(expected, BuildActivityFunctions.ContentLooksScaffold(html));
+    }
+
+    // F4 must-PASS fixture: the ACTUAL live page from ramp wave-1 app "ramp-w1-florist"
+    // (st2a5fd3bc, captured 2026-07-13) — genuinely charter-derived, never renders the harness slug.
+    // The pre-F4 gate false-failed it with "page missing app name".
+    [Fact]
+    public void ContentLooksScaffold_passes_the_real_ramp_w1_florist_page()
+    {
+        var html = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "ramp-w1-florist.html"));
+
+        Assert.False(BuildActivityFunctions.ContentLooksScaffold(html));
+        Assert.False(BuildActivityFunctions.AppNameEchoed(html, "ramp-w1-florist")); // slug absent, by design
+
+        var v = BuildActivityFunctions.AssembleVerification(
+            "success", 200, isStatic: true, pageHtml: html, appName: "ramp-w1-florist");
+        Assert.Equal("passed", v.Outcome);
+        Assert.Equal("warn", Assert.Single(v.Checks, c => c.CheckId == "app-name-echo").Status);
     }
 
     [Fact]
@@ -85,6 +104,7 @@ public sealed class BuildActivityTests
         Assert.Equal("failed", v.Outcome);
         var content = Assert.Single(v.Checks, c => c.CheckId == "content-not-scaffold");
         Assert.Equal("fail", content.Status);
+        Assert.Equal("skipped", Assert.Single(v.Checks, c => c.CheckId == "app-name-echo").Status);
     }
 
     [Fact]
@@ -94,7 +114,8 @@ public sealed class BuildActivityTests
             "success", 200, isStatic: true, pageHtml: "<title>TaskFlow</title><h1>TaskFlow</h1>", appName: "TaskFlow");
 
         Assert.Equal("passed", v.Outcome);
-        Assert.Equal(4, v.Checks.Count);
+        Assert.Equal(5, v.Checks.Count);
+        Assert.Equal("pass", Assert.Single(v.Checks, c => c.CheckId == "app-name-echo").Status);
     }
 
     private static CheckRunResult Check(string status, string conclusion) =>

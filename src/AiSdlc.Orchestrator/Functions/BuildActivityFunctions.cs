@@ -203,17 +203,31 @@ public sealed class BuildActivityFunctions
         return checks.All(c => string.Equals(c.Conclusion, "success", StringComparison.OrdinalIgnoreCase)) ? "success" : "failed";
     }
 
+    // Deploy-substituted tokens (__CONTACT_EMAIL__ style) surviving to the LIVE page mean the deploy-time
+    // substitution never ran — positive scaffold evidence. Uppercase-only so JS dunders (__proto__) can't
+    // false-match.
+    private static readonly System.Text.RegularExpressions.Regex UnsubstitutedDeployToken =
+        new(@"__[A-Z][A-Z0-9_]*__", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     // F3(b): scaffold detector — the flip-#4 canary went LIVE with raw template content and 3 green checks.
-    // Content passes only when it carries the charter's app name AND none of the template's scaffold markers.
-    internal static bool ContentLooksScaffold(string? pageHtml, string appName)
+    // F4: fails ONLY on POSITIVE scaffold evidence (default title, unfilled {{ }} slots, unsubstituted
+    // __TOKEN__ markers, or an empty page). A missing app name is NOT evidence — ramp-w1-florist shipped
+    // a genuinely charter-derived site whose copy (sensibly) never rendered the harness slug, and the old
+    // appName clause false-failed it. The name echo is the separate WARN-only AppNameEchoed check.
+    internal static bool ContentLooksScaffold(string? pageHtml)
     {
         if (string.IsNullOrWhiteSpace(pageHtml)) return true; // unfetchable ⇒ cannot prove it's real content
         if (pageHtml.Contains("<title>App</title>", StringComparison.OrdinalIgnoreCase)) return true;
         if (pageHtml.Contains("{{", StringComparison.Ordinal) && pageHtml.Contains("}}", StringComparison.Ordinal))
             return true; // unfilled template tokens
-        return !string.IsNullOrWhiteSpace(appName)
-            && !pageHtml.Contains(appName, StringComparison.OrdinalIgnoreCase);
+        return UnsubstitutedDeployToken.IsMatch(pageHtml);
     }
+
+    // Advisory only (F4): builders legitimately stylize or omit the charter app name in page copy.
+    internal static bool AppNameEchoed(string? pageHtml, string? appName) =>
+        !string.IsNullOrWhiteSpace(pageHtml)
+        && !string.IsNullOrWhiteSpace(appName)
+        && pageHtml.Contains(appName, StringComparison.OrdinalIgnoreCase);
 
     // Builds the verification check table from the deploy status + a hosted-URL probe (+ the fetched HTML
     // for the scaffold gate; pass null appName to skip the content check — test back-compat only).
@@ -233,10 +247,18 @@ public sealed class BuildActivityFunctions
         };
         if (appName is not null)
         {
-            var scaffold = ContentLooksScaffold(pageHtml, appName);
+            var scaffold = ContentLooksScaffold(pageHtml);
             checks.Add(new("content-not-scaffold", "Hosted content is charter-derived, not template scaffold",
                 scaffold ? "fail" : "pass",
-                scaffold ? "page missing app name or carrying scaffold markers" : $"page mentions '{appName}'"));
+                scaffold
+                    ? "page is empty or carries scaffold markers (default title / {{ }} / __TOKEN__)"
+                    : "no scaffold markers on the page"));
+
+            // WARN-only (F4): never fails the outcome — the name may be legitimately stylized or omitted.
+            var echoed = AppNameEchoed(pageHtml, appName);
+            checks.Add(new("app-name-echo", "Page mentions the charter app name",
+                scaffold ? "skipped" : echoed ? "pass" : "warn",
+                echoed ? $"page mentions '{appName}'" : $"'{appName}' not found verbatim — advisory only"));
         }
         var outcome = checks.Any(c => c.Status == "fail") ? "failed" : "passed";
         return new VerificationResult(outcome, checks);
