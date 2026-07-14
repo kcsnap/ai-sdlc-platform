@@ -312,4 +312,69 @@ public sealed class CiRepairLoopTests
         var kept = Assert.Single(filtered);
         Assert.Equal("styles.css", kept.Path);
     }
+    // D1 (ramp-w3-booking): six repair rounds re-patched consumer files while Models/Booking.cs stayed
+    // wrong. The fixture below is the app's ACTUAL recurring error set (run 29257404210).
+    private const string BookingRound5Findings = """
+        src/api/Services/BookingService.cs:42 [failure] error CS0117: 'Booking' does not contain a definition for 'CreatedAt'
+        src/api/Services/BookingService.cs:31 [failure] error CS0117: 'Booking' does not contain a definition for 'Id'
+        src/api/Functions/CreateBookingFunction.cs:55 [failure] error CS1061: 'Booking' does not contain a definition for 'SlotDateTime' and no accessible extension method
+        src/api/Functions/GetBookingsFunction.cs:23 [failure] error CS1061: 'Booking' does not contain a definition for 'UserId' and no accessible extension method
+        src/api/Data/CosmosBookingStore.cs:61 [failure] error CS0122: 'RepositoryBase<Booking>.GetByIdAsync(string, CancellationToken)' is inaccessible due to its protection level
+        src/api/Functions/CreateBookingFunction.cs:29 [failure] error CS1061: 'Stream' does not contain a definition for 'ReadAsStringAsync'
+        """;
+
+    [Fact]
+    public void RepairErrorSignatures_fingerprints_code_plus_symbol()
+    {
+        var sigs = AgentActivityFunctions.RepairErrorSignatures(BookingRound5Findings);
+
+        Assert.Contains("CS0117:Booking", sigs);
+        Assert.Contains("CS1061:Booking", sigs);
+        Assert.Contains("CS0122:RepositoryBase<Booking>.GetByIdAsync(string, CancellationToken)", sigs);
+        Assert.Contains("CS1061:Stream", sigs);
+        Assert.Equal(sigs.Distinct().Count(), sigs.Count); // deduped
+        Assert.Empty(AgentActivityFunctions.RepairErrorSignatures(""));
+    }
+
+    [Fact]
+    public void RepairEscalationNeeded_fires_only_on_recurrence()
+    {
+        var round2 = AgentActivityFunctions.RepairErrorSignatures(BookingRound5Findings);
+        var round3 = AgentActivityFunctions.RepairErrorSignatures(BookingRound5Findings);
+        var disjoint = AgentActivityFunctions.RepairErrorSignatures(
+            "src/x.cs:1 [failure] error CS0246: 'IClerkValidator' could not be found");
+
+        Assert.False(AgentActivityFunctions.RepairEscalationNeeded([], round2));       // first attempt: never
+        Assert.True(AgentActivityFunctions.RepairEscalationNeeded(round2, round3));    // same set recurs
+        Assert.False(AgentActivityFunctions.RepairEscalationNeeded(round2, disjoint)); // new error class: no
+    }
+
+    // The declaring file's stem appears in findings only as a quoted TYPE — it must count as implicated
+    // (pre-D1, a regenerated Models/Booking.cs would have been dropped by the minimality filter).
+    [Theory]
+    [InlineData("src/api/Models/Booking.cs",        true)]
+    [InlineData("src/api/Data/RepositoryBase.cs",   true)]  // quoted inside 'RepositoryBase<Booking>…'
+    [InlineData("src/api/Models/Unrelated.cs",      false)]
+    public void IsImplicatedByFindings_matches_quoted_declaring_type(string path, bool expected)
+    {
+        Assert.Equal(expected, AgentActivityFunctions.IsImplicatedByFindings(path, BookingRound5Findings));
+    }
+
+    [Fact]
+    public void Escalated_repair_filter_keeps_all_allowed_files()
+    {
+        var changes = new List<AiSdlc.Shared.FileChange>
+        {
+            new("src/api/Models/Booking.cs", "public sealed class Booking { }"),
+            new("src/api/Models/SomethingElse.cs", "// not implicated by any finding"),
+            new(".github/workflows/ci.yml", "tampered"), // protected: dropped even under escalation
+        };
+
+        var narrow = AgentActivityFunctions.FilterRepairChanges(changes, "no matches here");
+        var widened = AgentActivityFunctions.FilterRepairChanges(changes, "no matches here", null, escalated: true);
+
+        Assert.Equal(2, narrow.Count);   // fallback-to-allowed path (nothing implicated)
+        Assert.Equal(2, widened.Count);  // escalation: full allowed set, protected still out
+        Assert.DoesNotContain(widened, c => c.Path.StartsWith(".github/"));
+    }
 }

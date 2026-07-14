@@ -584,7 +584,8 @@ public sealed class AgentActivityFunctions
         change.Content?.Contains("[REDACTED:", StringComparison.Ordinal) == true;
 
     internal static List<FileChange> FilterRepairChanges(
-        IReadOnlyList<FileChange> changes, string findingsText, string? existingAcceptanceSpec = null)
+        IReadOnlyList<FileChange> changes, string findingsText, string? existingAcceptanceSpec = null,
+        bool escalated = false)
     {
         // Immutable harness (.github/, tests/e2e/ except acceptance.spec.ts) is always dropped.
         // acceptance.spec.ts is dropped when the change would regress it (or can't be verified) or when
@@ -594,6 +595,12 @@ public sealed class AgentActivityFunctions
             !ContainsRedactionEcho(c) &&
             !IsRejectedAcceptanceSpec(c, existingAcceptanceSpec, isRepair: true))
             .ToList();
+
+        // D1 escalation: when the SAME errors recur across attempts, the implicated-only narrowing IS
+        // the non-convergence mechanism (booking: compiler errors name consumer files, so the declaring
+        // model's regeneration would have been dropped here on all six rounds). Keep every allowed file.
+        if (escalated) return allowed;
+
         var implicated = allowed.Where(c => IsImplicatedByFindings(c.Path, findingsText)).ToList();
         return implicated.Count > 0 ? implicated : allowed;
     }
@@ -604,8 +611,44 @@ public sealed class AgentActivityFunctions
         if (findingsText.Contains(path, StringComparison.OrdinalIgnoreCase))
             return true;
         var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
-        return findingsText.Contains(fileName, StringComparison.OrdinalIgnoreCase);
+        if (findingsText.Contains(fileName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // D1: compiler errors quote the TYPE ('Booking' does not contain …, 'RepositoryBase<Booking>.…'),
+        // never the declaring file's path — so the declaring file counts as implicated when its stem
+        // opens a quoted symbol (followed by a non-identifier char: closing quote, generic <, member dot).
+        var stem = fileName.Contains('.') ? fileName[..fileName.IndexOf('.')] : fileName;
+        if (stem.Length <= 2) return false;
+        var probe = $"'{stem}";
+        for (var idx = findingsText.IndexOf(probe, StringComparison.OrdinalIgnoreCase);
+             idx >= 0;
+             idx = findingsText.IndexOf(probe, idx + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            var next = idx + probe.Length;
+            if (next >= findingsText.Length || !char.IsLetterOrDigit(findingsText[next]))
+                return true;
+        }
+        return false;
     }
+
+    // D1: "CSxxxx:Symbol" fingerprints for the recurrence check — same signatures across consecutive
+    // repair attempts means call-site patching is not converging.
+    private static readonly System.Text.RegularExpressions.Regex CompileErrorSignature =
+        new(@"error\s+(CS\d{4})(?::\s*[^'\r\n]*?'([^'\r\n]+)')?", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static IReadOnlyList<string> RepairErrorSignatures(string? findingsText)
+    {
+        if (string.IsNullOrWhiteSpace(findingsText)) return [];
+        return CompileErrorSignature.Matches(findingsText)
+            .Select(m => m.Groups[2].Success ? $"{m.Groups[1].Value}:{m.Groups[2].Value}" : m.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    internal static bool RepairEscalationNeeded(
+        IReadOnlyCollection<string> previousSignatures, IReadOnlyCollection<string> currentSignatures) =>
+        previousSignatures.Count > 0 && currentSignatures.Any(previousSignatures.Contains);
 
     /// <summary>
     /// True when this run is a repair (reopen verification findings or in-run CI findings) over

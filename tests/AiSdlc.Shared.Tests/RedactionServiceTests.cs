@@ -83,11 +83,27 @@ public sealed class RedactionServiceTests
     [InlineData("Sort code: 20-12-34")]
     [InlineData("Sort code: 20 12 34")]
     [InlineData("Sort code: 201234")]
+    [InlineData("sort-code 20-12-34")]
+    [InlineData("SortCode: 201234")]
     public void Redact_UkSortCode_IsRedacted(string input)
     {
         var result = _svc.Redact(input);
         Assert.Contains("[REDACTED:SORT_CODE]", result.RedactedText);
         Assert.Contains("UK sort code", result.RedactedPatterns);
+    }
+
+    // w1proof0/D1 fold-in: the unlabeled forms false-matched SVG path coordinates and phone fragments,
+    // and the masks echoed back into repaired files (shipped corrupt graphics). Unlabeled digit runs
+    // are ordinary numbers — only labeled sort codes redact.
+    [Theory]
+    [InlineData("<path d=\"M10 20 Q 12 34 56 78\"/>")]     // SVG coordinates (spaced pairs)
+    [InlineData("Call us on +44 (0)1584 875421")]          // 6-digit phone fragment
+    [InlineData("viewBox=\"0 0 24-48-96 12\"")]            // hyphenated numeric run
+    [InlineData("Invoice number 123456 attached")]         // plain 6-digit reference
+    public void Redact_UnlabeledDigitRuns_AreNotRedacted(string input)
+    {
+        var result = _svc.Redact(input);
+        Assert.DoesNotContain("[REDACTED:SORT_CODE]", result.RedactedText);
     }
 
     [Theory]

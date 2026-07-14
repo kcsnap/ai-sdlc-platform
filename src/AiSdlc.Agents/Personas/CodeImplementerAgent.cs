@@ -138,6 +138,21 @@ public sealed class CodeImplementerAgent : IAgent
         - The literal text </file> must never appear inside file content.
         """;
 
+    // D1 (ramp-w3-booking): six repair rounds re-patched consumer call sites while the declaring
+    // Booking model stayed wrong — the findings quote the TYPE, never the declaring file's path, so
+    // the "only what the findings implicate" rule kept the real fix permanently out of scope. This
+    // suffix is applied when the orchestrator detects the SAME error signatures recurring.
+    private const string EscalationPrompt = """
+
+        ESCALATION — RECURRING ERRORS: these same compile errors have already survived a previous
+        repair attempt, so patching the call sites has FAILED. The DECLARING type is what is wrong.
+        Regenerate the declaring type(s) whose members the errors name — the model / base class —
+        so they expose every member their consumers actually use, with the accessibility those
+        consumers need (called from outside the class hierarchy ⇒ public). Under escalation,
+        re-emitting a declaring file that no finding names by path IS in scope; do not change the
+        consumers to work around a wrong declaration. All other rules still apply.
+        """;
+
     // Scaffold-first (#131): every user-app is created by copying the template repo
     // (kcsnap/ai-sdlc-react-dotnet-template), so a tested, compiling shell already exists — auth,
     // layout, the API client, the Cosmos client, and the DI seam are all wired. The Code
@@ -176,7 +191,8 @@ public sealed class CodeImplementerAgent : IAgent
         // in different files (#92, #95).
         if (IsRepairRequest(request.Context))
         {
-            return await RepairAsync(contextDocs, userPrompt, request.Context.IssueNumber, cancellationToken);
+            var escalated = string.Equals(GetMeta(request.Context, "repairEscalation"), "true", StringComparison.OrdinalIgnoreCase);
+            return await RepairAsync(contextDocs, userPrompt, request.Context.IssueNumber, escalated, cancellationToken);
         }
 
         var manifestResponse = await _model.CompleteAsync(new ModelRequest
@@ -319,13 +335,13 @@ public sealed class CodeImplementerAgent : IAgent
 
     private async Task<AgentResult> RepairAsync(
         Dictionary<string, string> contextDocs, string userPrompt, int issueNumber,
-        CancellationToken cancellationToken)
+        bool escalated, CancellationToken cancellationToken)
     {
         var modelRequest = new ModelRequest
         {
             AgentName        = Name,
             TaskType         = "CodeRepair",
-            SystemPrompt     = RepairSystemPrompt,
+            SystemPrompt     = escalated ? RepairSystemPrompt + EscalationPrompt : RepairSystemPrompt,
             UserPrompt       = userPrompt +
                 "\n\nApply the minimal fix for the findings document provided (Verification Findings " +
                 "or CI Failure Findings) against the Existing Source. Output ONLY the corrected files.",
