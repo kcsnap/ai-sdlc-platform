@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -16,9 +15,6 @@ namespace AiSdlc.Orchestrator.Cost;
 /// </summary>
 public sealed class CostEmittingModelProvider : IModelProvider
 {
-    // Per (appId:phase:iteration) monotonic sequence for the idempotency key.
-    private static readonly ConcurrentDictionary<string, int> Seq = new();
-
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -40,6 +36,12 @@ public sealed class CostEmittingModelProvider : IModelProvider
         _logger      = logger;
         _apiBase     = yorrixxApiBase;
         _adminKey    = yorrixxAdminKey;
+
+        // Cost net (D3 was the THIRD silently-lost-cost defect): an unconfigured emitter must be loud
+        // at boot, not discovered months later from an empty benchmark (YorrixxApiBase sat unset from
+        // #185 until w1proof2).
+        if (string.IsNullOrWhiteSpace(_apiBase) || string.IsNullOrWhiteSpace(_adminKey))
+            _logger.LogWarning("Cost telemetry is INERT — YorrixxApiBase and/or YorrixxAdminKey is not configured; no build will emit cost.");
     }
 
     public string ProviderName => _inner.ProviderName;
@@ -60,12 +62,20 @@ public sealed class CostEmittingModelProvider : IModelProvider
 
     private async Task EmitCostAsync(ModelRequest request, ModelResponse response, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(_apiBase) || string.IsNullOrWhiteSpace(_adminKey))
+            return; // not configured — already warned loudly at construction
+
         var scope = BuildCostContext.Current;
-        if (scope is null || string.IsNullOrWhiteSpace(_apiBase) || string.IsNullOrWhiteSpace(_adminKey))
-            return; // no build scope, or telemetry not configured → skip silently
+        if (scope is null)
+        {
+            // Cost net: a real LLM call with no attribution scope means an orchestration path reached the
+            // model provider without setting BuildCostContext — that cost is LOST. Make it loud.
+            _logger.LogWarning("LLM call by {Agent}/{TaskType} carried no BuildCostContext — cost NOT attributed (unwired orchestration path).",
+                request.AgentName, request.TaskType);
+            return;
+        }
 
         var phase  = CostPhase.For(request.AgentName, request.TaskType);
-        var seq    = Seq.AddOrUpdate($"{scope.AppId}:{phase}:{scope.Iteration}", 0, (_, n) => n + 1);
         var appId8 = scope.AppId.Length > 8 ? scope.AppId[..8] : scope.AppId;
 
         var payload = new BuildCostCallback
@@ -78,7 +88,13 @@ public sealed class CostEmittingModelProvider : IModelProvider
             CacheReadTokens  = Usage(response, "cache_read_tokens"),
             CacheWriteTokens = Usage(response, "cache_write_tokens"),
             Calls            = 1,
-            RequestId        = $"{appId8}:{phase}:{scope.Iteration}:{seq}",
+            // D3: the key was {appId8}:{phase}:{iteration}:{seq} with seq from an IN-PROCESS counter —
+            // a re-kicked build in a fresh worker regenerated the previous run's exact RequestIds and
+            // Yorrixx's idempotency dedupe silently swallowed all 21 emits ($0.00 delta on 13 min of
+            // repair work). Each emit is one real, billed Anthropic call and the POST is never retried,
+            // so cross-call dedupe protects nothing: the key must be unique per emit. The readable
+            // prefix stays for observability; the GUID guarantees uniqueness across runs and restarts.
+            RequestId        = $"{appId8}:{phase}:{scope.Iteration}:{Guid.NewGuid():N}",
         };
 
         var url = $"{_apiBase!.TrimEnd('/')}/v1/admin/apps/{scope.AppId}/cost";

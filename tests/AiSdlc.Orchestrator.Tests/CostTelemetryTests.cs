@@ -78,6 +78,83 @@ public sealed class CostTelemetryTests
         Assert.StartsWith("b39b1f7f:code-gen:0:", body.GetProperty("requestId").GetString());
     }
 
+    // D3: the RequestId used an in-process counter, so a re-kicked build in a fresh worker regenerated
+    // the previous run's exact idempotency keys and Yorrixx silently deduped all 21 emits ($0.00 delta
+    // on 13 min of repair). Every emit is one real billed call and the POST is never retried — the key
+    // must be unique per emit, across runs AND process restarts.
+    [Fact]
+    public async Task RequestId_is_unique_across_process_restarts_and_calls()
+    {
+        var ids = new List<string?>();
+        for (var restart = 0; restart < 2; restart++) // fresh decorator instance = simulated worker restart
+        {
+            var handler = new CaptureHandler(HttpStatusCode.OK);
+            var decorator = new CostEmittingModelProvider(
+                new StubProvider(1, 1, 0, 0, "m"), new StubFactory(handler),
+                NullLogger<CostEmittingModelProvider>.Instance, "https://yorrixx.test/", "k");
+
+            BuildCostContext.Current = new CostScope("3e14295bae934e04b2b4922e5822b28f", 0);
+            try
+            {
+                for (var call = 0; call < 2; call++)
+                {
+                    await decorator.CompleteAsync(
+                        new ModelRequest { AgentName = AgentNames.CodeImplementer, TaskType = "CodeRepair", SystemPrompt = "s", UserPrompt = "x" },
+                        CancellationToken.None);
+                    ids.Add(JsonDocument.Parse(handler.LastBody).RootElement.GetProperty("requestId").GetString());
+                }
+            }
+            finally { BuildCostContext.Current = null; }
+        }
+
+        Assert.Equal(4, ids.Count);
+        Assert.Equal(4, ids.Distinct().Count()); // no collisions between calls OR "restarts"
+        Assert.All(ids, id => Assert.StartsWith("3e14295b:fix-loop:0:", id)); // readable prefix retained
+    }
+
+    // Cost net: an LLM call reaching the provider with no attribution scope means an unwired
+    // orchestration path — cost is lost, so it must be LOUD, and nothing must be POSTed.
+    [Fact]
+    public async Task Null_scope_logs_unwired_path_warning_and_does_not_post()
+    {
+        var handler = new CaptureHandler(HttpStatusCode.OK);
+        var log = new CapturingLogger();
+        var decorator = new CostEmittingModelProvider(
+            new StubProvider(1, 1, 0, 0, "m"), new StubFactory(handler), log, "https://yorrixx.test/", "k");
+
+        BuildCostContext.Current = null;
+        await decorator.CompleteAsync(new ModelRequest { AgentName = "x", TaskType = "x", SystemPrompt = "s", UserPrompt = "x" }, CancellationToken.None);
+
+        Assert.Null(handler.LastPath);
+        Assert.Contains(log.Warnings, w => w.Contains("no BuildCostContext"));
+    }
+
+    // Cost net: unconfigured telemetry warned about ONCE at boot (YorrixxApiBase sat unset from #185
+    // until w1proof2 — an empty benchmark was the only symptom).
+    [Fact]
+    public void Unconfigured_emitter_warns_loudly_at_construction()
+    {
+        var log = new CapturingLogger();
+        _ = new CostEmittingModelProvider(
+            new StubProvider(1, 1, 0, 0, "m"), new StubFactory(new CaptureHandler(HttpStatusCode.OK)),
+            log, yorrixxApiBase: null, yorrixxAdminKey: "k");
+
+        Assert.Contains(log.Warnings, w => w.Contains("INERT"));
+    }
+
+    private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger<CostEmittingModelProvider>
+    {
+        public List<string> Warnings { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
+            TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Warning)
+                Warnings.Add(formatter(state, exception));
+        }
+    }
+
     [Fact]
     public async Task Does_not_emit_when_unconfigured()
     {
