@@ -743,6 +743,9 @@ public static class AiSdlcWorkflowOrchestrator
             // converges (#95). Repos without CI have zero check runs and proceed.
             ChecksState checksState = null!;
             var ciRepairAttempt = 0;
+            // D1: error signatures from the previous attempt — recurrence across attempts means the
+            // surgical call-site strategy is not converging and the repair must widen to declaring types.
+            IReadOnlyList<string> previousErrorSignatures = [];
 
             while (true)
             {
@@ -811,6 +814,21 @@ public static class AiSdlcWorkflowOrchestrator
                 agentContext.Metadata["ciFindings"]     = ciFindingsRef;     // refs only — resolved agent-side
                 agentContext.Metadata["existingSource"] = branchSourceRef;   // branch code, replaces any reopen bundle
 
+                // D1 escalation: ramp-w3-booking burned six repair rounds re-patching consumer files while
+                // the declaring Booking model stayed wrong — compiler errors quote the TYPE, never the
+                // declaring file's path, so both the repair prompt and the minimality filter kept the model
+                // out of scope forever. When error signatures recur between attempts, tell the implementer
+                // to regenerate the declaring type and stop narrowing the committed set to implicated files.
+                var ciFindingsText = await context.CallActivityAsync<string>(
+                    nameof(AgentActivityFunctions.ResolveContextAsync), ciFindingsRef);
+                var errorSignatures = AgentActivityFunctions.RepairErrorSignatures(ciFindingsText);
+                var escalateRepair = AgentActivityFunctions.RepairEscalationNeeded(previousErrorSignatures, errorSignatures);
+                previousErrorSignatures = errorSignatures;
+                if (escalateRepair)
+                    agentContext.Metadata["repairEscalation"] = "true";
+                else
+                    agentContext.Metadata.Remove("repairEscalation");
+
                 var repairResult = await RunStageWithRecoveryAsync(context, agentContext, $"CI Repair (attempt {ciRepairAttempt})",
                     () => context.CallActivityAsync<AgentResult>(
                         nameof(AgentActivityFunctions.RunCodeImplementerAsync), agentContext, AgentRetryOptions));
@@ -821,11 +839,11 @@ public static class AiSdlcWorkflowOrchestrator
                         nameof(AgentActivityFunctions.ResolveContextAsync), repairResult.ContextRef);
 
                 // Minimal diffs only: keep files the findings implicate (and never .github/) —
-                // observed failure: repair 2 "fixed" a build by renaming namespaces (#98).
-                var ciFindingsText = await context.CallActivityAsync<string>(
-                    nameof(AgentActivityFunctions.ResolveContextAsync), ciFindingsRef);
+                // observed failure: repair 2 "fixed" a build by renaming namespaces (#98). Under D1
+                // escalation the narrowing is skipped — it was the non-convergence mechanism.
                 var repairedChanges = AgentActivityFunctions.FilterRepairChanges(
-                    CodeChangeParser.Parse(repairContent), ciFindingsText);
+                    CodeChangeParser.Parse(repairContent), ciFindingsText, existingAcceptanceSpec: null,
+                    escalated: escalateRepair);
                 if (repairedChanges.Count == 0)
                 {
                     await context.CallActivityAsync(

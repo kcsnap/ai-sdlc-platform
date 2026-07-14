@@ -27,10 +27,14 @@ public sealed class RegexRedactionService : IRedactionService
         // PII
         new("Email address",         @"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b", "[REDACTED:EMAIL]"),
         new("UK National Insurance", @"\b[A-CEGHJ-PR-TW-Z]{1}[A-CEGHJ-NPR-TW-Z]{1}[0-9]{6}[A-DFM]{1}\b", "[REDACTED:NINO]"),
-        // Sort code: exactly 6 consecutive digits OR two-digit groups with hyphen/space separators.
-        // The optional-separator form (\d{2}[-\s]?\d{2}[-\s]?\d{2}) matches ISO dates like 2024-01-15
-        // because it greedily treats '20'+'24'+'-01' as three groups — this explicit alternation avoids that.
-        new("UK sort code",          @"(?<!\d)(?:\d{6}|\d{2}-\d{2}-\d{2}|\d{2}\s\d{2}\s\d{2})(?!\d)", "[REDACTED:SORT_CODE]"),
+        // Sort code: exactly 6 consecutive digits OR two-digit groups with hyphen/space separators —
+        // and ONLY in labeled sort-code context ("sort code"/"sort-code" within ~15 chars before).
+        // The unlabeled forms false-matched everywhere digits cluster: SVG path coordinates ("Q 12 34 56")
+        // and phone fragments ("875421") got masked, and the masks echoed back into repaired files
+        // (w1proof0 shipped corrupt graphics). An unlabeled 6-digit run is indistinguishable from any
+        // ordinary number, so the label is the only reliable signal. The explicit alternation (not
+        // \d{2}[-\s]?\d{2}[-\s]?\d{2}) avoids matching ISO dates like 2024-01-15.
+        new("UK sort code",          @"(?i)(?<=sort[\s-]?code\W{0,15})(?<!\d)(?:\d{6}|\d{2}-\d{2}-\d{2}|\d{2}\s\d{2}\s\d{2})(?!\d)", "[REDACTED:SORT_CODE]"),
         new("Credit card number",    @"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\b", "[REDACTED:CARD_NUMBER]"),
         // Requires all four octets in the 0-255 range: three-part semver ("10.9.2") and version strings
         // with large segments ("10.0.19041.1") must not match. Lookarounds reject longer dotted runs
