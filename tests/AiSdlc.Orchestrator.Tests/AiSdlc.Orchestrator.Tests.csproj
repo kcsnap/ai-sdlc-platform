@@ -8,5 +8,6 @@
     <ProjectReference Include="..\..\src\AiSdlc.Agents\AiSdlc.Agents.csproj" />
     <ProjectReference Include="..\..\src\AiSdlc.ModelProviders\AiSdlc.ModelProviders.csproj" />
     <ProjectReference Include="..\..\src\AiSdlc.Shared\AiSdlc.Shared.csproj" />
+    <ProjectReference Include="..\..\src\Yorrixx.Contracts.Hosting\Yorrixx.Contracts.Hosting.csproj" />
   </ItemGroup>
 </Project>

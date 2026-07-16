@@ -16,7 +16,9 @@ public sealed class GitHubApiClientRepoCreateTests
             {
                 "full_name": "yorrixx-apps/user-app-dd0e9574",
                 "html_url": "https://github.com/yorrixx-apps/user-app-dd0e9574",
-                "default_branch": "main"
+                "default_branch": "main",
+                "id": 1303218647,
+                "owner": { "id": 289196324, "login": "yorrixx-apps" }
             }
             """));
 
@@ -26,6 +28,9 @@ public sealed class GitHubApiClientRepoCreateTests
 
         Assert.Equal("yorrixx-apps/user-app-dd0e9574", repo.FullName);
         Assert.Equal("main", repo.DefaultBranch);
+        // F5: immutable ids feed the second (immutable-subject) federated credential.
+        Assert.Equal(1303218647, repo.RepoId);
+        Assert.Equal(289196324, repo.OwnerId);
         Assert.Single(handler.Requests);
     }
 
@@ -42,7 +47,9 @@ public sealed class GitHubApiClientRepoCreateTests
                 {
                     "full_name": "yorrixx-apps/user-app-dd0e9574",
                     "html_url": "https://github.com/yorrixx-apps/user-app-dd0e9574",
-                    "default_branch": "main"
+                    "default_branch": "main",
+                    "id": 1303218647,
+                    "owner": { "id": 289196324, "login": "yorrixx-apps" }
                 }
                 """));
 
@@ -51,6 +58,8 @@ public sealed class GitHubApiClientRepoCreateTests
             "yorrixx-apps/template", "yorrixx-apps", "user-app-dd0e9574", isPrivate: true, "desc", CancellationToken.None);
 
         Assert.Equal("yorrixx-apps/user-app-dd0e9574", repo.FullName);
+        Assert.Equal(1303218647, repo.RepoId);
+        Assert.Equal(289196324, repo.OwnerId);
         Assert.Equal(2, handler.Requests.Count);
         Assert.Equal(HttpMethod.Get, handler.Requests[1].Method);
         Assert.Equal("/repos/yorrixx-apps/user-app-dd0e9574", handler.Requests[1].RequestUri!.AbsolutePath);

@@ -411,13 +411,13 @@ public sealed class GitHubApiClient : IGitHubService
         if (response.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
         {
             var existing = await GetAsync<GeneratedRepoJson>($"/repos/{targetOwner}/{name}", cancellationToken);
-            return new CreatedRepository(existing.FullName, existing.HtmlUrl, existing.DefaultBranch);
+            return new CreatedRepository(existing.FullName, existing.HtmlUrl, existing.DefaultBranch, existing.Owner?.Id ?? 0, existing.Id);
         }
 
         await EnsureSuccessAsync(response, $"POST /repos/{templateRepository}/generate", cancellationToken);
         var json = await response.Content.ReadFromJsonAsync<GeneratedRepoJson>(JsonOptions, cancellationToken)
                    ?? throw new InvalidOperationException($"Empty response from GitHub API: POST /repos/{templateRepository}/generate");
-        return new CreatedRepository(json.FullName, json.HtmlUrl, json.DefaultBranch);
+        return new CreatedRepository(json.FullName, json.HtmlUrl, json.DefaultBranch, json.Owner?.Id ?? 0, json.Id);
     }
 
     public async Task<GitHubIssueReference> CreateIssueAsync(
@@ -544,5 +544,8 @@ public sealed class GitHubApiClient : IGitHubService
     private sealed record GitRefJson(GitRefObjectJson Object);
     private sealed record GitRefObjectJson(string Sha);
     private sealed record RepositoryJson(string DefaultBranch);
-    private sealed record GeneratedRepoJson(string FullName, string HtmlUrl, string DefaultBranch);
+    // Id + Owner.Id feed the IMMUTABLE OIDC subject (F5): GitHub's token sub claim now embeds them
+    // (repo:{owner}@{ownerId}/{repo}@{repoId}:ref:...), and the fed cred must match exactly.
+    private sealed record GeneratedRepoJson(string FullName, string HtmlUrl, string DefaultBranch, long Id, RepoOwnerJson? Owner);
+    private sealed record RepoOwnerJson(long Id);
 }

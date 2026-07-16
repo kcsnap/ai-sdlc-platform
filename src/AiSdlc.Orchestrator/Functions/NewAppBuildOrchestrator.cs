@@ -103,7 +103,9 @@ public static class NewAppBuildOrchestrator
             StackProfile: stackProfile.ToString(),
             Capabilities: CapabilityResolver.Resolve(charter, databaseDerived: charter.Constraints.NeedsPersistence)
                               .ToProvisionCapabilities(),
-            Repo:         new ProvisionRepo(repoOwner, repoName, repo.DefaultBranch),
+            // OwnerId/RepoId feed the immutable OIDC fed-cred subject (F5) — GitHub's sub claim
+            // now embeds them, and a classic-subject-only credential fails AADSTS700213.
+            Repo:         new ProvisionRepo(repoOwner, repoName, repo.DefaultBranch, repo.OwnerId, repo.RepoId),
             // OwnerRef is the owner's Clerk user id (opaque to the platform) — the provisioner needs it as
             // created_by on the Clerk org. AppName feeds the resource slug + org display name.
             OwnerUserId:  string.IsNullOrWhiteSpace(request.OwnerRef) ? null : request.OwnerRef,

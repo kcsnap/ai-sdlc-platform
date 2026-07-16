@@ -56,6 +56,8 @@ internal sealed class EntraDeployIdentityProvisioner : IUserAppDeployIdentityPro
         string repoOwner,
         string repoName,
         string defaultBranch,
+        long? repoOwnerId = null,
+        long? repoId = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthHeaderAsync(cancellationToken);
@@ -65,7 +67,27 @@ internal sealed class EntraDeployIdentityProvisioner : IUserAppDeployIdentityPro
 
         var application = await GetOrCreateApplicationAsync(displayName, cancellationToken);
         var sp          = await GetOrCreateServicePrincipalAsync(application.AppId, cancellationToken);
-        await EnsureFederatedCredentialAsync(application.Id, repoOwner, repoName, defaultBranch, cancellationToken);
+
+        // F5: pin BOTH subject formats. GitHub's OIDC sub claim progressively switched to the immutable
+        // form (repo:{owner}@{ownerId}/{repo}@{repoId}:ref:...) — fresh-w1-bikeshop failed AADSTS700213
+        // with a classic-only credential the day the yorrixx-apps org flipped. Classic stays pinned too:
+        // the rollout is per-org/repo and reversible.
+        await EnsureFederatedCredentialAsync(
+            application.Id, FederatedSubjects.Classic(repoOwner, repoName, defaultBranch),
+            SanitiseFedCredName($"gh-{repoName}-{defaultBranch}"), cancellationToken);
+        if (repoOwnerId is not null && repoId is not null)
+        {
+            await EnsureFederatedCredentialAsync(
+                application.Id, FederatedSubjects.Immutable(repoOwner, repoOwnerId.Value, repoName, repoId.Value, defaultBranch),
+                SanitiseFedCredName($"gh-{repoName}-{defaultBranch}-i"), cancellationToken);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "No repo ids supplied for appId={AppId} — only the CLASSIC fed-cred subject is pinned; deploys "
+                + "will fail AADSTS700213 if GitHub serves immutable sub claims for {Owner}/{Repo}.",
+                appId, repoOwner, repoName);
+        }
 
         _logger.LogInformation(
             "deploy SP ensured appId={AppId} displayName={Name} appReg={AppRegId} sp={SpId}",
@@ -327,11 +349,8 @@ internal sealed class EntraDeployIdentityProvisioner : IUserAppDeployIdentityPro
     }
 
     private async Task EnsureFederatedCredentialAsync(
-        string appObjectId, string repoOwner, string repoName, string branch, CancellationToken ct)
+        string appObjectId, string subject, string name, CancellationToken ct)
     {
-        var subject = $"repo:{repoOwner}/{repoName}:ref:refs/heads/{branch}";
-        var name    = SanitiseFedCredName($"gh-{repoName}-{branch}");
-
         var listResp = await _http.GetAsync(
             $"{GraphV1}/applications/{appObjectId}/federatedIdentityCredentials", ct);
         // 404 on the list is the application-propagation race (the replica

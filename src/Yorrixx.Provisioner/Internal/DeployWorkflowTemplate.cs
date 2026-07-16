@@ -123,13 +123,16 @@ public static class DeployWorkflowTemplate
         sb.AppendLine("          for i in $(seq 1 8); do");
         sb.AppendLine("            TOKEN=$(curl -sS -H \"Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN\" \\");
         sb.AppendLine("              \"$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange\" | jq -r '.value')");
-        sb.AppendLine($"            if az login --service-principal -u {clientId} -t {tenantId} \\");
-        sb.AppendLine("                 --federated-token \"$TOKEN\" --allow-no-subscriptions >/dev/null 2>&1 \\");
+        // F5 diagnosability: the login error MUST be visible — a fully muted az login hid AADSTS700213
+        // for a whole failure class. Success output stays quiet (captured); failures print the tail.
+        sb.AppendLine($"            if LOGIN_OUT=$(az login --service-principal -u {clientId} -t {tenantId} \\");
+        sb.AppendLine("                 --federated-token \"$TOKEN\" --allow-no-subscriptions 2>&1) \\");
         sb.AppendLine($"               && [ -n \"$(az account list --query \"[?id=='{subscriptionId}'].id\" -o tsv)\" ]; then");
         sb.AppendLine($"              az account set --subscription {subscriptionId}");
         sb.AppendLine("              echo \"azure login ok (attempt $i)\"; break");
         sb.AppendLine("            fi");
-        sb.AppendLine("            if [ \"$i\" = \"8\" ]; then echo \"::error::azure login failed after retries (RBAC propagation)\"; exit 1; fi");
+        sb.AppendLine("            echo \"$LOGIN_OUT\" | tail -5");
+        sb.AppendLine("            if [ \"$i\" = \"8\" ]; then echo \"::error::azure login failed after retries — see login output above\"; exit 1; fi");
         sb.AppendLine("            echo \"login/role not ready (attempt $i) — waiting 20s for RBAC propagation\"; sleep 20");
         sb.AppendLine("          done");
         sb.AppendLine();

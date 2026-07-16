@@ -23,9 +23,13 @@ public sealed record UserAppDeployIdentity(
 /// Provisions and removes per-user-app Azure AD app registrations + federated
 /// credentials. Implementations talk to Microsoft Graph.
 ///
-/// The federated credential's subject is bound to a specific GitHub repo + ref
-/// (`repo:{owner}/{repo}:ref:refs/heads/{branch}`) so only that repo's main
-/// branch workflows can mint tokens for this identity.
+/// The federated credential's subject is bound to a specific GitHub repo + ref.
+/// TWO subject formats are pinned (F5): the classic
+/// `repo:{owner}/{repo}:ref:refs/heads/{branch}` and — when the immutable ids
+/// are supplied — GitHub's immutable form
+/// `repo:{owner}@{ownerId}/{repo}@{repoId}:ref:refs/heads/{branch}` (the
+/// default sub-claim format GitHub progressively rolled out; a classic-only
+/// credential fails token exchange with AADSTS700213 once an org flips).
 ///
 /// Idempotent: calling Ensure twice for the same appId yields the same
 /// identity. Calling Remove for an appId that doesn't exist is a no-op.
@@ -36,6 +40,8 @@ public interface IUserAppDeployIdentityProvisioner
         string repoOwner,
         string repoName,
         string defaultBranch,
+        long? repoOwnerId = null,
+        long? repoId = null,
         CancellationToken cancellationToken = default);
 
     Task RemoveAsync(string appId, CancellationToken cancellationToken = default);

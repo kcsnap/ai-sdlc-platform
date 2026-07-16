@@ -59,7 +59,8 @@ public sealed class ProvisionQueueFunctions
                 caps, cancellationToken);
 
             var identity = await _deployIdentity.EnsureAsync(
-                spec.AppId, spec.Repo.Owner, spec.Repo.Name, spec.Repo.DefaultBranch, cancellationToken);
+                spec.AppId, spec.Repo.Owner, spec.Repo.Name, spec.Repo.DefaultBranch,
+                spec.Repo.OwnerId, spec.Repo.RepoId, cancellationToken);
 
             var result = ProvisionMapper.ToResult(spec, deployed, identity, _opts.SubscriptionId, _opts.ResourceGroup);
             _store.SetResult(spec.BuildId, result);
