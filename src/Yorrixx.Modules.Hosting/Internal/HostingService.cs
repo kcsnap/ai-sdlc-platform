@@ -248,12 +248,14 @@ internal sealed class HostingService : IHostingService
         // already exist (step #1: SourceControl module's EnsureUserAppRepoAsync)
         // for the federated credential subject to be valid on first push.
         var repoName = names.RepoName(_opts.UserAppRepoNamePrefix);
+        // Legacy in-process path: repo ids unavailable here — classic-subject-only (warns in the
+        // provisioner). All new-path provisions carry ids via ProvisionSpec.Repo (F5).
         var deployIdentity = await _deployIdentity.EnsureAsync(
             appId,
             _opts.UserAppRepoOwner,
             repoName,
             _opts.UserAppDefaultBranch,
-            cancellationToken);
+            cancellationToken: cancellationToken);
 
         // Give the deploy SP just enough RBAC to push code to its OWN Web
         // App (+ Function App for full-stack) and nothing else. Website
@@ -339,7 +341,7 @@ internal sealed class HostingService : IHostingService
 
         var repoName = names.RepoName(_opts.UserAppRepoNamePrefix);
         var deployIdentity = await _deployIdentity.EnsureAsync(
-            appId, _opts.UserAppRepoOwner, repoName, _opts.UserAppDefaultBranch, cancellationToken);
+            appId, _opts.UserAppRepoOwner, repoName, _opts.UserAppDefaultBranch, cancellationToken: cancellationToken);
 
         if (Guid.TryParse(deployIdentity.ServicePrincipalObjectId, out var deploySpPrincipalId))
         {

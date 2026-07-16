@@ -31,7 +31,10 @@ public sealed record ProvisionCapabilities(
     bool Email,
     bool AiApi);
 
-public sealed record ProvisionRepo(string Owner, string Name, string DefaultBranch);
+// OwnerId/RepoId (additive, F5): GitHub's OIDC sub claim now embeds immutable ids
+// (repo:{owner}@{ownerId}/{repo}@{repoId}:ref:...); the provisioner pins a second federated
+// credential in that format when they are present. Nullable so older senders stay wire-compatible.
+public sealed record ProvisionRepo(string Owner, string Name, string DefaultBranch, long? OwnerId = null, long? RepoId = null);
 
 /// 202 response to Call 1.
 public sealed record ProvisionAccepted(string ProvisionId, string Status);

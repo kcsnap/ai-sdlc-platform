@@ -129,6 +129,8 @@ internal sealed class StubUserAppDeployIdentityProvisioner : IUserAppDeployIdent
         string repoOwner,
         string repoName,
         string defaultBranch,
+        long? repoOwnerId = null,
+        long? repoId = null,
         CancellationToken cancellationToken = default) =>
         Task.FromResult(new UserAppDeployIdentity(
             AppId: appId,
