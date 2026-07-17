@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Yorrixx.Modules.Hosting\Yorrixx.Modules.Hosting.csproj" />
+  </ItemGroup>
+</Project>

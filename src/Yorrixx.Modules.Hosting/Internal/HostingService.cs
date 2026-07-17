@@ -499,6 +499,7 @@ internal sealed class HostingService : IHostingService
         await DeleteResourceAsync("app insights", names.AppInsights,
             async () => (await rg.GetApplicationInsightsComponents().GetAsync(names.AppInsights, cancellationToken)).Value,
             r => r.DeleteAsync(WaitUntil.Completed, cancellationToken));
+        await DeleteSmartDetectorAlertRuleAsync(rg, names.FailureAnomaliesAlertRule, cancellationToken);
 
         await DeleteCosmosContainerAsync(names, cancellationToken);
 
@@ -553,6 +554,20 @@ internal sealed class HostingService : IHostingService
             if (Match(ai.Data.Name))
                 await SafeAsync($"delete app insights {ai.Data.Name}", appId,
                     () => ai.DeleteAsync(WaitUntil.Completed, cancellationToken));
+
+        // The component's companion "Failure Anomalies" alert rule embeds the
+        // component name (and therefore the id8), so enumerate rules rather
+        // than re-deriving the name — this also sweeps rules whose component
+        // was already deleted by an earlier partial run.
+        await SafeAsync("delete failure-anomalies alert rules", appId, async () =>
+        {
+            await foreach (var rule in rg.GetGenericResourcesAsync(
+                filter: $"resourceType eq '{SmartDetectorAlertRuleType}'",
+                cancellationToken: cancellationToken))
+                if (Match(rule.Data.Name))
+                    await SafeAsync($"delete alert rule {rule.Data.Name}", appId,
+                        () => rule.DeleteAsync(WaitUntil.Completed, cancellationToken));
+        });
 
         // Cosmos container lives in the shared serverless account (separate RG) — enumerate + id8 match.
         await SafeAsync("delete cosmos container", appId, async () =>
@@ -658,6 +673,19 @@ internal sealed class HostingService : IHostingService
             async () => (await rg.GetWebSites().GetAsync(name, ct)).Value,
             // deleteEmptyServerFarm:false — plans are deleted explicitly above.
             r => r.DeleteAsync(WaitUntil.Completed, deleteMetrics: true, deleteEmptyServerFarm: false, cancellationToken: ct));
+
+    // No typed SDK package is referenced for microsoft.alertsmanagement, so the
+    // auto-created "Failure Anomalies" smart-detector alert rule is deleted
+    // through the untyped ARM surface (api-version resolved from provider metadata).
+    private const string SmartDetectorAlertRuleType =
+        "microsoft.alertsmanagement/smartDetectorAlertRules";
+
+    private async Task DeleteSmartDetectorAlertRuleAsync(
+        ResourceGroupResource rg, string ruleName, CancellationToken ct) =>
+        await DeleteResourceAsync("smart-detector alert rule", ruleName,
+            () => Task.FromResult(_arm.GetGenericResource(new ResourceIdentifier(
+                $"{rg.Id}/providers/{SmartDetectorAlertRuleType}/{ruleName}"))),
+            r => r.DeleteAsync(WaitUntil.Completed, ct));
 
     private async Task DeleteCosmosContainerAsync(ResourceNames names, CancellationToken ct) =>
         await DeleteResourceAsync("cosmos container", names.CosmosContainer,
