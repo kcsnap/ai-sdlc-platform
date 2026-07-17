@@ -377,4 +377,38 @@ public sealed class CiRepairLoopTests
         Assert.Equal(2, widened.Count);  // escalation: full allowed set, protected still out
         Assert.DoesNotContain(widened, c => c.Path.StartsWith(".github/"));
     }
+
+    // D10 (fresh-w5-booking, user-app-c6348eab): the SAME TS2322 recurred through six surgical rounds
+    // because the signature regex was CS-only — TypeScript errors produced ZERO signatures and the D1
+    // escalation structurally could not fire on frontend errors. The fixture is the app's ACTUAL error.
+    private const string BookingTsFindings = """
+        src/components/CreateBookingModal.tsx:101 [failure] error TS2322: Type 'Dispatch<SetStateAction<"" | ServiceType>>' is not assignable to type '(value: string) => void'.
+        """;
+
+    [Fact]
+    public void RepairErrorSignatures_fingerprints_typescript_errors()
+    {
+        var sigs = AgentActivityFunctions.RepairErrorSignatures(BookingTsFindings);
+
+        var sig = Assert.Single(sigs);
+        Assert.StartsWith("TS2322:Dispatch<SetStateAction<", sig);
+    }
+
+    [Fact]
+    public void Escalation_fires_on_recurring_typescript_signatures()
+    {
+        var round1 = AgentActivityFunctions.RepairErrorSignatures(BookingTsFindings);
+        var round2 = AgentActivityFunctions.RepairErrorSignatures(BookingTsFindings);
+
+        Assert.False(AgentActivityFunctions.RepairEscalationNeeded([], round1)); // first attempt: never
+        Assert.True(AgentActivityFunctions.RepairEscalationNeeded(round1, round2)); // D10: now fires for TS
+    }
+
+    // The consumer file is named by path; the quoted 'ServiceType' implicates its declaring file too.
+    [Theory]
+    [InlineData("src/components/CreateBookingModal.tsx", true)]  // named directly in the finding
+    [InlineData("src/types/ServiceType.ts",              true)]  // quoted type stem
+    [InlineData("src/components/Unrelated.tsx",          false)]
+    public void TypeScript_findings_implicate_consumer_and_declaring_files(string path, bool expected)
+        => Assert.Equal(expected, AgentActivityFunctions.IsImplicatedByFindings(path, BookingTsFindings));
 }
