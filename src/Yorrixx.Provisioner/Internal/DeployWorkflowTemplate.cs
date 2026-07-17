@@ -351,6 +351,56 @@ public static class DeployWorkflowTemplate
         sb.AppendLine("        run: |");
         sb.AppendLine($"          az storage blob upload-batch --account-name {storageAccountName} " +
             "--auth-mode login --source _site --destination '$web' --overwrite");
+        sb.AppendLine();
+        AppendRenderSmoke(sb, storageAccountName, resourceGroup);
         return sb.ToString();
+    }
+
+    /// D8 render smoke — the render-blindness gate family's live check. Loads the DEPLOYED page in
+    /// headless Chromium and fails the deploy when: (a) body innerText carries markup fragments
+    /// (escaped tags rendering as text — fresh-w2-florist's icon soup), (b) any console error fired,
+    /// (c) any <img> or CSS background asset failed to LOAD (GET, never HEAD — picsum 405s HEAD).
+    /// Runs post-upload so the platform's deploy-status gate inherits the verdict for free.
+    private static void AppendRenderSmoke(StringBuilder sb, string storageAccountName, string resourceGroup)
+    {
+        sb.AppendLine("      - name: Render smoke (deployed URL)");
+        sb.AppendLine("        run: |");
+        sb.AppendLine($"          SITE_URL=$(az storage account show -n {storageAccountName} -g {resourceGroup} --query \"primaryEndpoints.web\" -o tsv)");
+        sb.AppendLine("          echo \"smoke target: $SITE_URL\"");
+        sb.AppendLine("          npm init -y >/dev/null 2>&1 && npm i playwright@1 >/dev/null");
+        sb.AppendLine("          npx playwright install --with-deps chromium >/dev/null");
+        sb.AppendLine("          cat > render-smoke.mjs <<'SMOKE'");
+        sb.AppendLine("          import { chromium } from 'playwright';");
+        sb.AppendLine("          const url = process.argv[2];");
+        sb.AppendLine("          const browser = await chromium.launch();");
+        sb.AppendLine("          const page = await browser.newPage();");
+        sb.AppendLine("          const consoleErrors = [];");
+        sb.AppendLine("          page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });");
+        sb.AppendLine("          let loaded = false;");
+        sb.AppendLine("          for (let i = 0; i < 4 && !loaded; i++) {   // absorb blob-propagation lag");
+        sb.AppendLine("            try { await page.goto(url, { waitUntil: 'load', timeout: 30000 }); loaded = true; }");
+        sb.AppendLine("            catch { await new Promise(r => setTimeout(r, 10000)); }");
+        sb.AppendLine("          }");
+        sb.AppendLine("          if (!loaded) { console.error(`::error::render smoke: page never loaded (${url})`); process.exit(1); }");
+        sb.AppendLine("          const problems = [];");
+        sb.AppendLine("          const text = await page.evaluate(() => document.body.innerText);");
+        sb.AppendLine("          const soup = text.match(/<\\/?[a-z][a-z0-9-]*[\\s>/]|stroke-width=|viewBox=/i);");
+        sb.AppendLine("          if (soup) problems.push(`markup fragment visible as text: \"${soup[0]}\"`);");
+        sb.AppendLine("          const badImgs = await page.evaluate(() => [...document.images]");
+        sb.AppendLine("            .filter(i => !(i.complete && i.naturalWidth > 0)).map(i => i.src));");
+        sb.AppendLine("          for (const s of badImgs) problems.push(`image failed to load: ${s}`);");
+        sb.AppendLine("          const bgUrls = await page.evaluate(() => [...new Set([...document.querySelectorAll('*')]");
+        sb.AppendLine("            .map(e => getComputedStyle(e).backgroundImage.match(/url\\(\"?([^\")]+)\"?\\)/)?.[1])");
+        sb.AppendLine("            .filter(u => u && !u.startsWith('data:')))]);");
+        sb.AppendLine("          for (const u of bgUrls) {");
+        sb.AppendLine("            const r = await page.request.get(u).catch(() => null);   // GET, never HEAD");
+        sb.AppendLine("            if (!r || !r.ok()) problems.push(`background asset failed: ${u}`);");
+        sb.AppendLine("          }");
+        sb.AppendLine("          for (const e of consoleErrors) problems.push(`console error: ${e}`);");
+        sb.AppendLine("          await browser.close();");
+        sb.AppendLine("          if (problems.length) { for (const p of problems) console.error(`::error::render smoke: ${p}`); process.exit(1); }");
+        sb.AppendLine("          console.log('render smoke ok');");
+        sb.AppendLine("          SMOKE");
+        sb.AppendLine("          node render-smoke.mjs \"$SITE_URL\"");
     }
 }

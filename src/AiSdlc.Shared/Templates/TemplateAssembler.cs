@@ -99,7 +99,31 @@ public static partial class TemplateAssembler
                 : match.Value);
 
     // Decode-then-encode: idempotent for values the model already entity-encoded, and turns raw
-    // & < > " into valid entities everywhere else.
+    // & < > " into valid entities everywhere else. Markup-shaped values are normalized FIRST:
+    // fill values are PLAIN TEXT by contract (templates own all markup), but the model sometimes
+    // supplies raw markup anyway — fresh-w2-florist returned an entire <svg> as the ICON glyph
+    // value, which the encoder then (correctly) escaped into visible "&lt;svg …" text soup (D8).
+    // Stripping tags first keeps whatever text the value carried; an all-markup value (the SVG
+    // icon case) collapses to the documented fallback glyph.
     private static string EncodeForHtml(string value) =>
-        System.Net.WebUtility.HtmlEncode(System.Net.WebUtility.HtmlDecode(value));
+        System.Net.WebUtility.HtmlEncode(System.Net.WebUtility.HtmlDecode(StripMarkup(value)));
+
+    [GeneratedRegex(@"<[!/]?[A-Za-z][^>]*>")]
+    private static partial Regex MarkupTag();
+
+    // Structured markup carries a closing or self-closing tag; bare bracketed words in prose
+    // ("meet us at <TheMarket>") do not — those stay as text and get entity-encoded normally.
+    [GeneratedRegex(@"</[A-Za-z]|/>")]
+    private static partial Regex StructuredMarkupEvidence();
+
+    internal const string FallbackGlyph = "◆"; // templates/static/README.md's documented ICON example
+
+    internal static string StripMarkup(string value)
+    {
+        if (!value.Contains('<') || !StructuredMarkupEvidence().IsMatch(value)) return value;
+        var stripped = MarkupTag().Replace(value, " ").Trim();
+        // Collapse the whitespace holes left by removed tags.
+        stripped = System.Text.RegularExpressions.Regex.Replace(stripped, @"\s{2,}", " ");
+        return stripped.Length > 0 ? stripped : FallbackGlyph;
+    }
 }

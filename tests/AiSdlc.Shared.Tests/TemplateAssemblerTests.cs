@@ -171,4 +171,34 @@ public sealed class TemplateAssemblerTests
         Assert.Contains("TITLE", m.Repeatables["feature"].Tokens);
         Assert.Contains("__CONTACT_EMAIL__", m.DeployTokens);
     }
+
+    // D8 root cause: the model returned a whole <svg> as the ICON glyph value; #237's encoder then
+    // (correctly) escaped it into visible "&lt;svg …" text soup. Values are PLAIN TEXT by contract —
+    // markup-shaped values are stripped at fill time; an all-markup value collapses to the fallback glyph.
+    [Fact]
+    public void Markup_shaped_fill_values_are_stripped_not_escaped_into_soup()
+    {
+        var input = new TemplateAssemblyInput
+        {
+            Brand = new Dictionary<string, string> { ["PRIMARY"] = "#123456" },
+            Content = new Dictionary<string, string> { ["HERO"] = "Real <em>copy</em> here" },
+            Platform = new Dictionary<string, string> { ["YEAR"] = "2026" },
+            Repeat = new Dictionary<string, IReadOnlyList<IReadOnlyDictionary<string, string>>>
+            {
+                ["feature"] = new IReadOnlyDictionary<string, string>[]
+                {
+                    new Dictionary<string, string> { ["TITLE"] = "<svg width=\"48\" height=\"48\" viewBox=\"0 0 48 48\"><path d=\"M1 2\"/></svg>" },
+                    new Dictionary<string, string> { ["TITLE"] = "Plain title" }
+                }
+            }
+        };
+
+        var files = TemplateAssembler.Assemble(SampleTemplate(), input);
+        var page = Assert.Single(files, f => f.Path == "index.html");
+
+        Assert.DoesNotContain("&lt;svg", page.Content);                      // the D8 soup can't happen
+        Assert.Contains("<li>◆</li>", page.Content);                    // all-markup value → fallback glyph
+        Assert.Contains("<h1>Real copy here</h1>", page.Content);            // text survives tag-stripping
+        Assert.Contains("<li>Plain title</li>", page.Content);
+    }
 }

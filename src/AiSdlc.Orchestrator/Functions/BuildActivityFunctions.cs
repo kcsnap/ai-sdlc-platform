@@ -223,6 +223,25 @@ public sealed class BuildActivityFunctions
         return UnsubstitutedDeployToken.IsMatch(pageHtml);
     }
 
+    // D8: entity-escaped markup in the page SOURCE renders as literal "<svg …" text — fresh-w2-florist
+    // shipped three feature icons as visible tag soup and every substring gate stayed green. Escaped
+    // tag openers (&lt; followed by a letter or /) outside <pre>/<code> are deterministic evidence of
+    // markup that was meant to render. Double-escaped forms (&amp;lt;) collapse to the same probe
+    // after one decode, so a single check covers both.
+    private static readonly System.Text.RegularExpressions.Regex EscapedTagOpener =
+        new(@"&(?:amp;)?lt;/?[A-Za-z]", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex CodeLikeBlock =
+        new(@"<(pre|code|script|style|textarea)\b.*?</\1\s*>", System.Text.RegularExpressions.RegexOptions.Compiled
+            | System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+
+    internal static bool HasEscapedMarkupInVisibleText(string? pageHtml)
+    {
+        if (string.IsNullOrWhiteSpace(pageHtml)) return false;
+        var withoutCodeBlocks = CodeLikeBlock.Replace(pageHtml, string.Empty);
+        return EscapedTagOpener.IsMatch(withoutCodeBlocks);
+    }
+
     // Advisory only (F4): builders legitimately stylize or omit the charter app name in page copy.
     internal static bool AppNameEchoed(string? pageHtml, string? appName) =>
         !string.IsNullOrWhiteSpace(pageHtml)
@@ -259,6 +278,13 @@ public sealed class BuildActivityFunctions
             checks.Add(new("app-name-echo", "Page mentions the charter app name",
                 scaffold ? "skipped" : echoed ? "pass" : "warn",
                 echoed ? $"page mentions '{appName}'" : $"'{appName}' not found verbatim — advisory only"));
+
+            // D8: escaped markup rendering as visible text (fresh-w2-florist's tag-soup icons).
+            var escapedMarkup = HasEscapedMarkupInVisibleText(pageHtml);
+            checks.Add(new("no-escaped-markup", "No entity-escaped markup rendering as visible text",
+                escapedMarkup ? "fail" : "pass",
+                escapedMarkup ? "page contains escaped tag sequences (&lt;svg / &lt;div / &lt;/) outside code blocks"
+                              : "no escaped tag sequences in visible text"));
         }
         var outcome = checks.Any(c => c.Status == "fail") ? "failed" : "passed";
         return new VerificationResult(outcome, checks);
