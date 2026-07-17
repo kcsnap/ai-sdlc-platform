@@ -411,4 +411,87 @@ public sealed class CiRepairLoopTests
     [InlineData("src/components/Unrelated.tsx",          false)]
     public void TypeScript_findings_implicate_consumer_and_declaring_files(string path, bool expected)
         => Assert.Equal(expected, AgentActivityFunctions.IsImplicatedByFindings(path, BookingTsFindings));
+
+    // ── D10b (booking run 3): the pipeline consumes check-run ANNOTATIONS, whose messages carry NO
+    // compiler-code prefix, and whose path for unmatched tsc output is ".github". The real source path
+    // exists only in the build log, build-root-relative — and the branch held TWO copies of the file.
+    private const string BookingAnnotationLine =
+        """src/frontend/src/components/CreateBookingModal.tsx:101 [failure] Type 'Dispatch<SetStateAction<"" | ServiceType>>' is not assignable to type '(value: string) => void'.""";
+
+    private static readonly string[] BookingTree =
+    [
+        "src/frontend/src/components/CreateBookingModal.tsx",             // the copy the build compiles
+        "src/frontend/src/features/BookingsList/CreateBookingModal.tsx",  // the dead copy
+        "src/frontend/src/types/ServiceType.ts",
+        "src/api/Models/Booking.cs",
+    ];
+
+    [Fact]
+    public void Signatures_fingerprint_codeless_annotation_messages()
+    {
+        var sigs = AgentActivityFunctions.RepairErrorSignatures(BookingAnnotationLine);
+
+        var sig = Assert.Single(sigs);
+        Assert.StartsWith("TXT:Dispatch<SetStateAction<", sig);
+        Assert.Contains("(value: string) => void", sig); // both quoted symbols in the fingerprint
+
+        // Recurrence across attempts now fires escalation for annotation-shaped findings.
+        Assert.True(AgentActivityFunctions.RepairEscalationNeeded(
+            sigs, AgentActivityFunctions.RepairErrorSignatures(BookingAnnotationLine)));
+    }
+
+    [Theory]
+    [InlineData("src/components/CreateBookingModal.tsx", "src/frontend/src/components/CreateBookingModal.tsx")]
+    [InlineData("src/api/Models/Booking.cs",             "src/api/Models/Booking.cs")]
+    [InlineData(".github",                                null)]
+    [InlineData("CreateBookingModal.tsx",                 null)]
+    public void Annotation_paths_canonicalize_against_the_branch_tree(string annotationPath, string? expected)
+        => Assert.Equal(expected, AgentActivityFunctions.CanonicalizeFindingPath(annotationPath, BookingTree));
+
+    [Fact]
+    public void Garbage_annotation_paths_are_recovered_from_the_build_log()
+    {
+        var findings = new List<AiSdlc.GitHub.FailedCheckFinding>
+        {
+            new(
+                "build-frontend",
+                [new AiSdlc.GitHub.CheckAnnotation(".github", 101, "failure",
+                    """Type 'Dispatch<SetStateAction<"" | ServiceType>>' is not assignable to type '(value: string) => void'.""")],
+                "src/components/CreateBookingModal.tsx(101,37): error TS2322: Type 'Dispatch<...>' is not assignable.")
+        };
+
+        var rendered = AgentActivityFunctions.RenderCiFindings(findings, BookingTree);
+
+        Assert.Contains("src/frontend/src/components/CreateBookingModal.tsx", rendered);
+        Assert.Contains("resolved from the build log", rendered);
+    }
+
+    [Fact]
+    public void Divergent_duplicate_components_keep_only_the_shallowest_copy()
+    {
+        var changes = new List<AiSdlc.Shared.FileChange>
+        {
+            new("src/frontend/src/components/CreateBookingModal.tsx", "export const A = 1;"),
+            new("src/frontend/src/features/BookingsList/CreateBookingModal.tsx", "export const B = 2;"),
+            new("src/frontend/src/components/index.ts", "export {};"),
+            new("src/frontend/src/features/index.ts", "export { x } from './x';"),
+        };
+
+        var kept = AgentActivityFunctions.DropDivergentDuplicateComponents(changes);
+
+        Assert.Contains(kept, c => c.Path == "src/frontend/src/components/CreateBookingModal.tsx");
+        Assert.DoesNotContain(kept, c => c.Path.Contains("BookingsList/CreateBookingModal"));
+        Assert.Equal(2, kept.Count(c => c.Path.EndsWith("index.ts")));
+    }
+
+    [Fact]
+    public void Identical_duplicate_components_are_left_alone()
+    {
+        var changes = new List<AiSdlc.Shared.FileChange>
+        {
+            new("src/a/Widget.tsx", "same"),
+            new("src/b/Widget.tsx", "same"),
+        };
+        Assert.Equal(2, AgentActivityFunctions.DropDivergentDuplicateComponents(changes).Count);
+    }
 }

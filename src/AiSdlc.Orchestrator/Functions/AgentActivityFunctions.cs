@@ -575,6 +575,28 @@ public sealed class AgentActivityFunctions
         (AcceptanceSpecLintViolations(change.Content).Count > 0
          || (isRepair && IsAcceptanceSpecRegression(existingAcceptanceSpec, change.Content)));
 
+    // D10b: the generator emitted CreateBookingModal.tsx at TWO paths with divergent content; the build
+    // compiled one while 18 repair rounds patched the other. PascalCase component files (.tsx/.jsx) with
+    // the same name but DIFFERENT content keep only the copy closest to the root — index.ts/utils.ts
+    // style same-name files are normal and exempt, as are identical-content duplicates.
+    private static readonly System.Text.RegularExpressions.Regex ComponentFileName =
+        new(@"^[A-Z][A-Za-z0-9]*\.(tsx|jsx)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static List<FileChange> DropDivergentDuplicateComponents(IReadOnlyList<FileChange> changes)
+    {
+        static string FileNameOf(string path) => path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
+
+        var dropped = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var group in changes.Where(c => ComponentFileName.IsMatch(FileNameOf(c.Path))).GroupBy(c => FileNameOf(c.Path)))
+        {
+            if (group.Count() < 2 || group.Select(c => c.Content).Distinct(StringComparer.Ordinal).Count() < 2)
+                continue;
+            foreach (var extra in group.OrderBy(c => c.Path.Count(ch => ch == '/')).ThenBy(c => c.Path.Length).Skip(1))
+                dropped.Add(extra.Path);
+        }
+        return changes.Where(c => !dropped.Contains(c.Path)).ToList();
+    }
+
     // Redaction echo: RegexRedactionService masks the OUTBOUND prompt, so when existing file content
     // rides through a fix/repair prompt the model can echo the mask back into the "fixed" file
     // (w1proof0: SVG Bézier coordinates matched the sort-code pattern and "[REDACTED:SORT_CODE]"
@@ -647,14 +669,31 @@ public sealed class AgentActivityFunctions
     private static readonly System.Text.RegularExpressions.Regex CompileErrorSignature =
         new(@"error\s+([A-Z]{2,3}\d{3,5})(?::\s*[^'\r\n]*?'([^'\r\n]+)')?", System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    // D10b: check-run ANNOTATION messages carry no compiler-code prefix at all ("Type 'X' is not
+    // assignable to type 'Y'." — verified against the live booking annotation) — the pipeline consumes
+    // annotations, not logs, so the code-prefix pattern alone extracts NOTHING for frontend errors and
+    // escalation stays blind. Fallback fingerprint: any [failure]-marked line with quoted symbols.
+    private static readonly System.Text.RegularExpressions.Regex QuotedSymbol =
+        new(@"'([^'\r\n]+)'", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     internal static IReadOnlyList<string> RepairErrorSignatures(string? findingsText)
     {
         if (string.IsNullOrWhiteSpace(findingsText)) return [];
-        return CompileErrorSignature.Matches(findingsText)
-            .Select(m => m.Groups[2].Success ? $"{m.Groups[1].Value}:{m.Groups[2].Value}" : m.Groups[1].Value)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(s => s, StringComparer.Ordinal)
-            .ToList();
+
+        var signatures = new HashSet<string>(StringComparer.Ordinal);
+        foreach (System.Text.RegularExpressions.Match m in CompileErrorSignature.Matches(findingsText))
+            signatures.Add(m.Groups[2].Success ? $"{m.Groups[1].Value}:{m.Groups[2].Value}" : m.Groups[1].Value);
+
+        foreach (var line in findingsText.Split('\n'))
+        {
+            if (!line.Contains("[failure]", StringComparison.OrdinalIgnoreCase)) continue;
+            if (CompileErrorSignature.IsMatch(line)) continue; // already fingerprinted by code
+            var quoted = QuotedSymbol.Matches(line).Select(q => q.Groups[1].Value).Take(2).ToList();
+            if (quoted.Count > 0)
+                signatures.Add($"TXT:{string.Join("→", quoted)}");
+        }
+
+        return signatures.OrderBy(s => s, StringComparer.Ordinal).ToList();
     }
 
     internal static bool RepairEscalationNeeded(
@@ -684,7 +723,11 @@ public sealed class AgentActivityFunctions
     public async Task<string> FetchCiFailureFindingsAsync([ActivityTrigger] FetchCiFindingsInput input, CancellationToken cancellationToken)
     {
         var findings = await _gitHub.GetFailedCheckFindingsAsync(input.Repository, input.HeadSha, cancellationToken);
-        var rendered = RenderCiFindings(findings);
+        // D10b: the branch tree lets us canonicalize annotation paths to real repo paths (the git/trees
+        // API accepts the head sha as the ref).
+        var treePaths = (await _gitHub.GetBranchFileTreeAsync(input.Repository, input.HeadSha, cancellationToken))
+            .Select(t => t.Path).ToList();
+        var rendered = RenderCiFindings(findings, treePaths);
         if (string.IsNullOrWhiteSpace(rendered))
             return string.Empty; // nothing actionable — the orchestrator must not repair blind
 
@@ -693,7 +736,27 @@ public sealed class AgentActivityFunctions
         return await _contextStore.OffloadAsync(input.RunId, $"ci-findings-attempt-{input.Attempt}", rendered, cancellationToken);
     }
 
-    internal static string RenderCiFindings(IReadOnlyList<FailedCheckFinding> findings)
+    // D10b: source refs inside a build LOG — tsc "src/x.tsx(101,37)" and path:line forms. Used to
+    // recover the REAL file when the annotation path is garbage (see CanonicalizeFindingPath).
+    private static readonly System.Text.RegularExpressions.Regex LogSourceRef =
+        new(@"(?<path>[\w./-]+\.[A-Za-z]{1,4})(?:\((?<line>\d+),\d+\)|:(?<line2>\d+))",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // D10b: resolve an annotation path against the branch tree. GitHub maps un-matched compiler output
+    // (frontend tsc) to path=".github", and matched paths are BUILD-ROOT-relative (src/components/… for
+    // a build rooted at src/frontend) — 18 repair rounds patched a dead same-named copy because the
+    // findings never carried the real repo path. Exact tree hit wins; else a UNIQUE suffix match; else null.
+    internal static string? CanonicalizeFindingPath(string? path, IReadOnlyCollection<string>? treePaths)
+    {
+        if (string.IsNullOrWhiteSpace(path) || treePaths is null || treePaths.Count == 0) return null;
+        if (treePaths.Contains(path)) return path;
+        var suffix = "/" + path.TrimStart('/');
+        var matches = treePaths.Where(t => t.EndsWith(suffix, StringComparison.Ordinal)).Take(2).ToList();
+        return matches.Count == 1 ? matches[0] : null;
+    }
+
+    internal static string RenderCiFindings(
+        IReadOnlyList<FailedCheckFinding> findings, IReadOnlyCollection<string>? treePaths = null)
     {
         var sections = new List<string>();
         foreach (var finding in findings)
@@ -709,7 +772,23 @@ public sealed class AgentActivityFunctions
             if (substantive.Count > 0)
             {
                 body = string.Join('\n', substantive
-                    .Select(a => $"{a.Path}:{a.StartLine} [{a.Level}] {a.Message}"));
+                    .Select(a => $"{CanonicalizeFindingPath(a.Path, treePaths) ?? a.Path}:{a.StartLine} [{a.Level}] {a.Message}"));
+
+                // D10b: when any annotation path failed to resolve (".github", or ambiguous), harvest the
+                // REAL source refs from the build log and canonicalize them — the repair prompt and the
+                // implication filter must see the exact repo paths, or a same-named dead copy wins.
+                var unresolved = substantive.Any(a => CanonicalizeFindingPath(a.Path, treePaths) is null);
+                if (unresolved && !string.IsNullOrWhiteSpace(finding.LogTail) && treePaths is { Count: > 0 })
+                {
+                    var harvested = LogSourceRef.Matches(finding.LogTail)
+                        .Select(m => CanonicalizeFindingPath(m.Groups["path"].Value, treePaths))
+                        .Where(p => p is not null)
+                        .Distinct()
+                        .Take(10)
+                        .ToList();
+                    if (harvested.Count > 0)
+                        body += "\nSource files implicated (resolved from the build log): " + string.Join(", ", harvested);
+                }
             }
             else if (!string.IsNullOrWhiteSpace(finding.LogTail))
             {
