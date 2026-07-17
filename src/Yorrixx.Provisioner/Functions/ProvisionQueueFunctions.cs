@@ -67,6 +67,19 @@ public sealed class ProvisionQueueFunctions
             await _callback.PostResultAsync(result, CancellationToken.None);
             _logger.LogInformation("provisioned appId={AppId} buildId={BuildId}", spec.AppId, spec.BuildId);
         }
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            // D9: a HOST-initiated cancellation (Flex recycle/scale event) is not a provisioning
+            // failure — wave 5 lost all five apps at the same millisecond to one recycle because
+            // this path reported "A task was canceled." as a permanent build failure. Rethrow so
+            // the queue redelivers to a healthy instance; the idempotent helpers converge on retry.
+            // After max dequeues the message poisons and the build fails HONESTLY at the platform's
+            // provision timeout instead of with a phantom cancellation.
+            _logger.LogWarning(ex,
+                "provision interrupted by host cancellation appId={AppId} buildId={BuildId} — requeueing for redelivery",
+                spec.AppId, spec.BuildId);
+            throw;
+        }
         catch (Exception ex)
         {
             // Provisioner owns rollback: idempotent helpers + name-derived teardown mean a retry converges.
