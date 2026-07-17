@@ -42,6 +42,18 @@ public static partial class TemplateAssembler
             foreach (var (key, value) in source)
                 scalars[key] = value;
 
+        // 2b. D11: structural-token validation — W5B shipped nav HREFs pointing at sections that don't
+        // exist because nothing checked the fill against the template's fixed structure. Violations FAIL
+        // assembly (existing retry/fallback engages) rather than substituting a broken slot.
+        foreach (var (token, value) in scalars)
+            if (TokenRuleViolation(template.Manifest, token, value) is { } problem)
+                problems.Add(problem);
+        foreach (var (block, items) in input.Repeat)
+            foreach (var item in items)
+                foreach (var (token, value) in item)
+                    if (TokenRuleViolation(template.Manifest, token, value) is { } problem)
+                        problems.Add($"repeat '{block}': {problem}");
+
         // 3. Assemble each output file: expand repeats → substitute scalars → check for leftovers.
         var outputs = new List<FileChange>();
         foreach (var (outputPath, sourceName) in template.Manifest.Files)
@@ -110,6 +122,21 @@ public static partial class TemplateAssembler
 
     [GeneratedRegex(@"<[!/]?[A-Za-z][^>]*>")]
     private static partial Regex MarkupTag();
+
+    // D11: null when the value satisfies its token's rule (or the token has none); otherwise the problem
+    // string. OneOf and Pattern are alternatives — either satisfying passes.
+    private static string? TokenRuleViolation(TemplateManifest manifest, string token, string value)
+    {
+        if (!manifest.TokenRules.TryGetValue(token, out var rule)) return null;
+        var oneOfOk   = rule.OneOf is { Count: > 0 } && rule.OneOf.Contains(value, StringComparer.Ordinal);
+        var patternOk = !string.IsNullOrEmpty(rule.Pattern)
+                        && System.Text.RegularExpressions.Regex.IsMatch(value, rule.Pattern);
+        if (oneOfOk || patternOk) return null;
+        var expected = rule.OneOf is { Count: > 0 }
+            ? $"one of: {string.Join(", ", rule.OneOf)}" + (rule.Pattern is null ? "" : $" (or matching {rule.Pattern})")
+            : $"matching {rule.Pattern}";
+        return $"token {{{{{token}}}}}: value '{value}' is invalid — expected {expected}.";
+    }
 
     // Structured markup carries a closing or self-closing tag; bare bracketed words in prose
     // ("meet us at <TheMarket>") do not — those stay as text and get entity-encoded normally.

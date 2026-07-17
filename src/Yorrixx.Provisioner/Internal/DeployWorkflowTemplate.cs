@@ -396,6 +396,9 @@ public static class DeployWorkflowTemplate
         sb.AppendLine("            const r = await page.request.get(u).catch(() => null);   // GET, never HEAD");
         sb.AppendLine("            if (!r || !r.ok()) problems.push(`background asset failed: ${u}`);");
         sb.AppendLine("          }");
+        sb.AppendLine("          const deadAnchors = await page.evaluate(() => [...document.querySelectorAll('a[href^=\"#\"]')]");
+        sb.AppendLine("            .map(a => a.getAttribute('href')).filter(h => h.length > 1 && !document.getElementById(h.slice(1))));");
+        sb.AppendLine("          for (const h of deadAnchors) problems.push(`nav anchor has no target section: ${h}`);   // D11");
         sb.AppendLine("          for (const e of consoleErrors) problems.push(`console error: ${e}`);");
         sb.AppendLine("          await browser.close();");
         sb.AppendLine("          if (problems.length) { for (const p of problems) console.error(`::error::render smoke: ${p}`); process.exit(1); }");

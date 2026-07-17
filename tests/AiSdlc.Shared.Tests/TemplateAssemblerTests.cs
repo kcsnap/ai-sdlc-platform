@@ -201,4 +201,67 @@ public sealed class TemplateAssemblerTests
         Assert.Contains("<h1>Real copy here</h1>", page.Content);            // text survives tag-stripping
         Assert.Contains("<li>Plain title</li>", page.Content);
     }
+
+    // ── D11: structural-token validation — W5B shipped nav anchors (#exam-prep, #courses, #services,
+    // #taster, #all-ages, #adult-beginners) pointing at sections that don't exist, because HREF was
+    // free-form and nothing validated it against the template's fixed structure.
+    private static StaticTemplate NavTemplate() => new(
+        TemplateManifest.Parse("""
+        {
+          "id": "nav-sample",
+          "files": { "index.html": "page" },
+          "contentTokens": ["HERO"],
+          "repeatables": { "nav": { "min": 1, "max": 5, "tokens": ["LABEL", "HREF"] } },
+          "tokenRules": {
+            "HREF": { "oneOf": ["#main", "#features", "#contact"] },
+            "THEME_COLOR": { "pattern": "^#[0-9a-fA-F]{6}$" }
+          }
+        }
+        """),
+        new Dictionary<string, string>
+        {
+            ["page"] = "<h1>{{HERO}}</h1><nav><!-- REPEAT:nav --><a href=\"{{HREF}}\">{{LABEL}}</a><!-- /REPEAT:nav --></nav>"
+        });
+
+    private static TemplateAssemblyInput NavInput(string href) => new()
+    {
+        Brand = new Dictionary<string, string>(),
+        Content = new Dictionary<string, string> { ["HERO"] = "Hi" },
+        Platform = new Dictionary<string, string>(),
+        Repeat = new Dictionary<string, IReadOnlyList<IReadOnlyDictionary<string, string>>>
+        {
+            ["nav"] = new IReadOnlyDictionary<string, string>[]
+            {
+                new Dictionary<string, string> { ["LABEL"] = "Lessons", ["HREF"] = href }
+            }
+        }
+    };
+
+    [Fact]
+    public void Invented_nav_anchor_fails_assembly()
+    {
+        var ex = Assert.Throws<TemplateAssemblyException>(
+            () => TemplateAssembler.Assemble(NavTemplate(), NavInput("#exam-prep"))); // piano's invented target
+
+        Assert.Contains(ex.Problems, p => p.Contains("{{HREF}}") && p.Contains("#exam-prep") && p.Contains("#features"));
+    }
+
+    [Fact]
+    public void Legal_nav_anchor_assembles()
+    {
+        var files = TemplateAssembler.Assemble(NavTemplate(), NavInput("#features"));
+        Assert.Contains("href=\"#features\"", Assert.Single(files).Content);
+    }
+
+    [Fact]
+    public void Pattern_rules_validate_scalar_tokens()
+    {
+        var input = NavInput("#main") with
+        {
+            Brand = new Dictionary<string, string> { ["THEME_COLOR"] = "tomato" } // not hex6
+        };
+
+        var ex = Assert.Throws<TemplateAssemblyException>(() => TemplateAssembler.Assemble(NavTemplate(), input));
+        Assert.Contains(ex.Problems, p => p.Contains("{{THEME_COLOR}}") && p.Contains("tomato"));
+    }
 }

@@ -39,6 +39,17 @@ test.describe("static template — render-only acceptance", () => {
     expect(body).not.toMatch(/\{\{[^}]+\}\}/); // every content slot was filled at assembly
   });
 
+  // D11: W5B shipped nav anchors pointing at sections that don't exist (#exam-prep, #courses…) — the
+  // menu silently did nothing. Every in-page anchor must resolve to a real element id.
+  test("every in-page anchor resolves to an existing element", async ({ page }) => {
+    const broken = await page.evaluate(() =>
+      [...document.querySelectorAll('a[href^="#"]')]
+        .map((a) => a.getAttribute("href")!)
+        .filter((h) => h.length > 1 && !document.getElementById(h.slice(1)))
+    );
+    expect(broken, `anchors without a target id: ${broken.join(", ")}`).toEqual([]);
+  });
+
   // Q1(d): an <img> can render as an element while its src is broken — 10 broken images once shipped
   // green. Assert every image actually LOADED (evaluate, never a HEAD probe: picsum 405s HEAD).
   test("every image on the page actually loads", async ({ page }) => {
