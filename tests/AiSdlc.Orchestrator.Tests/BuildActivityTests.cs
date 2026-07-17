@@ -114,8 +114,9 @@ public sealed class BuildActivityTests
             "success", 200, isStatic: true, pageHtml: "<title>TaskFlow</title><h1>TaskFlow</h1>", appName: "TaskFlow");
 
         Assert.Equal("passed", v.Outcome);
-        Assert.Equal(5, v.Checks.Count);
+        Assert.Equal(6, v.Checks.Count); // D8 added no-escaped-markup
         Assert.Equal("pass", Assert.Single(v.Checks, c => c.CheckId == "app-name-echo").Status);
+        Assert.Equal("pass", Assert.Single(v.Checks, c => c.CheckId == "no-escaped-markup").Status);
     }
 
     private static CheckRunResult Check(string status, string conclusion) =>

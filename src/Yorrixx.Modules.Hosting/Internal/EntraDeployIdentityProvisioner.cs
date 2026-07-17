@@ -196,7 +196,9 @@ internal sealed class EntraDeployIdentityProvisioner : IUserAppDeployIdentityPro
             ["@odata.id"] = $"{GraphV1}/directoryObjects/{apiSp.Id}",
         }, JsonOpts);
 
-        const int maxAttempts = 6;
+        // ~60 s window: the D7 live race fired ~72 s AFTER object creation and cleared seconds later,
+        // so propagation lag well beyond the old 30 s budget is real.
+        const int maxAttempts = 12;
         var delay = TimeSpan.FromSeconds(5);
         HttpResponseMessage? resp = null;
         string bodyText = "";
@@ -224,16 +226,23 @@ internal sealed class EntraDeployIdentityProvisioner : IUserAppDeployIdentityPro
                 return;
             }
 
-            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound && attempt < maxAttempts)
+            // D7: Graph's propagation race surfaces as 404 (object not yet on this replica) AND as
+            // 403 Authorization_RequestDenied (the authorization data for the just-created object
+            // hasn't replicated — observed live 2026-07-16 21:49:32Z, ~72s post-creation, req-id
+            // 0a4c19e0…; the identical call succeeded seconds later on re-kick). Retry both within
+            // the window; a genuine permission problem still throws after exhaustion.
+            var transient403 = resp.StatusCode == System.Net.HttpStatusCode.Forbidden
+                && bodyText.Contains("Authorization_RequestDenied", StringComparison.OrdinalIgnoreCase);
+            if ((resp.StatusCode == System.Net.HttpStatusCode.NotFound || transient403) && attempt < maxAttempts)
             {
                 _logger.LogInformation(
-                    "Graph add-owner 404 on application {AppObjectId} (attempt {Attempt}/{Max}) — propagation race, retrying in {DelaySec}s",
-                    appObjectId, attempt, maxAttempts, delay.TotalSeconds);
+                    "Graph add-owner {Status} on application {AppObjectId} (attempt {Attempt}/{Max}) — propagation race, retrying in {DelaySec}s",
+                    (int)resp.StatusCode, appObjectId, attempt, maxAttempts, delay.TotalSeconds);
                 await Task.Delay(delay, ct);
                 continue;
             }
 
-            // Non-retryable status, or final 404 after exhausting attempts.
+            // Non-retryable status, or exhausted attempts.
             break;
         }
 

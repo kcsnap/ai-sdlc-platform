@@ -593,6 +593,7 @@ public sealed class AgentActivityFunctions
         var allowed = changes.Where(c =>
             !IsProtectedPath(c.Path) &&
             !ContainsRedactionEcho(c) &&
+            !Builds.GeneratedHtmlLint.IsRejectedGeneratedHtml(c) && // D8: tag-soup HTML never commits
             !IsRejectedAcceptanceSpec(c, existingAcceptanceSpec, isRepair: true))
             .ToList();
 

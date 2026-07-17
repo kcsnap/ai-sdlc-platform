@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using AiSdlc.Agents;
+using AiSdlc.Orchestrator.Builds;
 using AiSdlc.GitHub;
 using AiSdlc.GitHub.Webhooks;
 using AiSdlc.RepoIndex;
@@ -469,6 +470,7 @@ public static class AiSdlcWorkflowOrchestrator
                 // wrong form endpoint) is rejected — the stubs stay, e2e fails, and the repair re-authors.
                 .Where(f => !AgentActivityFunctions.IsRejectedAcceptanceSpec(f, existingAcceptanceSpec: null, isRepair: false))
                 .Where(f => !AgentActivityFunctions.ContainsRedactionEcho(f)) // never commit echoed redaction masks
+                .Where(f => !GeneratedHtmlLint.IsRejectedGeneratedHtml(f))    // D8: no tag-soup HTML reaches the repo
                 .ToList();
 
             // Any repair run — resume (open PR), in-run CI, OR a reopened-issue verification
@@ -651,6 +653,7 @@ public static class AiSdlcWorkflowOrchestrator
                     var fixedChanges = CodeChangeParser.Parse(fixContent)
                         .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path))
                         .Where(f => !AgentActivityFunctions.ContainsRedactionEcho(f)) // w1proof0: echoed masks corrupted SVGs
+                        .Where(f => !GeneratedHtmlLint.IsRejectedGeneratedHtml(f))    // D8
                         .ToList();
                     var fixLeaks = EmailLeakGuard.Scan(fixedChanges);
                     if (fixLeaks.Count > 0)
