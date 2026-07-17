@@ -629,13 +629,23 @@ public sealed class AgentActivityFunctions
             if (next >= findingsText.Length || !char.IsLetterOrDigit(findingsText[next]))
                 return true;
         }
-        return false;
+
+        // D10: TypeScript nests the declaring type INSIDE a quoted composite ('Dispatch<SetStateAction<""
+        // | ServiceType>>'), so the open-quote probe misses it. Specific type names (len ≥ 4, exact case)
+        // get a word-boundary match anywhere in the findings — src/types/ServiceType.ts must count as
+        // implicated when 'ServiceType' appears only inside a generic.
+        return stem.Length >= 4 && System.Text.RegularExpressions.Regex.IsMatch(
+            findingsText, $@"\b{System.Text.RegularExpressions.Regex.Escape(stem)}\b");
     }
 
     // D1: "CSxxxx:Symbol" fingerprints for the recurrence check — same signatures across consecutive
-    // repair attempts means call-site patching is not converging.
+    // repair attempts means call-site patching is not converging. D10: LANGUAGE-AGNOSTIC — the original
+    // CS-only pattern meant TypeScript errors (error TS2322: …) produced ZERO signatures, so escalation
+    // structurally could not fire on frontend errors and fresh-w5-booking burned six surgical rounds on
+    // one recurring TS2322. [A-Z]{2,3}\d{3,5} covers CS/TS/and friends (eslint-style codes excluded —
+    // they don't follow the compiler shape).
     private static readonly System.Text.RegularExpressions.Regex CompileErrorSignature =
-        new(@"error\s+(CS\d{4})(?::\s*[^'\r\n]*?'([^'\r\n]+)')?", System.Text.RegularExpressions.RegexOptions.Compiled);
+        new(@"error\s+([A-Z]{2,3}\d{3,5})(?::\s*[^'\r\n]*?'([^'\r\n]+)')?", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     internal static IReadOnlyList<string> RepairErrorSignatures(string? findingsText)
     {
