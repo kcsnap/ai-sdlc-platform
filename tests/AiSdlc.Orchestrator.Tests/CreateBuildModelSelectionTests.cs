@@ -76,6 +76,29 @@ public sealed class CreateBuildModelSelectionTests
         Assert.Equal("claude-opus-4-8", request!.Model); // normalized onto the flat field
     }
 
+    // SEQ-177-AMEND wire pins: the settled canonical form is the "models" OBJECT. Explicit-null
+    // object and explicit-null phases are both legal no-ops (their client sends a valid object or none).
+    [Theory]
+    [InlineData("\"models\": null,")]
+    [InlineData("\"models\": { \"default\": null, \"phases\": null },")]
+    public void ParseAndValidate_null_models_and_null_members_mean_default_behavior(string extra)
+    {
+        var (request, error) = CreateBuildFunction.ParseAndValidate(Body(extra));
+
+        Assert.Null(error);
+        Assert.Null(request!.Model);
+    }
+
+    [Fact]
+    public void ParseAndValidate_models_default_with_null_phases_uses_the_default()
+    {
+        var (request, error) = CreateBuildFunction.ParseAndValidate(Body(
+            "\"models\": { \"default\": \"claude-fable-5\", \"phases\": null },"));
+
+        Assert.Null(error);
+        Assert.Equal("claude-fable-5", request!.Model);
+    }
+
     [Fact]
     public void ParseAndValidate_rejects_conflicting_model_and_models_default()
     {
