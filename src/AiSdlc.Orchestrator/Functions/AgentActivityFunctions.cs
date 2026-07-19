@@ -927,6 +927,16 @@ public sealed class AgentActivityFunctions
         return new CostScope(appId, iteration);
     }
 
+    // F9: the requested model from agent metadata — JsonElement-safe (Durable checkpointing turns
+    // metadata strings into JsonElement, same as the appId case).
+    internal static string? RequestedModel(IReadOnlyDictionary<string, object> metadata)
+    {
+        if (!metadata.TryGetValue("requestedModel", out var raw)) return null;
+        var value = raw as string
+            ?? (raw is System.Text.Json.JsonElement je && je.ValueKind == System.Text.Json.JsonValueKind.String ? je.GetString() : null);
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
     internal static string ExtractReopenFindings(IReadOnlyList<IssueComment> comments)
     {
         const int MaxChars = 20000;
@@ -1150,6 +1160,8 @@ public sealed class AgentActivityFunctions
             // Cost telemetry: scope the upcoming model calls to this app + build iteration so the
             // cost-emitting provider can attribute token usage (best-effort; cleared after the run).
             BuildCostContext.Current = BuildCostScope(context);
+            // F9: the build's requested model (if any) becomes ambient for every provider call.
+            ModelSelectionContext.RequestedModel = RequestedModel(context.Metadata);
             AgentExecutionResult executionResult;
             try
             {
@@ -1157,9 +1169,18 @@ public sealed class AgentActivityFunctions
                     new AgentExecutionRequest { AgentName = agentName, Context = context },
                     cancellationToken);
             }
+            catch (ModelRefusalException refusal)
+            {
+                // F9: a refusal is deterministic for this prompt+model — returning a distinct result
+                // (instead of throwing) keeps Durable's AgentRetryOptions from burning retries on it;
+                // the orchestrator turns "Refused" into a clean build failure.
+                _logger.LogWarning("Model refusal during {Agent}: {Message}", agentName, refusal.Message);
+                return new AgentResult { AgentName = agentName, Status = "Refused", Summary = refusal.Message };
+            }
             finally
             {
                 BuildCostContext.Current = null;
+                ModelSelectionContext.RequestedModel = null;
             }
 
             if (!executionResult.Succeeded || executionResult.Result is null)

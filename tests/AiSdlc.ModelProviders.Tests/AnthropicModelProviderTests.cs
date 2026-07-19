@@ -170,6 +170,66 @@ public sealed class AnthropicModelProviderTests
         Assert.Contains("\"system\":\"You are a helpful assistant.\"", body);
     }
 
+    // ── F9: per-build requested model (TDD red-first) ───────────────────────────
+
+    // The build request's model must win over BOTH the global default and any per-agent env
+    // override — it is the owner's explicit choice for this build.
+    [Fact]
+    public async Task CompleteAsync_UsesAmbientRequestedModel_OverDefaultAndAgentOverride()
+    {
+        var options = Options with
+        {
+            ModelOverridesByAgent = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Code Implementer"] = "claude-opus-4-8"
+            }
+        };
+        var handler  = new CapturingHandler(SuccessBody);
+        var provider = MakeProvider(handler, options);
+
+        ModelSelectionContext.RequestedModel = "claude-fable-5";
+        try
+        {
+            await provider.CompleteAsync(SampleRequest with { AgentName = "Code Implementer" }, CancellationToken.None);
+        }
+        finally { ModelSelectionContext.RequestedModel = null; }
+
+        Assert.Contains("\"model\":\"claude-fable-5\"", handler.LastRequestBody);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_NoRequestedModel_KeepsExistingResolution()
+    {
+        var handler  = new CapturingHandler(SuccessBody);
+        var provider = MakeProvider(handler, Options);
+
+        await provider.CompleteAsync(SampleRequest, CancellationToken.None);
+
+        Assert.Contains("\"model\":\"claude-haiku-4-5-20251001\"", handler.LastRequestBody);
+    }
+
+    // F9 special case: claude-fable-5 safety classifiers can decline with stop_reason "refusal"
+    // (HTTP 200). That must surface as a DISTINCT, non-retryable exception with a clear message —
+    // never a silent empty response or a retry loop.
+    [Fact]
+    public async Task CompleteAsync_RefusalStopReason_ThrowsModelRefusalException()
+    {
+        const string refusalBody = """
+            {"id":"msg_2","type":"message","role":"assistant","model":"claude-fable-5",
+             "stop_reason":"refusal","content":[],
+             "usage":{"input_tokens":10,"output_tokens":0}}
+            """;
+        var handler  = new SequentialHandler([(HttpStatusCode.OK, refusalBody)]);
+        var provider = MakeProvider(handler);
+
+        var ex = await Assert.ThrowsAsync<ModelRefusalException>(() =>
+            provider.CompleteAsync(SampleRequest, CancellationToken.None));
+
+        Assert.Contains("refus", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("claude-fable-5", ex.Message);
+        Assert.Equal(1, handler.CallCount); // no provider-level retry on refusal
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;
