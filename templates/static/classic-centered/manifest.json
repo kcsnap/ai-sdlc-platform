@@ -30,5 +30,17 @@
   },
   "platformTokens": ["YEAR"],
   "deployTokens": ["__CONTACT_EMAIL__"],
-  "dataTestIds": ["app-ready", "hero", "hero-cta", "footer-contact"]
+  "dataTestIds": ["app-ready", "hero", "hero-cta", "footer-contact"],
+  "tokenRules": {
+    "HREF": { "oneOf": ["#main", "#hero", "#features", "#about", "#contact"] },
+    "GOOGLE_FONTS_HREF": { "pattern": "^https://fonts\\.googleapis\\.com/css2\\?" },
+    "THEME_COLOR": { "pattern": "^#[0-9a-fA-F]{6}$" },
+    "BRAND_PRIMARY": { "pattern": "^#[0-9a-fA-F]{6}$" },
+    "BRAND_ACCENT": { "pattern": "^#[0-9a-fA-F]{6}$" },
+    "BRAND_INK": { "pattern": "^#[0-9a-fA-F]{6}$" },
+    "BRAND_SURFACE": { "pattern": "^#[0-9a-fA-F]{6}$" },
+    "BRAND_SURFACE_ALT": { "pattern": "^#[0-9a-fA-F]{6}$" },
+    "BRAND_MUTED": { "pattern": "^#[0-9a-fA-F]{6}$" },
+    "BRAND_INITIAL": { "pattern": "^.{1,4}$" }
+  }
 }

@@ -57,17 +57,29 @@ public sealed class StaticTemplateBuilderAgentTests
         Assert.Contains("<file path=\"index.html\">", result.OutputMarkdown);
     }
 
-    // Builds a JSON payload filling EVERY declared token of the given template (values are placeholders —
-    // the assembler only substitutes, it does not validate content).
+    // Builds a JSON payload filling EVERY declared token of the given template. D11: the assembler now
+    // VALIDATES structural tokens against the manifest's tokenRules, so placeholder values must satisfy
+    // each token's rule (first OneOf entry, or a canned pattern-passing value); free-text tokens stay "x".
     private static string FullSlotJson(StaticTemplateLibrary lib, string templateId)
     {
         var m = lib.Get(templateId)!.Manifest;
-        var brand = m.BrandTokens.ToDictionary(t => t, t => "x");
-        var content = m.ContentTokens.ToDictionary(t => t, t => "x");
+        string ValueFor(string token)
+        {
+            if (!m.TokenRules.TryGetValue(token, out var rule)) return "x";
+            if (rule.OneOf is { Count: > 0 }) return rule.OneOf[0];
+            return (rule.Pattern ?? string.Empty) switch
+            {
+                var p when p.Contains("fonts") => "https://fonts.googleapis.com/css2?family=Lato",
+                var p when p.Contains("0-9a-fA-F") => "#123456",
+                _ => "x",
+            };
+        }
+        var brand = m.BrandTokens.ToDictionary(t => t, ValueFor);
+        var content = m.ContentTokens.ToDictionary(t => t, ValueFor);
         var repeat = m.Repeatables.ToDictionary(
             r => r.Key,
             r => Enumerable.Range(0, r.Value.Min)
-                .Select(_ => r.Value.Tokens.ToDictionary(t => t, t => "x"))
+                .Select(_ => r.Value.Tokens.ToDictionary(t => t, ValueFor))
                 .ToArray());
 
         return JsonSerializer.Serialize(new { templateId, brand, content, repeat });

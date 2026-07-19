@@ -29,6 +29,14 @@ public sealed record TemplateManifest
     public IReadOnlyList<string> DeployTokens { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> DataTestIds { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// D11: validation rules for STRUCTURAL tokens (a rule, not an instance — any token, scalar or
+    /// repeat-item, may declare one). W5B shipped nav anchors pointing at sections that don't exist
+    /// because HREF was free-form: the model invented "#exam-prep"-style targets, nothing validated,
+    /// and the assembler substituted blind. token name → rule.
+    /// </summary>
+    public IReadOnlyDictionary<string, TokenRule> TokenRules { get; init; } = new Dictionary<string, TokenRule>();
+
     private static readonly JsonSerializerOptions Options = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -49,4 +57,15 @@ public sealed record Repeatable
     public int Min { get; init; }
     public int Max { get; init; }
     public IReadOnlyList<string> Tokens { get; init; } = Array.Empty<string>();
+}
+
+/// <summary>
+/// D11: a structural token's validation rule — an allow-list (<see cref="OneOf"/>), a regex
+/// (<see cref="Pattern"/>, anchored by convention), or both (either satisfies). The assembler FAILS
+/// the fill on violation so the existing retry/fallback engages instead of shipping a broken slot.
+/// </summary>
+public sealed record TokenRule
+{
+    public IReadOnlyList<string>? OneOf { get; init; }
+    public string? Pattern { get; init; }
 }

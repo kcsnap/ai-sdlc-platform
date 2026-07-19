@@ -117,6 +117,16 @@ public sealed class StaticTemplateBuilderAgent : IAgent
             sb.AppendLine($"contentTokens: {string.Join(", ", m.ContentTokens)}");
             foreach (var (block, rule) in m.Repeatables)
                 sb.AppendLine($"repeat '{block}' ({rule.Min}-{rule.Max} items, tokens: {string.Join(", ", rule.Tokens)})");
+
+            // D11: surface each structural token's legal values in the prompt (the hint; the assembler's
+            // validation is the net). W5B invented nav anchors (#exam-prep) for sections that don't exist.
+            foreach (var (token, tokenRule) in m.TokenRules)
+            {
+                if (tokenRule.OneOf is { Count: > 0 })
+                    sb.AppendLine($"{token} MUST be one of: {string.Join(", ", tokenRule.OneOf)} — no other values exist in this template.");
+                else if (!string.IsNullOrEmpty(tokenRule.Pattern))
+                    sb.AppendLine($"{token} MUST match: {tokenRule.Pattern}");
+            }
         }
         return sb.ToString();
     }

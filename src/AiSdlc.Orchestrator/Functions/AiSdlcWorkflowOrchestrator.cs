@@ -472,6 +472,9 @@ public static class AiSdlcWorkflowOrchestrator
                 .Where(f => !AgentActivityFunctions.ContainsRedactionEcho(f)) // never commit echoed redaction masks
                 .Where(f => !GeneratedHtmlLint.IsRejectedGeneratedHtml(f))    // D8: no tag-soup HTML reaches the repo
                 .ToList();
+            // D10b: a same-named component at two paths with divergent content splits the build's truth
+            // from the repairer's target — keep one copy at generation time.
+            fileChanges = AgentActivityFunctions.DropDivergentDuplicateComponents(fileChanges);
 
             // Any repair run — resume (open PR), in-run CI, OR a reopened-issue verification
             // repair — must enforce minimality against its findings so a "repair" can't smuggle
@@ -847,6 +850,19 @@ public static class AiSdlcWorkflowOrchestrator
                 var repairedChanges = AgentActivityFunctions.FilterRepairChanges(
                     CodeChangeParser.Parse(repairContent), ciFindingsText, existingAcceptanceSpec: null,
                     escalated: escalateRepair);
+
+                // D10b: rounds that re-emit files byte-identical to the branch burn attempts producing
+                // EMPTY commits (booking: 2 of 6 rounds). Drop no-op files; an all-no-op round exits
+                // honestly through the no-file-changes path below instead of committing nothing.
+                var branchSourceText = await context.CallActivityAsync<string>(
+                    nameof(AgentActivityFunctions.ResolveContextAsync), branchSourceRef);
+                var branchFiles = CodeChangeParser.Parse(branchSourceText)
+                    .ToDictionary(f => f.Path, f => f.Content, StringComparer.Ordinal);
+                repairedChanges = repairedChanges
+                    .Where(c => !branchFiles.TryGetValue(c.Path, out var current)
+                                || !string.Equals(current.TrimEnd(), c.Content.TrimEnd(), StringComparison.Ordinal))
+                    .ToList();
+
                 if (repairedChanges.Count == 0)
                 {
                     await context.CallActivityAsync(
