@@ -108,6 +108,14 @@ public sealed class CreateBuildFunction
             Encoding.UTF8.GetBytes(provided), Encoding.UTF8.GetBytes(configured));
     }
 
+    // F9: models a build may request. Allow-listed BOTH ends (yorrixx validates too) — an unknown id
+    // is a clear 400, never a silent fallback.
+    internal static readonly IReadOnlyList<string> AllowedModels =
+    [
+        "claude-haiku-4-5", "claude-sonnet-4-5", "claude-sonnet-4-6", "claude-sonnet-5",
+        "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-fable-5",
+    ];
+
     internal static (CreateBuildRequest? request, string? error) ParseAndValidate(string body)
     {
         if (string.IsNullOrWhiteSpace(body)) return (null, "empty request body");
@@ -124,6 +132,18 @@ public sealed class CreateBuildFunction
         // The package Charter records are positional: a section absent from the JSON deserializes to NULL
         // (the old hand-mirror defaulted them), so guard Identity before dereferencing.
         if (string.IsNullOrWhiteSpace(req.Charter.Identity?.AppName)) return (null, "charter.Identity.AppName is required");
+
+        // F9 — requested model: flat "model" and/or "models.default" (object form). Both present and
+        // disagreeing is a caller bug → 400. "models.phases" is FUTURE: ignored, never rejected.
+        var flat   = string.IsNullOrWhiteSpace(req.Model) ? null : req.Model;
+        var nested = string.IsNullOrWhiteSpace(req.Models?.Default) ? null : req.Models!.Default;
+        if (flat is not null && nested is not null && !string.Equals(flat, nested, StringComparison.Ordinal))
+            return (null, $"model conflict: 'model' ({flat}) and 'models.default' ({nested}) disagree");
+        var requestedModel = flat ?? nested;
+        if (requestedModel is not null && !AllowedModels.Contains(requestedModel, StringComparer.Ordinal))
+            return (null, $"unknown model '{requestedModel}' — allowed: {string.Join(", ", AllowedModels)}");
+        if (requestedModel is not null)
+            req = req with { Model = requestedModel }; // normalize the object form onto the flat field
 
         return (req, null);
     }

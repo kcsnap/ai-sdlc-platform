@@ -97,6 +97,13 @@ public sealed class AnthropicModelProvider : IModelProvider
         var result = await httpResponse.Content.ReadFromJsonAsync<AnthropicResponse>(JsonOpts, cancellationToken)
             ?? throw new InvalidOperationException("Empty response from Anthropic API.");
 
+        // F9: safety classifiers can decline (HTTP 200, stop_reason "refusal" — e.g. claude-fable-5).
+        // Deterministic for the prompt+model, so it must surface as a distinct non-retryable failure.
+        if (string.Equals(result.StopReason, "refusal", StringComparison.OrdinalIgnoreCase))
+            throw new ModelRefusalException(
+                $"The model ({result.Model}) refused to generate this content (stop_reason=refusal) — " +
+                "the build cannot proceed with this charter/model combination. Try a different model or revise the charter.");
+
         var text = result.Content.FirstOrDefault(c => c.Type == "text")?.Text ?? string.Empty;
 
         return new ModelResponse
@@ -115,13 +122,18 @@ public sealed class AnthropicModelProvider : IModelProvider
         };
     }
 
-    // Per-agent override (e.g. design steps on a stronger model) falls back to the global model.
-    private string ResolveModel(string? agentName) =>
-        agentName is { } name
-        && _options.ModelOverridesByAgent.TryGetValue(name, out var overrideModel)
-        && !string.IsNullOrWhiteSpace(overrideModel)
-            ? overrideModel
-            : _options.ModelName;
+    // F9 precedence: the build request's model (owner's explicit choice, ambient) wins over the
+    // per-agent override (platform tuning), which falls back to the global model.
+    private string ResolveModel(string? agentName)
+    {
+        if (ModelSelectionContext.RequestedModel is { Length: > 0 } requested)
+            return requested;
+        return agentName is { } name
+            && _options.ModelOverridesByAgent.TryGetValue(name, out var overrideModel)
+            && !string.IsNullOrWhiteSpace(overrideModel)
+                ? overrideModel
+                : _options.ModelName;
+    }
 
     // Ephemeral marker placed on the last block of a cacheable prefix; everything up to and
     // including a marked block is cached. Anthropic allows up to four such breakpoints.

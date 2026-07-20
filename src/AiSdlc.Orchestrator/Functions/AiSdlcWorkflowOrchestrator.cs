@@ -439,6 +439,14 @@ public static class AiSdlcWorkflowOrchestrator
                 {
                     implResult = await context.CallActivityAsync<AgentResult>(
                         nameof(AgentActivityFunctions.RunStaticTemplateBuilderAsync), agentContext, AgentRetryOptions);
+                    // F9: a refusal on the template fill would refuse again on the Code Implementer
+                    // fallback — fail cleanly here rather than paying for a second refusal.
+                    if (implResult is { Status: "Refused" })
+                    {
+                        await RecordWorkflowExitAsync(context, agentContext, "Failed",
+                            $"model refusal at Template Fill: {implResult.Summary}");
+                        throw new InvalidOperationException($"Model refusal at Template Fill: {implResult.Summary}");
+                    }
                     templateBuilt = true;
                 }
                 catch (TaskFailedException)
@@ -1111,7 +1119,23 @@ public static class AiSdlcWorkflowOrchestrator
         {
             try
             {
-                return await runStage();
+                var stageResult = await runStage();
+
+                // F9: a model refusal is deterministic for this prompt+model — parking-for-retry or
+                // Durable retries would loop on the same refusal. Fail the build cleanly instead; the
+                // message reaches the owner via the failed status callback (lastError).
+                if (stageResult is AgentResult { Status: "Refused" } refused)
+                {
+                    await context.CallActivityAsync(
+                        nameof(AgentActivityFunctions.PostGitHubCommentAsync),
+                        new PostCommentInput(agentContext.Repository, agentContext.IssueNumber,
+                            $"## AI SDLC — Build Stopped: Model Refusal\n\n{refused.Summary}"));
+                    await RecordWorkflowExitAsync(context, agentContext, "Failed",
+                        $"model refusal at {stageName}: {refused.Summary}");
+                    throw new InvalidOperationException($"Model refusal at {stageName}: {refused.Summary}");
+                }
+
+                return stageResult;
             }
             catch (TaskFailedException ex)
             {

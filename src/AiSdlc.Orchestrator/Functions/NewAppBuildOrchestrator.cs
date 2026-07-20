@@ -179,6 +179,10 @@ public static class NewAppBuildOrchestrator
         // Full appId for cost attribution: Yorrixx keys /apps/{appId}/cost by the 32-char id, and the
         // repo name only carries appId8 — without this, every cost emit 404s (wave-1 "zero cost").
         agentContext.Metadata["appId"] = request.AppId;
+        // F9: the owner's requested generation model rides the agent metadata into every LLM call of
+        // this build (incl. repair rounds — same agentContext). Absent → configured default.
+        if (!string.IsNullOrWhiteSpace(request.Model))
+            agentContext.Metadata["requestedModel"] = request.Model;
 
         WorkflowRun? agentRun;
         try

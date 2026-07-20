@@ -112,6 +112,29 @@ public sealed class CostTelemetryTests
         Assert.All(ids, id => Assert.StartsWith("3e14295b:fix-loop:0:", id)); // readable prefix retained
     }
 
+    // F9: cost entries carry the RESPONDING model verbatim — a non-default requested model must be
+    // visible in the per-entry model field with no attribution change needed.
+    [Fact]
+    public async Task Cost_entry_model_field_carries_a_non_default_model_verbatim()
+    {
+        var handler = new CaptureHandler(HttpStatusCode.OK);
+        var decorator = new CostEmittingModelProvider(
+            new StubProvider(10, 5, 0, 0, "claude-fable-5"),
+            new StubFactory(handler), NullLogger<CostEmittingModelProvider>.Instance,
+            "https://yorrixx.test/", "admin-key");
+
+        BuildCostContext.Current = new CostScope("f9model0-test", 0);
+        try
+        {
+            await decorator.CompleteAsync(
+                new ModelRequest { AgentName = AgentNames.CodeImplementer, TaskType = "CodeImplementation", SystemPrompt = "s", UserPrompt = "x" },
+                CancellationToken.None);
+        }
+        finally { BuildCostContext.Current = null; }
+
+        Assert.Equal("claude-fable-5", JsonDocument.Parse(handler.LastBody).RootElement.GetProperty("model").GetString());
+    }
+
     // Cost net: an LLM call reaching the provider with no attribution scope means an unwired
     // orchestration path — cost is lost, so it must be LOUD, and nothing must be POSTed.
     [Fact]
