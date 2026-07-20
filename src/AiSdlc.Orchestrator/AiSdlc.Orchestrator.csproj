@@ -10,7 +10,7 @@
   </ItemGroup>
   <ItemGroup>
     <!-- D8: pre-commit generated-HTML lint (text-node walk needs a real HTML parser). -->
-    <PackageReference Include="AngleSharp" Version="1.1.2" />
+    <PackageReference Include="AngleSharp" Version="1.5.2" />
     <PackageReference Include="Azure.Identity" Version="1.11.4" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="1.22.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="1.17.4" OutputItemType="Analyzer" />
