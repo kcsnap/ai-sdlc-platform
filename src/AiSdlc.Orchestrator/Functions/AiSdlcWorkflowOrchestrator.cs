@@ -479,6 +479,7 @@ public static class AiSdlcWorkflowOrchestrator
                 .Where(f => !AgentActivityFunctions.IsRejectedAcceptanceSpec(f, existingAcceptanceSpec: null, isRepair: false))
                 .Where(f => !AgentActivityFunctions.ContainsRedactionEcho(f)) // never commit echoed redaction masks
                 .Where(f => !GeneratedHtmlLint.IsRejectedGeneratedHtml(f))    // D8: no tag-soup HTML reaches the repo
+                .Where(f => !GeneratedTsLint.IsRejectedGeneratedTs(f))        // D13: no `${fn}` function-stringify
                 .ToList();
             // D10b: a same-named component at two paths with divergent content splits the build's truth
             // from the repairer's target — keep one copy at generation time.
@@ -665,6 +666,7 @@ public static class AiSdlcWorkflowOrchestrator
                         .Where(f => !AgentActivityFunctions.IsProtectedPath(f.Path))
                         .Where(f => !AgentActivityFunctions.ContainsRedactionEcho(f)) // w1proof0: echoed masks corrupted SVGs
                         .Where(f => !GeneratedHtmlLint.IsRejectedGeneratedHtml(f))    // D8
+                        .Where(f => !GeneratedTsLint.IsRejectedGeneratedTs(f))        // D13
                         .ToList();
                     var fixLeaks = EmailLeakGuard.Scan(fixedChanges);
                     if (fixLeaks.Count > 0)

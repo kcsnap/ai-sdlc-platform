@@ -616,6 +616,7 @@ public sealed class AgentActivityFunctions
             !IsProtectedPath(c.Path) &&
             !ContainsRedactionEcho(c) &&
             !Builds.GeneratedHtmlLint.IsRejectedGeneratedHtml(c) && // D8: tag-soup HTML never commits
+            !Builds.GeneratedTsLint.IsRejectedGeneratedTs(c) &&     // D13: `${fn}` stringify never commits
             !IsRejectedAcceptanceSpec(c, existingAcceptanceSpec, isRepair: true))
             .ToList();
 
