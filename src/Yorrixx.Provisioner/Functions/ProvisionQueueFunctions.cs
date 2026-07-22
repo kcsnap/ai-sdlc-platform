@@ -86,7 +86,9 @@ public sealed class ProvisionQueueFunctions
             // Report failed so the platform never proceeds to deploy on a half-built stack. We do NOT
             // rethrow — matching the prior worker's behaviour (report + move on, no host retry storm).
             _logger.LogError(ex, "provision failed appId={AppId} buildId={BuildId}", spec.AppId, spec.BuildId);
-            var failed = ProvisionMapper.Failed(spec, ex.Message);
+            // D16: raw exception text is a multi-line ARM dump — the owner's error box needs ONE
+            // human-readable line (full diagnostics stay in the log line above).
+            var failed = ProvisionMapper.Failed(spec, Yorrixx.Modules.Hosting.FailureDetail.Sanitize(ex));
             _store.SetResult(spec.BuildId, failed);
             await _callback.PostResultAsync(failed, CancellationToken.None);
         }
