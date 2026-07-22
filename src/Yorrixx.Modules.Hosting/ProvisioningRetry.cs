@@ -35,30 +35,3 @@ public static class ProvisioningRetry
         return null;
     }
 }
-
-/// <summary>
-/// D16: wire-appropriate failure detail. RequestFailedException.Message is a multi-line diagnostic dump
-/// (status line, error code, headers) — the app owner saw an EMPTY red error box because the raw text
-/// never survived to their screen. Callback detail must be one human-readable line, never empty.
-/// </summary>
-public static class FailureDetail
-{
-    private const int MaxLength = 300;
-
-    public static string Sanitize(Exception ex)
-    {
-        // Known Azure conflicts get owner-appropriate text instead of ARM diagnostics.
-        if (ex is RequestFailedException { } rfe && ProvisioningRetry.IsOperationInProgress(rfe))
-            return "Provisioning conflicted with an in-progress Azure operation on the app's storage account; a retry converges once it completes.";
-
-        var firstLine = (ex.Message ?? string.Empty)
-            .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .FirstOrDefault(l => !string.IsNullOrWhiteSpace(l));
-
-        var line = string.IsNullOrWhiteSpace(firstLine)
-            ? $"Provisioning failed ({ex.GetType().Name})."
-            : firstLine!;
-
-        return line.Length <= MaxLength ? line : line[..MaxLength];
-    }
-}

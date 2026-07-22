@@ -811,14 +811,19 @@ internal sealed class HostingService : IHostingService
                 _logger.LogWarning(
                     "storage create hit an in-progress operation name={Name} — polling for its completion",
                     names.StorageAccount);
-                account = await ProvisioningRetry.PollForResourceAsync(
+                var adopted = await ProvisioningRetry.PollForResourceAsync(
                     async token =>
                     {
                         try { return (await coll.GetAsync(names.StorageAccount, cancellationToken: token)).Value; }
                         catch (RequestFailedException g) when (g.Status == 404) { return null; }
                     },
-                    attempts: 24, delay: TimeSpan.FromSeconds(40), ct)   // ≤ ~16 min, matches Retry-After
-                    ?? throw inProgress; // never materialized → surface the original conflict honestly
+                    attempts: 24, delay: TimeSpan.FromSeconds(40), ct);  // ≤ ~16 min, matches Retry-After
+                if (adopted is null)
+                {
+                    // Never materialized → surface the original conflict honestly (stack preserved).
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(inProgress).Throw();
+                }
+                account = adopted!;
                 _logger.LogInformation("storage account adopted after in-progress operation name={Name}", names.StorageAccount);
             }
         }
