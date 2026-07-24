@@ -35,4 +35,31 @@ public sealed class BrokenAnchorFixtureTests
     [InlineData("ramp-w1-florist.html",  new[] { "gallery" })]
     public void Pre_gate_green_pages_also_carry_dead_anchors(string fixture, string[] expected)
         => Assert.Equal(expected.OrderBy(x => x), BrokenAnchors(Fixture(fixture)).OrderBy(x => x));
+    // D17: the HealthyChicken shape — href="#hero" present, hero section carries ONLY data-testid="hero".
+    // Substring matching would "resolve" it; the DOM parse must not.
+    [Fact]
+    public void Dead_anchor_with_only_data_testid_is_flagged()
+    {
+        const string html = """
+            <nav><a href="#hero">Recipes</a><a href="#features">Why</a></nav>
+            <main id="main"><section class="hero" data-testid="hero">h</section>
+            <section id="features">f</section></main>
+            """;
+
+        var violations = AiSdlc.Orchestrator.Builds.GeneratedHtmlLint.Scan(html);
+
+        var v = Assert.Single(violations);
+        Assert.Contains("#hero", v.Excerpt);
+    }
+
+    [Fact]
+    public void Resolving_anchors_and_external_links_are_clean()
+    {
+        const string html = """
+            <nav><a href="#hero">Top</a><a href="https://x.example/#frag">Out</a><a href="#">Noop</a></nav>
+            <section id="hero">h</section>
+            """;
+
+        Assert.Empty(AiSdlc.Orchestrator.Builds.GeneratedHtmlLint.Scan(html));
+    }
 }

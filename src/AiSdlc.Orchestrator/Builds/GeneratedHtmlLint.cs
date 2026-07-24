@@ -46,6 +46,19 @@ public static partial class GeneratedHtmlLint
                 violations.Add(new Violation(text.Substring(start, Math.Min(80, text.Length - start)).Trim()));
             }
         }
+
+        // D17: dead in-page anchors — HealthyChicken shipped nav href="#hero" while the section carried
+        // only data-testid="hero" (substring greps hid it; getElementById never lies). A real DOM parse
+        // makes the check exact: every same-page fragment link must resolve to an element id. Governs the
+        // FALLBACK Code Implementer path too, which TokenRules never see.
+        var ids = document.All.Where(e => !string.IsNullOrEmpty(e.Id)).Select(e => e.Id!)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var a in document.QuerySelectorAll("a[href^='#']"))
+        {
+            var href = a.GetAttribute("href")!;
+            if (href.Length > 1 && !ids.Contains(href[1..]))
+                violations.Add(new Violation($"dead in-page anchor: {href} has no matching id"));
+        }
         return violations;
     }
 
