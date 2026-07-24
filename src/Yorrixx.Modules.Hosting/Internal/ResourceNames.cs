@@ -28,6 +28,11 @@ internal sealed record ResourceNames(string Slug8, string Id8)
 
     public string ManagedIdentity     => $"id-{Slug8}-{Id8}";
     public string AppInsights         => $"appi-{Slug8}-{Id8}";
+
+    // Azure auto-creates this smart-detector alert rule alongside every App
+    // Insights component and does NOT remove it when the component is deleted,
+    // so deprovision has to delete it explicitly.
+    public string FailureAnomaliesAlertRule => $"Failure Anomalies - {AppInsights}";
     public string CosmosContainer     => $"app-{Slug8}-{Id8}";
     public string KvSecretPrefix      => $"app-{Id8}--";
     public string DeployServicePrincipal => $"sp-userapp-{Id8}";
