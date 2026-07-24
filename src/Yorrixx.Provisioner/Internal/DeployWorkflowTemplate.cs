@@ -277,7 +277,58 @@ public static class DeployWorkflowTemplate
         sb.AppendLine("        with:");
         sb.AppendLine($"          app-name: {apiFunctionAppName}");
         sb.AppendLine("          package: api.zip");
+        sb.AppendLine();
+        AppendFullStackRenderSmoke(sb, frontendWebAppName, apiFunctionAppName);
         return sb.ToString();
+    }
+
+    /// D13 render smoke for FULL-STACK apps — runs after BOTH deploys and asserts the deployed frontend
+    /// actually TALKS to its API: the booking app interpolated the apiUrl FUNCTION into its fetch URLs,
+    /// the SPA fallback answered 200 for the garbage path, and every isolation gate (deploy, api-health,
+    /// content, static-style smoke) stayed green. Network capture is the only honest wire check.
+    /// Also keeps the D8 checks (console errors, visible markup soup).
+    private static void AppendFullStackRenderSmoke(StringBuilder sb, string frontendWebAppName, string apiFunctionAppName)
+    {
+        sb.AppendLine("  render-smoke:");
+        sb.AppendLine("    needs: [deploy-frontend, deploy-api]");
+        sb.AppendLine("    runs-on: ubuntu-latest");
+        sb.AppendLine("    steps:");
+        sb.AppendLine("      - name: Render smoke (deployed URL, API-wire assertion)");
+        sb.AppendLine("        run: |");
+        sb.AppendLine($"          SITE_URL=https://{frontendWebAppName}.azurewebsites.net");
+        sb.AppendLine($"          API_ORIGIN=https://{apiFunctionAppName}.azurewebsites.net");
+        sb.AppendLine("          echo \"smoke target: $SITE_URL (api: $API_ORIGIN)\"");
+        sb.AppendLine("          npm init -y >/dev/null 2>&1 && npm i playwright@1 >/dev/null");
+        sb.AppendLine("          npx playwright install --with-deps chromium >/dev/null");
+        sb.AppendLine("          cat > render-smoke.mjs <<'SMOKE'");
+        sb.AppendLine("          import { chromium } from 'playwright';");
+        sb.AppendLine("          const [url, apiOrigin] = process.argv.slice(2);");
+        sb.AppendLine("          const browser = await chromium.launch();");
+        sb.AppendLine("          const page = await browser.newPage();");
+        sb.AppendLine("          const consoleErrors = [];");
+        sb.AppendLine("          page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });");
+        sb.AppendLine("          const apiRequests = [];");
+        sb.AppendLine("          page.on('request', r => { if (r.url().startsWith(apiOrigin)) apiRequests.push(r.url()); });");
+        sb.AppendLine("          let loaded = false;");
+        sb.AppendLine("          for (let i = 0; i < 4 && !loaded; i++) {   // absorb deploy-propagation lag");
+        sb.AppendLine("            try { await page.goto(url, { waitUntil: 'load', timeout: 30000 }); loaded = true; }");
+        sb.AppendLine("            catch { await new Promise(r => setTimeout(r, 10000)); }");
+        sb.AppendLine("          }");
+        sb.AppendLine("          if (!loaded) { console.error(`::error::render smoke: page never loaded (${url})`); process.exit(1); }");
+        sb.AppendLine("          await page.waitForLoadState('networkidle').catch(() => {});");
+        sb.AppendLine("          await new Promise(r => setTimeout(r, 5000));   // late lazy fetches");
+        sb.AppendLine("          const problems = [];");
+        sb.AppendLine("          if (apiRequests.length === 0)");
+        sb.AppendLine("            problems.push(`no frontend request reached the API host (${apiOrigin}) — the frontend is not wired to its API`);");
+        sb.AppendLine("          const text = await page.evaluate(() => document.body.innerText);");
+        sb.AppendLine("          const soup = text.match(/<\\/?[a-z][a-z0-9-]*[\\s>/]|stroke-width=|viewBox=/i);");
+        sb.AppendLine("          if (soup) problems.push(`markup fragment visible as text: \"${soup[0]}\"`);");
+        sb.AppendLine("          for (const e of consoleErrors) problems.push(`console error: ${e}`);");
+        sb.AppendLine("          await browser.close();");
+        sb.AppendLine("          if (problems.length) { for (const p of problems) console.error(`::error::render smoke: ${p}`); process.exit(1); }");
+        sb.AppendLine("          console.log(`render smoke ok (${apiRequests.length} API request(s) observed)`);");
+        sb.AppendLine("          SMOKE");
+        sb.AppendLine("          node render-smoke.mjs \"$SITE_URL\" \"$API_ORIGIN\"");
     }
 
     /// Static-profile render (stack-profiles-static-first): plain HTML/CSS/JS, no
