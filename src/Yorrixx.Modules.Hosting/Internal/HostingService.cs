@@ -797,8 +797,35 @@ internal sealed class HostingService : IHostingService
                 MinimumTlsVersion = StorageMinimumTlsVersion.Tls1_2,
             };
             content.Tags.Add("product", "yorrixx");
-            account = (await coll.CreateOrUpdateAsync(WaitUntil.Completed, names.StorageAccount, content, ct)).Value;
-            _logger.LogInformation("storage account created name={Name}", names.StorageAccount);
+            try
+            {
+                account = (await coll.CreateOrUpdateAsync(WaitUntil.Completed, names.StorageAccount, content, ct)).Value;
+                _logger.LogInformation("storage account created name={Name}", names.StorageAccount);
+            }
+            catch (RequestFailedException inProgress) when (ProvisioningRetry.IsOperationInProgress(inProgress))
+            {
+                // D15 (HealthyChicken): ARM accepted a create for this exact account (ours — the name is
+                // deterministic) that is still running: the SDK's own transient re-PUT, a redelivered
+                // message, or a prior attempt. Wait for it and ADOPT the account; the observed 409
+                // carried Retry-After: 40, and the real operation completed within ~15 minutes.
+                _logger.LogWarning(
+                    "storage create hit an in-progress operation name={Name} — polling for its completion",
+                    names.StorageAccount);
+                var adopted = await ProvisioningRetry.PollForResourceAsync(
+                    async token =>
+                    {
+                        try { return (await coll.GetAsync(names.StorageAccount, cancellationToken: token)).Value; }
+                        catch (RequestFailedException g) when (g.Status == 404) { return null; }
+                    },
+                    attempts: 24, delay: TimeSpan.FromSeconds(40), ct);  // ≤ ~16 min, matches Retry-After
+                if (adopted is null)
+                {
+                    // Never materialized → surface the original conflict honestly (stack preserved).
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(inProgress).Throw();
+                }
+                account = adopted!;
+                _logger.LogInformation("storage account adopted after in-progress operation name={Name}", names.StorageAccount);
+            }
         }
         return account.Id;
     }
